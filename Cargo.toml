@@ -2,7 +2,7 @@
 name = "sanitization"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.79"
+rust-version = "1.90"
 publish = false
 description = "Dependency-free no_std secret memory sanitization with safe defaults and an explicit volatile wipe backend."
 license = "MIT OR Apache-2.0"

@@ -34,7 +34,7 @@ Implemented now:
 | Area | Status |
 | --- | --- |
 | License | `MIT OR Apache-2.0` |
-| MSRV | Rust `1.79.0` |
+| MSRV | Rust `1.90.0` |
 | Default target | `no_std` |
 | Runtime dependencies | zero external crates |
 | Default unsafe policy | `#![forbid(unsafe_code)]` |
@@ -46,6 +46,23 @@ Implemented now:
 
 Read [THREAT_MODEL.md](THREAT_MODEL.md) and [SAFETY.md](SAFETY.md) before
 using this crate for high-assurance secret handling.
+
+## Rust Version Support
+
+The minimum supported Rust version is Rust `1.90.0`. New deployments should
+prefer the latest stable Rust.
+
+Compatibility evidence:
+
+| Rust | Local Evidence |
+| --- | --- |
+| `1.90.0` | full check gate |
+| `1.91.0` | `cargo check --all-features` |
+| `1.92.0` | `cargo check --all-features` |
+| `1.93.0` | `cargo check --all-features` |
+| `1.94.0` | `cargo check --all-features` |
+| `1.95.0` | `cargo check --all-features` |
+| `1.96.0` | `cargo check --all-features` |
 
 ## Install
 
