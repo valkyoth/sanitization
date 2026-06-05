@@ -21,9 +21,11 @@ include = [
     "CONTRIBUTING.md",
     "LICENSE-APACHE",
     "LICENSE-MIT",
+    "rust-toolchain.toml",
     "src/**/*.rs",
     "examples/**/*.rs",
     "scripts/checks.sh",
+    "scripts/ci_install_rust.sh",
 ]
 
 [features]
