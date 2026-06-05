@@ -1182,6 +1182,7 @@ mod tests {
 
         assert!(left.constant_time_eq(&[9, 8, 7, 6]));
         assert!(!left.constant_time_eq(&[9, 8, 7]));
+        assert!(!left.constant_time_eq(&[0, 8, 7, 6]));
         assert!(left.constant_time_eq_secret(&same));
         assert!(!left.constant_time_eq_secret(&different));
     }
@@ -1244,6 +1245,15 @@ mod tests {
 
         assert!(credentials.private_key.constant_time_eq(&[0, 0, 0, 0]));
         assert!(credentials.nonce.constant_time_eq(&[0, 0]));
+
+        {
+            let credentials = DropCredentials {
+                private_key: SecretBytes::from_array([1, 2, 3, 4]),
+                nonce: SecretBytes::from_array([5, 6]),
+            };
+
+            let _ = &credentials;
+        }
     }
 
     #[cfg(feature = "alloc")]
