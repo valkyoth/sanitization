@@ -33,9 +33,9 @@ ordinary buffer must be wiped.
 
 ## Current Status
 
-The crate is pre-release and not published yet. The package name is already set
-to `sanitization`, but `publish = false` remains in `Cargo.toml` until the first
-crates.io release is intentional.
+The crate is published as a release candidate on crates.io. The current
+candidate is intended for downstream integration testing before the stable
+`1.0.0` release.
 
 Implemented now:
 
@@ -89,32 +89,30 @@ Compatibility evidence:
 
 ## Install
 
-After the first release:
-
 ```toml
 [dependencies]
-sanitization = "0.1"
+sanitization = "1.0.0-rc.2"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "0.1", features = ["alloc"] }
+sanitization = { version = "1.0.0-rc.2", features = ["alloc"] }
 ```
 
 For explicit volatile wiping of ordinary buffers:
 
 ```toml
 [dependencies]
-sanitization = { version = "0.1", features = ["unsafe-wipe"] }
+sanitization = { version = "1.0.0-rc.2", features = ["unsafe-wipe"] }
 ```
 
 For heap containers plus volatile wiping:
 
 ```toml
 [dependencies]
-sanitization = { version = "0.1", features = ["alloc", "unsafe-wipe"] }
+sanitization = { version = "1.0.0-rc.2", features = ["alloc", "unsafe-wipe"] }
 ```
 
 ## Features
