@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0-rc
+
+- Release candidate for downstream integration testing.
+- Added dependency-free `secure_sanitize_struct!` and `secure_drop_struct!`
+  macros.
+- Hardened equal-length constant-time comparisons by removing short-input
+  per-index branches.
+- Aligned best-effort and volatile heap clearing to wipe allocation capacity
+  where available.
+- Expanded README examples, Rust version support notes, GitHub CI defaults, and
+  crate packaging metadata.
+
 ## 0.1.0
 
 - Initial unpublished crate layout.
