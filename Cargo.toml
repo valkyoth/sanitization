@@ -1,0 +1,36 @@
+[package]
+name = "sanitization"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.79"
+publish = false
+description = "Dependency-free no_std secret memory sanitization with safe defaults and an explicit volatile wipe backend."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+documentation = "https://docs.rs/sanitization"
+keywords = ["zeroize", "secrets", "security", "no-std", "memory"]
+categories = ["cryptography", "no-std", "memory-management"]
+include = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "SAFETY.md",
+    "SECURITY.md",
+    "THREAT_MODEL.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "src/**/*.rs",
+    "examples/**/*.rs",
+    "scripts/checks.sh",
+]
+
+[features]
+default = []
+alloc = []
+std = ["alloc"]
+unsafe-wipe = []
+
+[lib]
+path = "src/lib.rs"
