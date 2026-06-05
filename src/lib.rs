@@ -177,6 +177,7 @@ pub fn sanitize_bytes_best_effort(bytes: &mut [u8]) {
 #[inline(never)]
 fn sanitize_vec_capacity_best_effort(bytes: &mut Vec<u8>) {
     sanitize_bytes_best_effort(bytes.as_mut_slice());
+    compiler_fence(Ordering::SeqCst);
     for byte in bytes.spare_capacity_mut() {
         byte.write(0);
     }
@@ -202,11 +203,14 @@ impl<const N: usize> SecureSanitize for [u8; N] {
 #[cfg(feature = "alloc")]
 #[inline]
 fn constant_time_eq_slices(left: &[u8], right: &[u8]) -> bool {
-    let mut diff = left.len() ^ right.len();
+    if left.len() != right.len() {
+        return false;
+    }
+
+    let mut diff = 0usize;
     let mut index = 0;
     while index < left.len() {
-        let byte = if index < right.len() { right[index] } else { 0 };
-        diff |= usize::from(left[index] ^ byte);
+        diff |= usize::from(left[index] ^ right[index]);
         index += 1;
     }
     diff == 0
@@ -397,22 +401,27 @@ impl<const N: usize> SecretBytes<N> {
             bytes: &mut temporary,
         };
         let result = inspect(guard.bytes);
+        // Eagerly clear the stack copy for panic=abort safety. The guard still
+        // clears on normal return and unwind paths as defense in depth.
         sanitize_bytes_best_effort(guard.bytes);
         result
     }
 
-    /// Compare against a slice without early exit.
+    /// Compare against a slice without early exit for equal-length inputs.
     ///
-    /// Runtime is fixed by `N`; the provided slice length is treated as public
-    /// metadata. Prefer fixed-size inputs where possible.
+    /// Length mismatch returns immediately because the provided slice length is
+    /// treated as public metadata. Prefer fixed-size inputs where possible.
     #[must_use]
     #[inline]
     pub fn constant_time_eq(&self, other: &[u8]) -> bool {
-        let mut diff = N ^ other.len();
+        if other.len() != N {
+            return false;
+        }
+
+        let mut diff = 0usize;
         let mut index = 0;
         while index < N {
-            let right = if index < other.len() { other[index] } else { 0 };
-            diff |= usize::from(self.load(index) ^ right);
+            diff |= usize::from(self.load(index) ^ other[index]);
             index += 1;
         }
         diff == 0
@@ -659,10 +668,10 @@ impl SecretVec {
         }
     }
 
-    /// Compare against a byte slice without early exit.
+    /// Compare against a byte slice without early exit for equal-length inputs.
     ///
-    /// Runtime is proportional to this secret's current length. The provided
-    /// slice length is treated as public metadata.
+    /// Length mismatch returns immediately because the provided slice length is
+    /// treated as public metadata.
     #[must_use]
     #[inline]
     pub fn constant_time_eq(&self, other: &[u8]) -> bool {
@@ -864,10 +873,10 @@ impl SecretString {
         }
     }
 
-    /// Compare against UTF-8 text without early exit.
+    /// Compare against UTF-8 text without early exit for equal-length inputs.
     ///
-    /// Runtime is proportional to this secret's current byte length. The
-    /// provided string length is treated as public metadata.
+    /// Length mismatch returns immediately because the provided string length
+    /// is treated as public metadata.
     #[must_use]
     #[inline]
     pub fn constant_time_eq(&self, other: &str) -> bool {
@@ -1023,14 +1032,13 @@ pub mod unsafe_wipe {
     /// Clear a `String` using volatile writes, then set its length to zero.
     ///
     /// Zero bytes are valid UTF-8, so the string remains valid during clearing.
+    /// The full allocation capacity is wiped, including spare capacity beyond
+    /// the current string length.
     /// Requires the `alloc` feature in addition to `unsafe-wipe`.
     #[cfg(feature = "alloc")]
     #[inline(never)]
     pub fn volatile_sanitize_string(text: &mut String) {
-        // SAFETY: The bytes are overwritten with `0`, which is valid UTF-8.
-        // The function does not expose the temporary mutable bytes elsewhere.
-        let bytes = unsafe { text.as_bytes_mut() };
-        volatile_sanitize_bytes(bytes);
+        volatile_wipe_raw(text.as_mut_ptr(), text.capacity());
         text.clear();
     }
 
@@ -1122,8 +1130,9 @@ pub mod unsafe_wipe {
         let mut offset = 0;
         while offset < len {
             // SAFETY: The pointer and length come from a live mutable slice or
-            // owned contiguous buffer. Each computed address is in-bounds for a
-            // single byte write and is never read through this raw pointer.
+            // the full capacity of an owned contiguous allocation. Each
+            // computed address is allocated and writable for a single byte,
+            // including spare capacity, and is never read through this pointer.
             unsafe {
                 ptr::write_volatile(ptr.add(offset), 0);
             }
