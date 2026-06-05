@@ -21,6 +21,9 @@ Invariant:
 - Every computed pointer is in bounds for exactly one byte write.
 - The function never reads through the raw pointer.
 - The caller-facing APIs provide exclusive mutable access while wiping.
+- For `Vec<u8>`, the pointer and length passed to the raw wipe cover the full
+  allocation capacity, not only the initialized length. This writes zero bytes
+  into allocated but possibly uninitialized spare capacity without reading it.
 
 ### `String::as_bytes_mut`
 

@@ -55,6 +55,105 @@ pub trait SecureSanitize {
     fn secure_sanitize(&mut self);
 }
 
+/// Declare a struct and generate [`SecureSanitize`] for all fields.
+///
+/// This is a dependency-free alternative to a derive macro. Each field type
+/// must implement [`SecureSanitize`]. The macro does not implement [`Drop`], so
+/// use this form when the type needs custom drop behavior or is wrapped in
+/// [`Secret`].
+///
+/// ```
+/// use sanitization::{secure_sanitize_struct, SecretBytes, SecureSanitize};
+///
+/// secure_sanitize_struct! {
+///     struct Credentials {
+///         key: SecretBytes<32>,
+///         nonce: SecretBytes<12>,
+///     }
+/// }
+///
+/// let mut credentials = Credentials {
+///     key: SecretBytes::from_array([1; 32]),
+///     nonce: SecretBytes::from_array([2; 12]),
+/// };
+///
+/// credentials.secure_sanitize();
+/// ```
+#[macro_export]
+macro_rules! secure_sanitize_struct {
+    (
+        $(#[$attr:meta])*
+        $vis:vis struct $name:ident {
+            $(
+                $(#[$field_attr:meta])*
+                $field_vis:vis $field:ident: $field_ty:ty
+            ),* $(,)?
+        }
+    ) => {
+        $(#[$attr])*
+        $vis struct $name {
+            $(
+                $(#[$field_attr])*
+                $field_vis $field: $field_ty,
+            )*
+        }
+
+        impl $crate::SecureSanitize for $name {
+            #[inline]
+            fn secure_sanitize(&mut self) {
+                $(
+                    $crate::SecureSanitize::secure_sanitize(&mut self.$field);
+                )*
+            }
+        }
+    };
+}
+
+/// Declare a struct and generate [`SecureSanitize`] plus [`Drop`].
+///
+/// This macro owns the type's [`Drop`] implementation. Use
+/// [`secure_sanitize_struct!`] instead when custom drop behavior is required.
+///
+/// ```
+/// use sanitization::{secure_drop_struct, SecretBytes};
+///
+/// secure_drop_struct! {
+///     struct Credentials {
+///         key: SecretBytes<32>,
+///         nonce: SecretBytes<12>,
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! secure_drop_struct {
+    (
+        $(#[$attr:meta])*
+        $vis:vis struct $name:ident {
+            $(
+                $(#[$field_attr:meta])*
+                $field_vis:vis $field:ident: $field_ty:ty
+            ),* $(,)?
+        }
+    ) => {
+        $crate::secure_sanitize_struct! {
+            $(#[$attr])*
+            $vis struct $name {
+                $(
+                    $(#[$field_attr])*
+                    $field_vis $field: $field_ty,
+                )*
+            }
+        }
+
+        impl Drop for $name {
+            #[inline]
+            fn drop(&mut self) {
+                $crate::SecureSanitize::secure_sanitize(self);
+            }
+        }
+    };
+}
+
 /// Best-effort clearing for ordinary mutable byte slices.
 ///
 /// This function exists for safe-only integration edges. It cannot provide the
@@ -62,11 +161,27 @@ pub trait SecureSanitize {
 /// volatile slice-write primitive. Prefer [`SecretBytes`] for new secret
 /// storage. If you need volatile clearing for ordinary memory, enable the
 /// `unsafe-wipe` feature and call [`unsafe_wipe::volatile_sanitize_bytes`].
+///
+/// Link-time optimization can make dead-store analysis stronger across crate
+/// boundaries. Treat this path as cleanup hygiene, not as an
+/// optimizer-resistant wipe. Use `unsafe-wipe` for that boundary.
 #[inline(never)]
 pub fn sanitize_bytes_best_effort(bytes: &mut [u8]) {
     compiler_fence(Ordering::SeqCst);
     bytes.fill(0);
     black_box(bytes);
+    compiler_fence(Ordering::SeqCst);
+}
+
+#[cfg(feature = "alloc")]
+#[inline(never)]
+fn sanitize_vec_capacity_best_effort(bytes: &mut Vec<u8>) {
+    sanitize_bytes_best_effort(bytes.as_mut_slice());
+    for byte in bytes.spare_capacity_mut() {
+        byte.write(0);
+    }
+    black_box(bytes.spare_capacity_mut());
+    bytes.clear();
     compiler_fence(Ordering::SeqCst);
 }
 
@@ -82,6 +197,19 @@ impl<const N: usize> SecureSanitize for [u8; N] {
     fn secure_sanitize(&mut self) {
         sanitize_bytes_best_effort(self);
     }
+}
+
+#[cfg(feature = "alloc")]
+#[inline]
+fn constant_time_eq_slices(left: &[u8], right: &[u8]) -> bool {
+    let mut diff = left.len() ^ right.len();
+    let mut index = 0;
+    while index < left.len() {
+        let byte = if index < right.len() { right[index] } else { 0 };
+        diff |= usize::from(left[index] ^ byte);
+        index += 1;
+    }
+    diff == 0
 }
 
 struct TemporaryBytes<'a, const N: usize> {
@@ -103,6 +231,16 @@ impl<const N: usize> Drop for TemporaryBytes<'_, N> {
 /// 8-bit atomics the type remains available through safe [`core::cell::Cell`]
 /// storage, but clearing cannot claim the same optimizer resistance as the
 /// atomic path.
+///
+/// # Platform Notes
+///
+/// On targets with 8-bit atomics (`target_has_atomic = "8"`), this type is
+/// `Sync` and can be shared across threads for read-only access. Mutating and
+/// clearing operations require `&mut self` to prevent partially-cleared
+/// multi-byte observations through shared references. On targets without 8-bit
+/// atomics, this type uses [`core::cell::Cell`] and is `!Sync`, so static or
+/// cross-thread sharing patterns that compile on server targets may not compile
+/// on no-atomic embedded targets.
 ///
 /// The type deliberately does not implement `Clone`, `Copy`, `Deref`,
 /// `AsRef<[u8]>`, `PartialEq`, or secret-printing `Debug`.
@@ -134,7 +272,7 @@ impl<const N: usize> SecretBytes<N> {
     #[must_use]
     #[inline]
     pub fn from_array(mut bytes: [u8; N]) -> Self {
-        let secret = Self::zeroed();
+        let mut secret = Self::zeroed();
         for (index, byte) in bytes.iter().copied().enumerate() {
             secret.store(index, byte);
         }
@@ -149,7 +287,7 @@ impl<const N: usize> SecretBytes<N> {
     #[must_use]
     #[inline]
     pub fn from_fn(mut make_byte: impl FnMut(usize) -> u8) -> Self {
-        let secret = Self::zeroed();
+        let mut secret = Self::zeroed();
         let mut index = 0;
         while index < N {
             secret.store(index, make_byte(index));
@@ -175,7 +313,7 @@ impl<const N: usize> SecretBytes<N> {
 
     /// Replace all bytes from a same-length slice.
     #[inline]
-    pub fn copy_from_slice(&self, source: &[u8]) -> Result<(), LengthError> {
+    pub fn copy_from_slice(&mut self, source: &[u8]) -> Result<(), LengthError> {
         if source.len() != N {
             return Err(LengthError {
                 expected: N,
@@ -220,7 +358,7 @@ impl<const N: usize> SecretBytes<N> {
 
     /// Replace one byte.
     #[inline]
-    pub fn write_byte(&self, index: usize, value: u8) -> Result<(), LengthError> {
+    pub fn write_byte(&mut self, index: usize, value: u8) -> Result<(), LengthError> {
         if index >= N {
             return Err(LengthError {
                 expected: N,
@@ -240,6 +378,12 @@ impl<const N: usize> SecretBytes<N> {
     /// temporary array; Rust's borrow checker enforces that part. The closure can
     /// still intentionally copy bytes elsewhere, so use it only at true
     /// cryptographic or protocol boundaries.
+    ///
+    /// If the closure aborts the process, for example under `panic = "abort"`,
+    /// Rust destructors do not run and the temporary stack copy cannot be
+    /// cleared. On the normal return path the temporary is cleared eagerly
+    /// before this method returns; on unwinding panic paths the RAII guard
+    /// clears it during unwinding.
     #[inline]
     pub fn expose_secret<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
         let mut temporary = [0; N];
@@ -252,7 +396,9 @@ impl<const N: usize> SecretBytes<N> {
         let guard = TemporaryBytes {
             bytes: &mut temporary,
         };
-        inspect(guard.bytes)
+        let result = inspect(guard.bytes);
+        sanitize_bytes_best_effort(guard.bytes);
+        result
     }
 
     /// Compare against a slice without early exit.
@@ -287,7 +433,7 @@ impl<const N: usize> SecretBytes<N> {
 
     /// Clear all bytes now. This is also called from `Drop`.
     #[inline(never)]
-    pub fn secure_clear(&self) {
+    pub fn secure_clear(&mut self) {
         compiler_fence(Ordering::SeqCst);
 
         #[cfg(target_has_atomic = "8")]
@@ -322,7 +468,7 @@ impl<const N: usize> SecretBytes<N> {
     }
 
     #[inline]
-    fn store(&self, index: usize, value: u8) {
+    fn store(&mut self, index: usize, value: u8) {
         #[cfg(target_has_atomic = "8")]
         {
             self.bytes[index].store(value, Ordering::SeqCst);
@@ -504,14 +650,23 @@ impl SecretVec {
     pub fn clear_secret(&mut self) {
         match self.wipe {
             HeapWipeMode::BestEffort => {
-                sanitize_bytes_best_effort(self.inner.as_mut_slice());
-                self.inner.clear();
+                sanitize_vec_capacity_best_effort(&mut self.inner);
             }
             #[cfg(feature = "unsafe-wipe")]
             HeapWipeMode::Volatile => {
                 crate::unsafe_wipe::volatile_sanitize_vec(&mut self.inner);
             }
         }
+    }
+
+    /// Compare against a byte slice without early exit.
+    ///
+    /// Runtime is proportional to this secret's current length. The provided
+    /// slice length is treated as public metadata.
+    #[must_use]
+    #[inline]
+    pub fn constant_time_eq(&self, other: &[u8]) -> bool {
+        constant_time_eq_slices(self.inner.as_slice(), other)
     }
 
     /// Consume the wrapper after first clearing the wrapped bytes.
@@ -700,14 +855,23 @@ impl SecretString {
     pub fn clear_secret(&mut self) {
         match self.wipe {
             HeapWipeMode::BestEffort => {
-                sanitize_bytes_best_effort(self.inner.as_mut_slice());
-                self.inner.clear();
+                sanitize_vec_capacity_best_effort(&mut self.inner);
             }
             #[cfg(feature = "unsafe-wipe")]
             HeapWipeMode::Volatile => {
                 crate::unsafe_wipe::volatile_sanitize_vec(&mut self.inner);
             }
         }
+    }
+
+    /// Compare against UTF-8 text without early exit.
+    ///
+    /// Runtime is proportional to this secret's current byte length. The
+    /// provided string length is treated as public metadata.
+    #[must_use]
+    #[inline]
+    pub fn constant_time_eq(&self, other: &str) -> bool {
+        constant_time_eq_slices(self.inner.as_slice(), other.as_bytes())
     }
 
     /// Consume the wrapper after first clearing the wrapped string.
@@ -852,7 +1016,7 @@ pub mod unsafe_wipe {
     #[cfg(feature = "alloc")]
     #[inline(never)]
     pub fn volatile_sanitize_vec(bytes: &mut Vec<u8>) {
-        volatile_sanitize_bytes(bytes.as_mut_slice());
+        volatile_wipe_raw(bytes.as_mut_ptr(), bytes.capacity());
         bytes.clear();
     }
 
@@ -977,7 +1141,7 @@ mod tests {
 
     #[test]
     fn secret_bytes_round_trip_and_clear() {
-        let secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+        let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
         let mut out = [0; 4];
 
         assert!(secret.copy_to_slice(&mut out).is_ok());
@@ -990,7 +1154,7 @@ mod tests {
 
     #[test]
     fn length_errors_are_explicit() {
-        let secret = SecretBytes::<4>::zeroed();
+        let mut secret = SecretBytes::<4>::zeroed();
 
         assert_eq!(
             secret.copy_from_slice(&[1, 2]).err(),
@@ -1033,12 +1197,54 @@ mod tests {
         secret.into_cleared();
     }
 
+    #[test]
+    fn secure_sanitize_struct_macro_covers_all_fields() {
+        crate::secure_sanitize_struct! {
+            struct MacroCredentials {
+                private_key: SecretBytes<4>,
+                nonce: SecretBytes<2>,
+            }
+        }
+
+        let mut credentials = MacroCredentials {
+            private_key: SecretBytes::from_array([1, 2, 3, 4]),
+            nonce: SecretBytes::from_array([5, 6]),
+        };
+
+        credentials.secure_sanitize();
+
+        assert!(credentials.private_key.constant_time_eq(&[0, 0, 0, 0]));
+        assert!(credentials.nonce.constant_time_eq(&[0, 0]));
+    }
+
+    #[test]
+    fn secure_drop_struct_macro_generates_sanitize_and_drop() {
+        crate::secure_drop_struct! {
+            struct DropCredentials {
+                private_key: SecretBytes<4>,
+                nonce: SecretBytes<2>,
+            }
+        }
+
+        let mut credentials = DropCredentials {
+            private_key: SecretBytes::from_array([1, 2, 3, 4]),
+            nonce: SecretBytes::from_array([5, 6]),
+        };
+
+        credentials.secure_sanitize();
+
+        assert!(credentials.private_key.constant_time_eq(&[0, 0, 0, 0]));
+        assert!(credentials.nonce.constant_time_eq(&[0, 0]));
+    }
+
     #[cfg(feature = "alloc")]
     #[test]
     fn secret_vec_round_trip_and_clear() {
         let mut secret = SecretVec::from_slice(&[1, 2, 3]);
 
         assert_eq!(secret.with_secret(|bytes| bytes.len()), 3);
+        assert!(secret.constant_time_eq(&[1, 2, 3]));
+        assert!(!secret.constant_time_eq(&[1, 2]));
         secret.extend_from_slice(&[4]);
         assert_eq!(secret.with_secret(|bytes| bytes[3]), 4);
 
@@ -1057,6 +1263,8 @@ mod tests {
             secret.try_with_secret(|text| text.ends_with("token")),
             Ok(true)
         );
+        assert!(secret.constant_time_eq("secret-token"));
+        assert!(!secret.constant_time_eq("secret"));
 
         let rendered = std::format!("{secret:?}");
         assert!(rendered.contains("redacted"));

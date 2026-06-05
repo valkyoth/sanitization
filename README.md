@@ -48,6 +48,22 @@ let token = SecretVec::from_slice(b"bearer-token");
 }
 ```
 
+For custom structs, use the dependency-free declarative macros:
+
+```rust
+use sanitization::{secure_drop_struct, SecretBytes};
+
+secure_drop_struct! {
+    struct SessionCredentials {
+        private_key: SecretBytes<32>,
+        nonce: SecretBytes<12>,
+    }
+}
+```
+
+Use `secure_sanitize_struct!` instead when you need to provide your own `Drop`
+implementation.
+
 ## Feature Matrix
 
 - `default`: `no_std`, no external dependencies, no unsafe code.
