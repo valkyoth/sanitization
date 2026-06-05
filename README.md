@@ -1,3 +1,26 @@
+<p align="center">
+  <b>Dependency-free, no_std-first secret memory sanitization for Rust.</b><br>
+  Redacted secret containers, safe defaults, explicit volatile wiping, and no proc-macro dependency.
+</p>
+
+<div align="center">
+  <a href="https://docs.rs/sanitization">Docs.rs</a>
+  |
+  <a href="THREAT_MODEL.md">Threat Model</a>
+  |
+  <a href="SAFETY.md">Safety</a>
+  |
+  <a href="SECURITY.md">Security</a>
+</div>
+
+<br>
+
+<p align="center">
+  <a href="https://github.com/valkyoth/sanitization-rust-crate">
+    <img src="https://raw.githubusercontent.com/valkyoth/sanitization-rust-crate/main/.github/images/sanitization.webp" alt="sanitization Rust crate overview">
+  </a>
+</p>
+
 # sanitization
 
 Dependency-free, `no_std`-first secret memory sanitization for Rust.
