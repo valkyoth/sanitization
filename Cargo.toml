@@ -1,6 +1,6 @@
 [package]
 name = "sanitization"
-version = "0.5.0-rc"
+version = "1.0.0-rc.1"
 edition = "2021"
 rust-version = "1.90"
 description = "Dependency-free no_std secret memory sanitization with safe defaults and an explicit volatile wipe backend."

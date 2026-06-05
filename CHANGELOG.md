@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0-rc
+## 1.0.0-rc.1
 
 - Release candidate for downstream integration testing.
 - Added dependency-free `secure_sanitize_struct!` and `secure_drop_struct!`
