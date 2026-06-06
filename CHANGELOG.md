@@ -19,6 +19,9 @@
 - Added `LockedSecretBytes::try_from_fn`, `GuardedSecretVec::try_from_fn`, and
   `GuardedSecretVec::locked_try_from_fn` for fallible high-assurance direct
   byte generation.
+- Added `GuardedSecretVec::replace_from_fn` and
+  `GuardedSecretVec::try_replace_from_fn` for generated guarded whole-value
+  rotation while preserving lock state.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer

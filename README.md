@@ -342,6 +342,10 @@ assert!(generated.constant_time_eq(b"session-key"));
 token.extend_from_slice(b"-v2").unwrap();
 assert_eq!(token.with_secret(|bytes| bytes.len()), 14);
 token.replace_from_slice(b"rotated-session-key").unwrap();
+token.replace_from_fn(16, |index| index as u8).unwrap();
+token
+    .try_replace_from_fn(16, |index| Ok::<u8, &'static str>(index as u8))
+    .unwrap();
 
 token.clear_secret();
 assert!(token.is_empty());
@@ -353,10 +357,11 @@ region on drop, and then unmaps the allocation. It does not use the Rust global
 allocator for the secret bytes. Use `GuardedSecretVec::from_fn` when bytes can
 be generated directly into the guarded mapping; use `try_from_fn` for fallible
 generators. Use `from_slice` when loading bytes from an existing runtime buffer.
-Use `replace_from_slice` when rotating or replacing the entire guarded value.
-Guarded mappings use a 4 KiB page granule on `x86_64` and a conservative 64 KiB
-granule on `aarch64` to support 4 KiB, 16 KiB, and 64 KiB Linux kernels without
-a libc dependency.
+Use `replace_from_slice`, `replace_from_fn`, or `try_replace_from_fn` when
+rotating or replacing the entire guarded value. Fallible generated replacement
+keeps the old value unchanged on generator error. Guarded mappings use a 4 KiB
+page granule on `x86_64` and a conservative 64 KiB granule on `aarch64` to
+support 4 KiB, 16 KiB, and 64 KiB Linux kernels without a libc dependency.
 
 When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
 can also mark their writable data pages with `MADV_DONTDUMP` and

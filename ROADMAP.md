@@ -107,6 +107,8 @@ Implemented dynamic rotation helpers:
 - `SecretVec::try_replace_from_fn`;
 - `GuardedSecretVec::try_from_fn`;
 - `GuardedSecretVec::locked_try_from_fn`;
+- `GuardedSecretVec::replace_from_fn`;
+- `GuardedSecretVec::try_replace_from_fn`;
 - `SecretString::replace_from_secret_str`.
 
 Avoid before `1.0.0`:
@@ -346,6 +348,9 @@ Current implementation:
   clear partial guarded output on generator errors.
 - `replace_from_slice` supports whole-value rotation while preserving lock
   state and avoiding old-byte copying when a larger guarded mapping is needed.
+- `replace_from_fn` and `try_replace_from_fn` support generated whole-value
+  rotation; the fallible path leaves the old guarded value unchanged on
+  generator errors.
 - The writable data region is volatile-cleared in full before unmapping.
 - Growth moves initialized bytes into a new guarded mapping, then clears and
   unmaps the old one. Locked guarded vectors grow into locked replacement

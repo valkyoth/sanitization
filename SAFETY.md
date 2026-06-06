@@ -181,6 +181,9 @@ Operations:
 - `replace_from_slice` either clears the current writable region before
   in-place replacement, or creates a new guarded mapping with the same lock
   state and clears the old mapping before it is unmapped.
+- Generated replacement creates a new guarded mapping with the same lock state
+  before clearing the old mapping. Fallible generated replacement leaves the
+  old mapping unchanged if setup or generation fails.
 - Growth allocates a new guarded mapping, copies initialized bytes into it,
   volatile-clears the old writable region, swaps metadata, and lets the old
   mapping unlock and unmap during drop. Locked mappings grow into locked
