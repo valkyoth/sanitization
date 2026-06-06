@@ -99,11 +99,14 @@ Keep and harden:
 Implemented dynamic rotation helpers:
 
 - `SecretBytes::try_from_fn`;
+- `LockedSecretBytes::try_from_fn`;
 - `SecretVec::from_fn`;
 - `SecretVec::try_from_fn`;
 - `SecretVec::replace_from_slice`;
 - `SecretVec::replace_from_fn`;
 - `SecretVec::try_replace_from_fn`;
+- `GuardedSecretVec::try_from_fn`;
+- `GuardedSecretVec::locked_try_from_fn`;
 - `SecretString::replace_from_secret_str`.
 
 Avoid before `1.0.0`:
@@ -339,6 +342,8 @@ Current implementation:
 - `from_fn` and `locked_from_fn` can generate dynamic secret bytes directly
   inside guarded storage, reducing ordinary intermediate copies when callers
   can produce bytes by index.
+- `try_from_fn` and `locked_try_from_fn` support fallible direct generation and
+  clear partial guarded output on generator errors.
 - `replace_from_slice` supports whole-value rotation while preserving lock
   state and avoiding old-byte copying when a larger guarded mapping is needed.
 - The writable data region is volatile-cleared in full before unmapping.

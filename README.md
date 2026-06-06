@@ -288,8 +288,11 @@ and fork inheritance, then locked with `mlock`.
 use sanitization::LockedSecretBytes;
 
 let mut key = LockedSecretBytes::<32>::from_fn(|_| 7).unwrap();
+let fallible_key =
+    LockedSecretBytes::<32>::try_from_fn(|_| Ok::<u8, &'static str>(7)).unwrap();
 
 assert!(key.constant_time_eq(&[7; 32]));
+assert!(fallible_key.constant_time_eq(&[7; 32]));
 
 key.with_secret(|bytes| {
     assert_eq!(bytes.len(), 32);
@@ -304,9 +307,9 @@ bytes. It creates a private Linux mapping with `mmap`, marks that mapping with
 `MADV_DONTDUMP` and `MADV_DONTFORK`, locks it with `mlock`, volatile-clears the
 full mapping on drop, then calls `munlock` and `munmap`.
 Use `from_fn` when bytes can be generated directly into locked storage. Use
-`from_slice` when loading bytes from an existing runtime buffer. `from_array` is
-still available for fixed arrays and clears its owned input array before
-returning.
+`try_from_fn` for fallible generators such as RNG or KDF APIs. Use `from_slice`
+when loading bytes from an existing runtime buffer. `from_array` is still
+available for fixed arrays and clears its owned input array before returning.
 
 This feature is explicit because OS memory locking has platform limits. It can
 fail due to resource limits or policy. `MADV_DONTDUMP` reduces ordinary Linux
@@ -329,8 +332,13 @@ sanitization = { version = "1.0.0-rc.5", features = ["guard-pages"] }
 use sanitization::GuardedSecretVec;
 
 let mut token = GuardedSecretVec::from_slice(b"session-key").unwrap();
+let generated = GuardedSecretVec::try_from_fn(11, |index| {
+    Ok::<u8, &'static str>(b"session-key"[index])
+})
+.unwrap();
 
 assert!(token.constant_time_eq(b"session-key"));
+assert!(generated.constant_time_eq(b"session-key"));
 token.extend_from_slice(b"-v2").unwrap();
 assert_eq!(token.with_secret(|bytes| bytes.len()), 14);
 token.replace_from_slice(b"rotated-session-key").unwrap();
@@ -343,11 +351,12 @@ assert!(token.is_empty());
 after the writable data region inaccessible, volatile-clears the full writable
 region on drop, and then unmaps the allocation. It does not use the Rust global
 allocator for the secret bytes. Use `GuardedSecretVec::from_fn` when bytes can
-be generated directly into the guarded mapping; use `from_slice` when loading
-bytes from an existing runtime buffer. Use `replace_from_slice` when rotating
-or replacing the entire guarded value. Guarded mappings use a 4 KiB page granule
-on `x86_64` and a conservative 64 KiB granule on `aarch64` to support 4 KiB,
-16 KiB, and 64 KiB Linux kernels without a libc dependency.
+be generated directly into the guarded mapping; use `try_from_fn` for fallible
+generators. Use `from_slice` when loading bytes from an existing runtime buffer.
+Use `replace_from_slice` when rotating or replacing the entire guarded value.
+Guarded mappings use a 4 KiB page granule on `x86_64` and a conservative 64 KiB
+granule on `aarch64` to support 4 KiB, 16 KiB, and 64 KiB Linux kernels without
+a libc dependency.
 
 When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
 can also mark their writable data pages with `MADV_DONTDUMP` and
@@ -373,7 +382,8 @@ exclusion, fork-inheritance exclusion, and locking can fail due to OS resource
 limits or policy, and this does not change the broader memory-lock limits
 described above. `GuardedSecretVec::locked_from_fn` is available for direct byte
 generation after the writable data pages are dump-excluded, fork-excluded, and
-locked.
+locked. Use `locked_try_from_fn` for fallible generation into locked guarded
+storage.
 
 Guard pages are a fault-detection mechanism for crossing outside the mapped
 data pages. They do not catch logical overreads that stay inside the writable

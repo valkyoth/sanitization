@@ -16,6 +16,9 @@
 - Added `SecretBytes::try_from_fn`, `SecretVec::try_from_fn`, and
   `SecretVec::try_replace_from_fn` for fallible direct byte generation with
   partial-output clearing on error.
+- Added `LockedSecretBytes::try_from_fn`, `GuardedSecretVec::try_from_fn`, and
+  `GuardedSecretVec::locked_try_from_fn` for fallible high-assurance direct
+  byte generation.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer
