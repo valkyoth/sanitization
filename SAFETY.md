@@ -169,6 +169,8 @@ Operations:
 - When `memory-lock` is also enabled, locked constructors call
   `madvise(MADV_DONTDUMP)`, `madvise(MADV_DONTFORK)`, and `mlock` on the
   writable data pages before copying secret bytes into them.
+- `from_fn` constructors generate bytes directly into the writable data pages
+  after mapping setup and optional lock policies have succeeded.
 - Growth allocates a new guarded mapping, copies initialized bytes into it,
   volatile-clears the old writable region, swaps metadata, and lets the old
   mapping unlock and unmap during drop. Locked mappings grow into locked

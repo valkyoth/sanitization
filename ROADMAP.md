@@ -321,6 +321,9 @@ Current implementation:
   `locked_from_slice` mark the writable data pages with `MADV_DONTDUMP` and
   `MADV_DONTFORK`, then lock them with `mlock` before secret bytes are copied
   into them.
+- `from_fn` and `locked_from_fn` can generate dynamic secret bytes directly
+  inside guarded storage, reducing ordinary intermediate copies when callers
+  can produce bytes by index.
 - The writable data region is volatile-cleared in full before unmapping.
 - Growth moves initialized bytes into a new guarded mapping, then clears and
   unmaps the old one. Locked guarded vectors grow into locked replacement

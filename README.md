@@ -328,7 +328,9 @@ assert!(token.is_empty());
 `GuardedSecretVec` uses a private Linux mapping, leaves the pages before and
 after the writable data region inaccessible, volatile-clears the full writable
 region on drop, and then unmaps the allocation. It does not use the Rust global
-allocator for the secret bytes.
+allocator for the secret bytes. Use `GuardedSecretVec::from_fn` when bytes can
+be generated directly into the guarded mapping; use `from_slice` when loading
+bytes from an existing runtime buffer.
 
 When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
 can also mark their writable data pages with `MADV_DONTDUMP` and
@@ -352,7 +354,9 @@ Locked guarded mappings preserve the lock state when they grow. Guard pages are
 not dump-excluded or locked because they never contain secret bytes. Core-dump
 exclusion, fork-inheritance exclusion, and locking can fail due to OS resource
 limits or policy, and this does not change the broader memory-lock limits
-described above.
+described above. `GuardedSecretVec::locked_from_fn` is available for direct byte
+generation after the writable data pages are dump-excluded, fork-excluded, and
+locked.
 
 Guard pages are a fault-detection mechanism for crossing outside the mapped
 data pages. They do not catch logical overreads that stay inside the writable

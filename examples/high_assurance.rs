@@ -67,7 +67,7 @@ fn main() {
         not(miri)
     ))]
     {
-        let token = GuardedSecretVec::locked_from_slice(b"session-key").unwrap();
+        let token = GuardedSecretVec::locked_from_fn(11, |index| b"session-key"[index]).unwrap();
         assert!(token.is_memory_locked());
         assert!(token.constant_time_eq(b"session-key"));
     }
