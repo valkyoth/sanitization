@@ -1329,6 +1329,15 @@ mod guard_pages {
             self.len = 0;
         }
 
+        /// Clear the full writable data region with volatile writes, flush the
+        /// cache lines covering that region, and reset initialized length.
+        #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+        #[inline(never)]
+        pub fn clear_secret_and_flush(&mut self) {
+            self.clear_secret();
+            crate::cache_flush::flush_cache_lines(self.as_capacity_slice());
+        }
+
         /// Compare against a byte slice without early exit for equal-length
         /// inputs.
         ///
@@ -1395,6 +1404,14 @@ mod guard_pages {
             // data region between guard pages.
             unsafe { core::slice::from_raw_parts_mut(self.data.as_ptr(), self.data_capacity) }
         }
+
+        #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+        #[inline]
+        fn as_capacity_slice(&self) -> &[u8] {
+            // SAFETY: `data` points to the live writable data region between
+            // guard pages for the duration of `&self`.
+            unsafe { core::slice::from_raw_parts(self.data.as_ptr(), self.data_capacity) }
+        }
     }
 
     impl Drop for GuardedSecretVec {
@@ -1406,6 +1423,14 @@ mod guard_pages {
                 let _ = unlock_mapping(self.data, self.data_capacity);
             }
             let _ = unmap_guarded(self.base, self.map_len);
+        }
+    }
+
+    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    impl crate::cache_flush::CacheFlushSanitize for GuardedSecretVec {
+        #[inline(never)]
+        fn cache_flush_sanitize(&mut self) {
+            self.clear_secret_and_flush();
         }
     }
 
@@ -3262,6 +3287,29 @@ mod tests {
 
         secret.clear_secret();
         assert!(secret.is_empty());
+    }
+
+    #[cfg(all(
+        feature = "guard-pages",
+        feature = "cache-flush",
+        target_os = "linux",
+        target_arch = "x86_64",
+        not(miri)
+    ))]
+    #[test]
+    fn guarded_secret_vec_can_clear_and_flush() {
+        let mut secret = GuardedSecretVec::from_slice(&[1, 2, 3, 4]).unwrap();
+
+        secret.clear_secret_and_flush();
+
+        assert!(secret.is_empty());
+        assert_eq!(secret.with_secret(|bytes| bytes.len()), 0);
+
+        let wrapped = crate::cache_flush::CacheFlushOnDrop::new(
+            GuardedSecretVec::from_slice(&[5, 6, 7, 8]).unwrap(),
+        );
+        assert_eq!(wrapped.with_secret(|secret| secret.len()), 4);
+        wrapped.into_cleared();
     }
 
     #[cfg(all(

@@ -137,6 +137,8 @@ Operation:
   boundaries.
 - The module executes `clflush` for every covered cache line, followed by
   `mfence`.
+- `GuardedSecretVec::clear_secret_and_flush` clears the full writable data
+  region before flushing the cache lines covering that same region.
 - Unsupported targets, Miri, and builds without `cache-flush` do not expose the
   module.
 

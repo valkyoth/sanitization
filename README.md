@@ -500,8 +500,10 @@ assert!(key.constant_time_eq(&[0; 32]));
 
 With `alloc`, `cache_flush_sanitize_vec` and `cache_flush_sanitize_string`
 clear the full allocation capacity before flushing the allocation's cache
-lines. Unsupported targets, Miri, and builds without `cache-flush` do not expose
-the `cache_flush` module.
+lines. With both `guard-pages` and `cache-flush`, `GuardedSecretVec` also
+provides `clear_secret_and_flush` for its full writable data region. Unsupported
+targets, Miri, and builds without `cache-flush` do not expose the `cache_flush`
+module.
 
 ## Assembly Comparison
 

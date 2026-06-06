@@ -247,6 +247,8 @@ Current implementation:
   `clflush` over covered cache lines and `mfence`.
 - `SecretBytes<N>`, `SecretVec`, `SecretString`, and `LockedSecretBytes<N>`
   have explicit clear-and-flush methods when the feature is available.
+- `GuardedSecretVec` also has `clear_secret_and_flush` when both `guard-pages`
+  and x86_64 `cache-flush` are enabled.
 
 Remaining work:
 

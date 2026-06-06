@@ -78,7 +78,8 @@ With the `cache-flush` feature on x86_64, explicit clear-and-flush helpers
 volatile-clear the target storage and then execute `clflush` over the covered
 cache lines. This can evict the addressed lines from CPU caches, but it does not
 prove all historical copies are gone and does not solve general
-microarchitectural side channels.
+microarchitectural side channels. When combined with `guard-pages`,
+`GuardedSecretVec` can explicitly clear and flush its full writable data region.
 
 With the `std` feature, `ExpiringSecretBytes<N>` checks a configured maximum age
 at access time. Expired values are cleared before access is rejected. This is an
