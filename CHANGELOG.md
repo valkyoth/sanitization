@@ -21,6 +21,8 @@
   equal-length byte comparison with portable fallback elsewhere.
 - Added the optional x86_64 `cache-flush` feature for explicit volatile-clear
   plus `clflush`/`mfence` cache-line eviction helpers.
+- Added `std`-only `ExpiringSecretBytes<N>` for fixed-size secret lifetime
+  enforcement.
 - Updated README, safety notes, and threat model for the new clearing model.
 
 ## 1.0.0-rc.4

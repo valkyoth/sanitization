@@ -51,6 +51,7 @@ Implemented now:
 - optional Linux memory locking with `LockedSecretBytes<N>`.
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
+- optional `std` lifetime enforcement with `ExpiringSecretBytes<N>`.
 - explicit volatile helper APIs for existing ordinary buffers.
 - redacted `Debug` for secret-owning wrapper types.
 - clear-on-drop behavior for crate-owned secret containers.
@@ -124,7 +125,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | Feature | Default | Purpose |
 | --- | --- | --- |
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
-| `std` | no | Currently aliases `alloc` for downstream convenience. |
+| `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
 | `memory-lock` | no | Enables Linux `LockedSecretBytes<N>` on `x86_64` and `aarch64`. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
@@ -153,6 +154,34 @@ assert!(key.constant_time_eq(&[
 
 The type intentionally does not implement `Clone`, `Copy`, `Deref`,
 `AsRef<[u8]>`, or secret-printing `Debug`.
+
+## Expiring Secrets
+
+Enable `std` when fixed-size secrets should reject access after a configured
+maximum age:
+
+```toml
+[dependencies]
+sanitization = { version = "1.0.0-rc.5", features = ["std"] }
+```
+
+```rust
+use sanitization::ExpiringSecretBytes;
+use std::time::Duration;
+
+let mut key = ExpiringSecretBytes::<32>::from_array([7; 32], Duration::from_secs(300));
+
+assert_eq!(key.try_constant_time_eq(&[7; 32]), Ok(true));
+
+key.try_expose_secret(|bytes| {
+    assert_eq!(bytes.len(), 32);
+}).unwrap();
+```
+
+There is no background timer. Expiration is checked when a fallible access
+method is called. If the value has expired, the wrapped secret is cleared before
+returning `SecretExpiredError`. Full replacement with `replace_from_slice`
+restarts the lifetime window for the new value.
 
 ## Copying Secrets Into External APIs
 
@@ -419,6 +448,7 @@ targets, Miri, and builds without `asm-compare` use the portable Rust fallback.
 | Use case | Recommended API |
 | --- | --- |
 | Fixed-size key or token | `SecretBytes<N>` |
+| Fixed-size key with access expiry | `ExpiringSecretBytes<N>` with `std` |
 | Fixed-size key that should avoid swap on supported Linux | `LockedSecretBytes<N>` with `memory-lock` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |
 | Secret UTF-8 text | `SecretString` with `alloc` |

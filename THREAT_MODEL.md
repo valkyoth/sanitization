@@ -19,6 +19,8 @@ Rust applications.
   `asm-compare` feature is enabled.
 - Optional x86_64 volatile-clear plus cache-line eviction when the
   `cache-flush` feature is enabled.
+- Optional `std` lifetime enforcement for fixed-size secrets with
+  `ExpiringSecretBytes<N>`.
 
 ## Out of Scope
 
@@ -28,6 +30,8 @@ Rust applications.
   stored inside `LockedSecretBytes<N>`.
 - Preventing disclosure through a debugger, `/proc/<pid>/mem`, ptrace, kernel
   compromise, DMA, malicious firmware, or privileged co-tenants.
+- Revoking external copies after a secret has already been exposed to caller
+  code or third-party libraries.
 - Soundly scrubbing old stack frames, prior Rust move copies, CPU registers,
   unrelated CPU cache lines, SIMD registers, allocator metadata, or third-party
   library copies.
@@ -65,6 +69,11 @@ volatile-clear the target storage and then execute `clflush` over the covered
 cache lines. This can evict the addressed lines from CPU caches, but it does not
 prove all historical copies are gone and does not solve general
 microarchitectural side channels.
+
+With the `std` feature, `ExpiringSecretBytes<N>` checks a configured maximum age
+at access time. Expired values are cleared before access is rejected. This is an
+API-level policy control; it does not revoke bytes that callers copied out
+before expiration and does not run in the background.
 
 `SecretBytes::expose_secret_volatile` makes the volatile temporary-copy cleanup
 explicit at the call site. It clears on normal return and unwinding paths, but

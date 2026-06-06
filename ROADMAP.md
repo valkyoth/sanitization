@@ -260,23 +260,28 @@ Design requirements:
 
 ### 5. Secret Lifetime Enforcement
 
+Status: implemented for fixed-size secrets behind the `std` feature.
+
 Priority: policy feature, likely `std` only.
 
-Some systems need secrets to expire after a fixed time. A future `std` feature
-could track creation time and reject exposure after a configured maximum age.
+Some systems need secrets to expire after a fixed time. The `std` feature now
+provides `ExpiringSecretBytes<N>`, which tracks creation time and rejects
+fallible access after a configured maximum age.
 
-Candidate API shape:
+Implemented API shape:
 
 ```rust
-let key = SecretBytes::<32>::from_array([0; 32]).with_max_age(duration);
+let key = ExpiringSecretBytes::<32>::from_array([0; 32], duration);
 ```
 
 Design constraints:
 
-- keep `no_std` defaults untouched;
-- avoid hidden background work;
-- decide whether expiration clears immediately or only prevents exposure;
-- account for clock behavior and testability.
+- keep `no_std` defaults untouched: implemented behind `std`;
+- avoid hidden background work: expiration is checked only on method calls;
+- decide whether expiration clears immediately or only prevents exposure:
+  expired access clears before returning `SecretExpiredError`;
+- account for clock behavior and testability: uses `std::time::Instant`; review
+  clock assumptions before stable.
 
 ### 6. Guard-Page Heap Allocations
 

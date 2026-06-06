@@ -22,6 +22,8 @@
 //!   `asm-compare` feature.
 //! - x86_64 cache-line eviction is available only through the explicit
 //!   `cache-flush` feature.
+//! - Fixed-size lifetime enforcement is available only through the `std`
+//!   feature and [`ExpiringSecretBytes`].
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -1211,6 +1213,249 @@ impl<const N: usize> fmt::Debug for SecretBytes<N> {
     }
 }
 
+/// Error returned when an expiring secret has exceeded its configured lifetime.
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SecretExpiredError;
+
+#[cfg(feature = "std")]
+impl fmt::Display for SecretExpiredError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("secret has expired")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for SecretExpiredError {}
+
+/// Error returned by [`ExpiringSecretBytes`] operations.
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExpiringSecretError {
+    /// The secret has exceeded its configured lifetime.
+    Expired(SecretExpiredError),
+    /// The caller provided a buffer with the wrong length.
+    Length(LengthError),
+}
+
+#[cfg(feature = "std")]
+impl fmt::Display for ExpiringSecretError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Expired(error) => error.fmt(formatter),
+            Self::Length(error) => write!(
+                formatter,
+                "length mismatch: expected {} bytes, got {} bytes",
+                error.expected, error.actual
+            ),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ExpiringSecretError {}
+
+#[cfg(feature = "std")]
+impl From<SecretExpiredError> for ExpiringSecretError {
+    #[inline]
+    fn from(error: SecretExpiredError) -> Self {
+        Self::Expired(error)
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<LengthError> for ExpiringSecretError {
+    #[inline]
+    fn from(error: LengthError) -> Self {
+        Self::Length(error)
+    }
+}
+
+/// Fixed-size secret bytes with `std` lifetime enforcement.
+///
+/// This type is available with the `std` feature. It wraps [`SecretBytes<N>`],
+/// tracks creation time with [`std::time::Instant`], and rejects exposure after
+/// the configured maximum age. On expiration, fallible read/exposure/comparison
+/// methods clear the wrapped secret before returning [`SecretExpiredError`].
+///
+/// There is no background task. Expiration is checked only when a method is
+/// called.
+#[cfg(feature = "std")]
+pub struct ExpiringSecretBytes<const N: usize> {
+    inner: SecretBytes<N>,
+    created_at: std::time::Instant,
+    max_age: std::time::Duration,
+}
+
+#[cfg(feature = "std")]
+impl<const N: usize> ExpiringSecretBytes<N> {
+    /// Create an all-zero expiring secret.
+    #[must_use]
+    #[inline]
+    pub fn zeroed(max_age: std::time::Duration) -> Self {
+        Self {
+            inner: SecretBytes::zeroed(),
+            created_at: std::time::Instant::now(),
+            max_age,
+        }
+    }
+
+    /// Create an expiring secret from an array, then volatile-clear the input
+    /// array.
+    #[must_use]
+    #[inline]
+    pub fn from_array(bytes: [u8; N], max_age: std::time::Duration) -> Self {
+        Self {
+            inner: SecretBytes::from_array(bytes),
+            created_at: std::time::Instant::now(),
+            max_age,
+        }
+    }
+
+    /// Create an expiring secret by producing each byte directly.
+    #[must_use]
+    #[inline]
+    pub fn from_fn(max_age: std::time::Duration, make_byte: impl FnMut(usize) -> u8) -> Self {
+        Self {
+            inner: SecretBytes::from_fn(make_byte),
+            created_at: std::time::Instant::now(),
+            max_age,
+        }
+    }
+
+    /// Wrap an existing [`SecretBytes<N>`] and start a new lifetime window.
+    #[must_use]
+    #[inline]
+    pub fn from_secret(secret: SecretBytes<N>, max_age: std::time::Duration) -> Self {
+        Self {
+            inner: secret,
+            created_at: std::time::Instant::now(),
+            max_age,
+        }
+    }
+
+    /// Number of bytes stored in this secret.
+    #[must_use]
+    #[inline]
+    pub const fn len(&self) -> usize {
+        N
+    }
+
+    /// Returns true when the secret has zero length.
+    #[must_use]
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        N == 0
+    }
+
+    /// Configured maximum age for the current secret value.
+    #[must_use]
+    #[inline]
+    pub const fn max_age(&self) -> std::time::Duration {
+        self.max_age
+    }
+
+    /// Elapsed lifetime of the current secret value.
+    #[must_use]
+    #[inline]
+    pub fn age(&self) -> std::time::Duration {
+        self.created_at.elapsed()
+    }
+
+    /// Returns true when the current secret value has expired.
+    #[must_use]
+    #[inline]
+    pub fn is_expired(&self) -> bool {
+        self.age() >= self.max_age
+    }
+
+    /// Replace all bytes and restart the lifetime window.
+    ///
+    /// If the previous value has already expired, it is cleared before the new
+    /// value is copied in.
+    #[inline]
+    pub fn replace_from_slice(&mut self, source: &[u8]) -> Result<(), LengthError> {
+        if self.is_expired() {
+            self.inner.secure_clear();
+        }
+
+        self.inner.copy_from_slice(source)?;
+        self.created_at = std::time::Instant::now();
+        Ok(())
+    }
+
+    /// Fill a caller-provided destination with a copy of the secret bytes if
+    /// the secret has not expired.
+    #[inline]
+    pub fn try_copy_to_slice(&mut self, destination: &mut [u8]) -> Result<(), ExpiringSecretError> {
+        self.enforce_live()?;
+        self.inner.copy_to_slice(destination).map_err(Into::into)
+    }
+
+    /// Run a closure with a temporary array copy if the secret has not expired.
+    #[inline]
+    pub fn try_expose_secret<R>(
+        &mut self,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> Result<R, SecretExpiredError> {
+        self.enforce_live()?;
+        Ok(self.inner.expose_secret(inspect))
+    }
+
+    /// Compare against a slice if the secret has not expired.
+    ///
+    /// Length mismatch remains public metadata and returns `Ok(false)`.
+    #[inline]
+    pub fn try_constant_time_eq(&mut self, other: &[u8]) -> Result<bool, SecretExpiredError> {
+        self.enforce_live()?;
+        Ok(self.inner.constant_time_eq(other))
+    }
+
+    /// Clear the wrapped secret immediately.
+    #[inline(never)]
+    pub fn secure_clear(&mut self) {
+        self.inner.secure_clear();
+    }
+
+    #[inline]
+    fn enforce_live(&mut self) -> Result<(), SecretExpiredError> {
+        if self.is_expired() {
+            self.inner.secure_clear();
+            Err(SecretExpiredError)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<const N: usize> Drop for ExpiringSecretBytes<N> {
+    #[inline]
+    fn drop(&mut self) {
+        self.secure_clear();
+    }
+}
+
+#[cfg(feature = "std")]
+impl<const N: usize> SecureSanitize for ExpiringSecretBytes<N> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.secure_clear();
+    }
+}
+
+#[cfg(feature = "std")]
+impl<const N: usize> fmt::Debug for ExpiringSecretBytes<N> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ExpiringSecretBytes")
+            .field("len", &N)
+            .field("max_age", &self.max_age)
+            .field("contents", &"<redacted>")
+            .finish()
+    }
+}
+
 /// Heap-allocated secret bytes with clear-on-drop behavior.
 ///
 /// This type is available with the `alloc` feature. It is intended for
@@ -1826,6 +2071,51 @@ mod tests {
         });
 
         assert_eq!(sum, 10);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn expiring_secret_allows_access_before_expiration() {
+        let mut secret =
+            ExpiringSecretBytes::<4>::from_array([1, 2, 3, 4], std::time::Duration::from_secs(60));
+        let mut out = [0; 4];
+
+        assert!(secret.try_copy_to_slice(&mut out).is_ok());
+        assert_eq!(out, [1, 2, 3, 4]);
+        assert_eq!(
+            secret.try_expose_secret(|bytes| bytes[0].wrapping_add(bytes[3])),
+            Ok(5)
+        );
+        assert_eq!(secret.try_constant_time_eq(&[1, 2, 3, 4]), Ok(true));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn expiring_secret_clears_and_rejects_after_expiration() {
+        let mut secret =
+            ExpiringSecretBytes::<4>::from_array([1, 2, 3, 4], std::time::Duration::ZERO);
+        let mut out = [9; 4];
+
+        assert_eq!(
+            secret.try_expose_secret(|bytes| bytes[0]),
+            Err(SecretExpiredError)
+        );
+        assert_eq!(
+            secret.try_copy_to_slice(&mut out),
+            Err(ExpiringSecretError::Expired(SecretExpiredError))
+        );
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn expiring_secret_replacement_restarts_lifetime() {
+        let mut secret =
+            ExpiringSecretBytes::<4>::from_array([1, 2, 3, 4], std::time::Duration::from_secs(60));
+        let mut out = [0; 4];
+
+        secret.replace_from_slice(&[5, 6, 7, 8]).unwrap();
+        assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+        assert_eq!(out, [5, 6, 7, 8]);
     }
 
     #[test]
