@@ -25,6 +25,8 @@
   enforcement.
 - Added the optional Linux `guard-pages` feature with `GuardedSecretVec` for
   dynamic byte secrets stored between inaccessible pages.
+- Expanded the local check matrix and examples for optional high-assurance
+  features.
 - Updated README, safety notes, and threat model for the new clearing model.
 
 ## 1.0.0-rc.4

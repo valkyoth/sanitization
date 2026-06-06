@@ -1,0 +1,61 @@
+#[cfg(feature = "std")]
+use sanitization::ExpiringSecretBytes;
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+use sanitization::GuardedSecretVec;
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+use sanitization::LockedSecretBytes;
+#[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+use sanitization::{cache_flush::cache_flush_sanitize_bytes, SecretBytes};
+
+fn main() {
+    #[cfg(feature = "std")]
+    {
+        let mut key =
+            ExpiringSecretBytes::<32>::from_array([7; 32], std::time::Duration::from_secs(300));
+        assert_eq!(key.try_constant_time_eq(&[7; 32]), Ok(true));
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    {
+        let mut key = LockedSecretBytes::<32>::from_array([9; 32]).unwrap();
+        assert!(key.constant_time_eq(&[9; 32]));
+        key.secure_clear();
+    }
+
+    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    {
+        let mut scratch = [0xA5; 32];
+        cache_flush_sanitize_bytes(&mut scratch);
+        assert_eq!(scratch, [0; 32]);
+
+        let mut key = SecretBytes::<32>::from_array([1; 32]);
+        key.secure_clear_and_flush();
+        assert!(key.constant_time_eq(&[0; 32]));
+    }
+
+    #[cfg(all(
+        feature = "guard-pages",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    {
+        let mut token = GuardedSecretVec::from_slice(b"session-key").unwrap();
+        token.extend_from_slice(b"-v2").unwrap();
+        assert_eq!(token.with_secret(|bytes| bytes.len()), 14);
+        token.clear_secret();
+    }
+}
