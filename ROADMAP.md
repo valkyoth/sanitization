@@ -121,6 +121,7 @@ Implemented dynamic rotation helpers:
 - `ExpiringSecretBytes::replace_from_array`;
 - `ExpiringSecretBytes::replace_from_fn`;
 - `ExpiringSecretBytes::try_replace_from_fn`;
+- `ExpiringSecretBytes::into_cleared`;
 - `GuardedSecretVec::try_from_fn`;
 - `GuardedSecretVec::locked_try_from_fn`;
 - `GuardedSecretVec::replace_from_fn`;

@@ -203,6 +203,7 @@ key.try_expose_secret_volatile(|bytes| {
 key.replace_from_fn(|index| index as u8);
 key.try_replace_from_fn(|index| Ok::<u8, &'static str>(index as u8))
     .unwrap();
+key.into_cleared();
 ```
 
 There is no background timer. Expiration is checked when a fallible access

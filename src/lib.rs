@@ -2707,6 +2707,15 @@ impl<const N: usize> ExpiringSecretBytes<N> {
         self.inner.secure_clear();
     }
 
+    /// Consume this value after first clearing the wrapped secret.
+    ///
+    /// Drop still runs after this method returns, so the wrapped storage is
+    /// cleared a second time on the normal path.
+    #[inline]
+    pub fn into_cleared(mut self) {
+        self.secure_clear();
+    }
+
     #[inline]
     fn enforce_live(&mut self) -> Result<(), SecretExpiredError> {
         if self.is_expired() {
@@ -3703,6 +3712,8 @@ mod tests {
             Ok(5)
         );
         assert_eq!(secret.try_constant_time_eq(&[1, 2, 3, 4]), Ok(true));
+
+        secret.into_cleared();
     }
 
     #[cfg(feature = "std")]
