@@ -60,6 +60,8 @@
 - Added `Display` for `LengthError` and `std::error::Error::source` chaining
   for wrapper errors when `std` is enabled.
 - Configured docs.rs to build documentation with all crate features enabled.
+- Documented the current `secure_sanitize_struct!` and `secure_drop_struct!`
+  macro syntax limits.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer

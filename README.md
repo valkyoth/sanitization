@@ -501,7 +501,10 @@ credentials.secure_sanitize();
 ```
 
 These macros are declarative `macro_rules!` macros. They do not require `syn`,
-`quote`, `proc-macro2`, or any compile-time code-generation dependency.
+`quote`, `proc-macro2`, or any compile-time code-generation dependency. They
+currently support named-field structs without generics or `where` clauses; for
+generic structs, write the `SecureSanitize` and `Drop` impls manually so bounds
+stay explicit.
 
 ## Generic Secret Wrapper
 

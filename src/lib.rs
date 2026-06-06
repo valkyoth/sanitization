@@ -78,6 +78,10 @@ pub trait SecureSanitize {
 /// use this form when the type needs custom drop behavior or is wrapped in
 /// [`Secret`].
 ///
+/// This macro intentionally supports named-field structs without generics or
+/// `where` clauses. For generic structs, implement [`SecureSanitize`] manually
+/// so the impl generics and bounds stay explicit.
+///
 /// ```
 /// use sanitization::{secure_sanitize_struct, SecretBytes, SecureSanitize};
 ///
@@ -129,6 +133,10 @@ macro_rules! secure_sanitize_struct {
 ///
 /// This macro owns the type's [`Drop`] implementation. Use
 /// [`secure_sanitize_struct!`] instead when custom drop behavior is required.
+///
+/// This macro intentionally supports named-field structs without generics or
+/// `where` clauses. For generic structs, implement [`SecureSanitize`] and
+/// [`Drop`] manually so the impl generics and bounds stay explicit.
 ///
 /// ```
 /// use sanitization::{secure_drop_struct, SecretBytes};
