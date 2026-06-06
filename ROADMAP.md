@@ -144,8 +144,8 @@ Current implementation:
   `memory-lock` feature is enabled.
 - Secret bytes live in a private anonymous `mmap` allocation rather than the
   Rust global allocator.
-- The mapping is locked with `mlock`, volatile-cleared in full on drop, then
-  released with `munlock` and `munmap`.
+- The mapping is marked with `MADV_DONTDUMP`, locked with `mlock`,
+  volatile-cleared in full on drop, then released with `munlock` and `munmap`.
 - Moving the Rust value copies only pointer metadata, not the secret byte
   allocation.
 
@@ -155,7 +155,7 @@ Remaining stance:
 - Extend only after target-specific review.
 - Pair every lock operation with automatic unlock on drop.
 - Document OS limits clearly: resource limits, privileges, page alignment,
-  partial failures, crash dumps, hibernation policy, and platform differences.
+  partial failures, dump policy, hibernation policy, and platform differences.
 
 Implemented API shape:
 
@@ -317,8 +317,8 @@ Current implementation:
   allocator.
 - The leading and trailing pages remain inaccessible.
 - When `memory-lock` is also enabled, `locked_with_capacity` and
-  `locked_from_slice` lock the writable data pages with `mlock` before secret
-  bytes are copied into them.
+  `locked_from_slice` mark the writable data pages with `MADV_DONTDUMP` and
+  lock them with `mlock` before secret bytes are copied into them.
 - The writable data region is volatile-cleared in full before unmapping.
 - Growth moves initialized bytes into a new guarded mapping, then clears and
   unmaps the old one. Locked guarded vectors grow into locked replacement
@@ -328,9 +328,9 @@ Limits:
 
 - guard pages catch crossings outside the mapped data pages, not logical
   overreads that stay inside writable capacity;
-- locked guarded mappings inherit all `mlock` limits: resource caps, OS policy,
-  hibernation, crash dumps, privileged reads, DMA, and external copies remain
-  out of scope;
+- locked guarded mappings inherit all memory-lock limits: resource caps, OS
+  policy, hibernation, nonstandard dump paths, privileged reads, DMA, and
+  external copies remain out of scope;
 - non-Linux support remains future work;
 - exact runtime page-size handling should be reviewed before stable.
 

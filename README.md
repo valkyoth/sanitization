@@ -48,7 +48,8 @@ Implemented now:
 - `Secret<T>` for custom sanitizable values.
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
 - optional `alloc` support with `SecretVec` and `SecretString`.
-- optional Linux memory locking with `LockedSecretBytes<N>`.
+- optional Linux memory locking and core-dump exclusion with
+  `LockedSecretBytes<N>`.
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
 - optional `std` lifetime enforcement with `ExpiringSecretBytes<N>`.
@@ -267,7 +268,8 @@ redact `Debug`.
 ## Memory-Locked Secrets
 
 Enable `memory-lock` on Linux `x86_64` or `aarch64` for fixed-size secrets
-stored in a private anonymous mapping locked with `mlock`.
+stored in a private anonymous mapping excluded from ordinary Linux core dumps
+and locked with `mlock`.
 
 ```rust
 use sanitization::LockedSecretBytes;
@@ -285,14 +287,15 @@ assert!(key.constant_time_eq(&[0; 32]));
 ```
 
 `LockedSecretBytes<N>` does not use the Rust global allocator for the secret
-bytes. It creates a private Linux mapping with `mmap`, locks that mapping with
-`mlock`, volatile-clears the full mapping on drop, then calls `munlock` and
-`munmap`.
+bytes. It creates a private Linux mapping with `mmap`, marks that mapping with
+`MADV_DONTDUMP`, locks it with `mlock`, volatile-clears the full mapping on
+drop, then calls `munlock` and `munmap`.
 
 This feature is explicit because OS memory locking has platform limits. It can
-fail due to resource limits or policy, and it does not protect against crash
-dumps, hibernation, debuggers, privileged process reads, DMA, malicious
-firmware, or copies made before data enters the locked container.
+fail due to resource limits or policy. `MADV_DONTDUMP` reduces ordinary Linux
+core-dump exposure for the mapping, but it does not protect against all crash
+dump mechanisms, hibernation, debuggers, privileged process reads, DMA,
+malicious firmware, or copies made before data enters the locked container.
 
 ## Guarded Heap Secrets
 
@@ -323,7 +326,8 @@ region on drop, and then unmaps the allocation. It does not use the Rust global
 allocator for the secret bytes.
 
 When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
-can also lock their writable data pages with `mlock`:
+can also mark their writable data pages with `MADV_DONTDUMP` and lock those
+pages with `mlock`:
 
 ```toml
 [dependencies]
@@ -340,9 +344,9 @@ assert!(token.constant_time_eq(b"session-key"));
 ```
 
 Locked guarded mappings preserve the lock state when they grow. Guard pages are
-not locked because they never contain secret bytes. Locking can fail due to OS
-resource limits or policy, and it does not change the broader memory-lock
-limits described above.
+not dump-excluded or locked because they never contain secret bytes. Core-dump
+exclusion and locking can fail due to OS resource limits or policy, and this
+does not change the broader memory-lock limits described above.
 
 Guard pages are a fault-detection mechanism for crossing outside the mapped
 data pages. They do not catch logical overreads that stay inside the writable

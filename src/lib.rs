@@ -237,11 +237,14 @@ mod memory_lock {
     const PROT_WRITE: usize = 0x2;
     const MAP_PRIVATE: usize = 0x02;
     const MAP_ANONYMOUS: usize = 0x20;
+    const MADV_DONTDUMP: usize = 16;
 
     #[cfg(target_arch = "x86_64")]
     const SYS_MMAP: usize = 9;
     #[cfg(target_arch = "x86_64")]
     const SYS_MUNMAP: usize = 11;
+    #[cfg(target_arch = "x86_64")]
+    const SYS_MADVISE: usize = 28;
     #[cfg(target_arch = "x86_64")]
     const SYS_MLOCK: usize = 149;
     #[cfg(target_arch = "x86_64")]
@@ -251,6 +254,8 @@ mod memory_lock {
     const SYS_MMAP: usize = 222;
     #[cfg(target_arch = "aarch64")]
     const SYS_MUNMAP: usize = 215;
+    #[cfg(target_arch = "aarch64")]
+    const SYS_MADVISE: usize = 233;
     #[cfg(target_arch = "aarch64")]
     const SYS_MLOCK: usize = 228;
     #[cfg(target_arch = "aarch64")]
@@ -263,6 +268,8 @@ mod memory_lock {
         Length,
         /// Anonymous mapping creation failed.
         Map,
+        /// Core-dump exclusion failed.
+        DontDump,
         /// Page locking failed.
         Lock,
         /// Page unlocking failed.
@@ -299,8 +306,9 @@ mod memory_lock {
     ///
     /// This type is available with the `memory-lock` feature on Linux
     /// `x86_64` and `aarch64`. It allocates a private anonymous mapping with
-    /// `mmap`, locks it with `mlock`, volatile-clears the full mapping on drop,
-    /// then calls `munlock` and `munmap`.
+    /// `mmap`, marks it with `MADV_DONTDUMP`, locks it with `mlock`,
+    /// volatile-clears the full mapping on drop, then calls `munlock` and
+    /// `munmap`.
     ///
     /// The secret bytes are not stored inline in the Rust value. Moving this
     /// type only moves pointer metadata, so ordinary Rust moves do not copy the
@@ -323,6 +331,11 @@ mod memory_lock {
 
             let map_len = rounded_mapping_len(N)?;
             let ptr = map_private(map_len)?;
+
+            if let Err(error) = mark_dontdump(ptr, map_len) {
+                let _ = unmap_private(ptr, map_len);
+                return Err(error);
+            }
 
             if let Err(error) = lock_mapping(ptr, map_len) {
                 let _ = unmap_private(ptr, map_len);
@@ -539,6 +552,15 @@ mod memory_lock {
         }
     }
 
+    fn mark_dontdump(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+        let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_DONTDUMP);
+        if syscall_failed(ret) {
+            Err(syscall_error(MemoryLockOperation::DontDump, ret))
+        } else {
+            Ok(())
+        }
+    }
+
     fn unlock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
         let ret = raw_syscall2(SYS_MUNLOCK, ptr.as_ptr() as usize, len);
         if syscall_failed(ret) {
@@ -560,6 +582,11 @@ mod memory_lock {
     #[cfg(target_arch = "x86_64")]
     fn raw_syscall2(number: usize, arg1: usize, arg2: usize) -> isize {
         raw_syscall6(number, arg1, arg2, 0, 0, 0, 0)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
+        raw_syscall6(number, arg1, arg2, arg3, 0, 0, 0)
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -598,6 +625,11 @@ mod memory_lock {
     #[cfg(target_arch = "aarch64")]
     fn raw_syscall2(number: usize, arg1: usize, arg2: usize) -> isize {
         raw_syscall6(number, arg1, arg2, 0, 0, 0, 0)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
+        raw_syscall6(number, arg1, arg2, arg3, 0, 0, 0)
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -893,6 +925,8 @@ mod guard_pages {
     const PROT_WRITE: usize = 0x2;
     const MAP_PRIVATE: usize = 0x02;
     const MAP_ANONYMOUS: usize = 0x20;
+    #[cfg(feature = "memory-lock")]
+    const MADV_DONTDUMP: usize = 16;
 
     #[cfg(target_arch = "x86_64")]
     const SYS_MMAP: usize = 9;
@@ -900,6 +934,8 @@ mod guard_pages {
     const SYS_MPROTECT: usize = 10;
     #[cfg(target_arch = "x86_64")]
     const SYS_MUNMAP: usize = 11;
+    #[cfg(all(feature = "memory-lock", target_arch = "x86_64"))]
+    const SYS_MADVISE: usize = 28;
     #[cfg(all(feature = "memory-lock", target_arch = "x86_64"))]
     const SYS_MLOCK: usize = 149;
     #[cfg(all(feature = "memory-lock", target_arch = "x86_64"))]
@@ -911,6 +947,8 @@ mod guard_pages {
     const SYS_MPROTECT: usize = 226;
     #[cfg(target_arch = "aarch64")]
     const SYS_MUNMAP: usize = 215;
+    #[cfg(all(feature = "memory-lock", target_arch = "aarch64"))]
+    const SYS_MADVISE: usize = 233;
     #[cfg(all(feature = "memory-lock", target_arch = "aarch64"))]
     const SYS_MLOCK: usize = 228;
     #[cfg(all(feature = "memory-lock", target_arch = "aarch64"))]
@@ -925,6 +963,8 @@ mod guard_pages {
         Map,
         /// Data-page protection update failed.
         Protect,
+        /// Core-dump exclusion failed.
+        DontDump,
         /// Page locking failed.
         Lock,
         /// Page unlocking failed.
@@ -983,11 +1023,12 @@ mod guard_pages {
         }
 
         /// Create an empty guarded secret buffer and lock its writable data
-        /// pages with Linux `mlock`.
+        /// pages with Linux `madvise(MADV_DONTDUMP)` and `mlock`.
         ///
         /// This constructor is available when both `guard-pages` and
         /// `memory-lock` are enabled. Locking can fail due to operating-system
-        /// resource limits or policy. On failure, the mapping is unmapped
+        /// resource limits or policy. Core-dump exclusion can fail if the
+        /// kernel rejects `MADV_DONTDUMP`. On failure, the mapping is unmapped
         /// before the error is returned. Guard pages are not locked because
         /// they never contain secret bytes.
         #[cfg(feature = "memory-lock")]
@@ -1028,6 +1069,11 @@ mod guard_pages {
 
             #[cfg(feature = "memory-lock")]
             if locked {
+                if let Err(error) = mark_dontdump(data, data_capacity) {
+                    let _ = unmap_guarded(base, total_len);
+                    return Err(error);
+                }
+
                 if let Err(error) = lock_mapping(data, data_capacity) {
                     let _ = unmap_guarded(base, total_len);
                     return Err(error);
@@ -1056,8 +1102,8 @@ mod guard_pages {
         /// Create a guarded and memory-locked secret buffer by copying bytes
         /// from a slice.
         ///
-        /// The writable data pages are locked with Linux `mlock` before bytes
-        /// are copied into them.
+        /// The writable data pages are marked with `MADV_DONTDUMP` and locked
+        /// with Linux `mlock` before bytes are copied into them.
         #[cfg(feature = "memory-lock")]
         pub fn locked_from_slice(bytes: &[u8]) -> Result<Self, GuardPageError> {
             let mut secret = Self::locked_with_capacity(bytes.len())?;
@@ -1273,6 +1319,16 @@ mod guard_pages {
         let ret = raw_syscall2(SYS_MLOCK, ptr.as_ptr() as usize, len);
         if syscall_failed(ret) {
             Err(syscall_error(GuardPageOperation::Lock, ret))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "memory-lock")]
+    fn mark_dontdump(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_DONTDUMP);
+        if syscall_failed(ret) {
+            Err(syscall_error(GuardPageOperation::DontDump, ret))
         } else {
             Ok(())
         }
@@ -2996,7 +3052,7 @@ mod tests {
         let mut secret = match GuardedSecretVec::locked_from_slice(&[1, 2, 3]) {
             Ok(secret) => secret,
             Err(GuardPageError {
-                operation: GuardPageOperation::Lock,
+                operation: GuardPageOperation::DontDump | GuardPageOperation::Lock,
                 ..
             }) => return,
             Err(error) => panic!("unexpected guarded lock error: {error:?}"),
