@@ -13,6 +13,9 @@
   copying previous dynamic secrets during growth.
 - Added `SecretVec::from_fn` and `SecretVec::replace_from_fn` for direct
   dynamic byte generation into clear-on-drop storage.
+- Added `SecretBytes::try_from_fn`, `SecretVec::try_from_fn`, and
+  `SecretVec::try_replace_from_fn` for fallible direct byte generation with
+  partial-output clearing on error.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer
