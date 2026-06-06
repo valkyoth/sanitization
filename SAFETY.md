@@ -12,6 +12,8 @@ Unsafe code is allowed only inside narrow `src/lib.rs` modules:
   outside Miri.
 - `cache_flush`, available only with the `cache-flush` feature on x86_64
   outside Miri.
+- `guard_pages`, available only with the `guard-pages` feature on supported
+  Linux targets outside Miri.
 
 Public APIs, including `unsafe_wipe`, are safe wrappers around those internal
 backends.
@@ -143,13 +145,49 @@ Invariant:
   Rust references.
 - `mfence` orders the flush operations before later memory operations.
 
+### Linux guard-page mappings
+
+Location: `guard_pages`
+
+Purpose: provide dynamic byte storage between inaccessible pages without using
+the Rust global allocator for secret bytes.
+
+Operations:
+
+- `mmap(PROT_NONE)` creates one private anonymous mapping containing a leading
+  guard page, writable data pages, and a trailing guard page.
+- `mprotect(PROT_READ | PROT_WRITE)` enables access only for the middle data
+  pages.
+- Raw pointers from the writable middle region are converted into slices for
+  initialized length or full writable capacity.
+- Growth allocates a new guarded mapping, copies initialized bytes into it,
+  volatile-clears the old writable region, swaps metadata, and lets the old
+  mapping unmap during drop.
+- Drop volatile-clears the full writable region before calling `munmap`.
+
+Invariant:
+
+- The module is compiled only for Linux `x86_64` and `aarch64` with the
+  `guard-pages` feature enabled outside Miri.
+- Syscall register assignments follow the Linux syscall ABI for the target
+  architecture.
+- The base mapping pointer is owned by exactly one `GuardedSecretVec`.
+- The writable data pointer is one page after the mapping base.
+- The writable data length is rounded to a whole number of pages.
+- `len <= data_capacity` is preserved before any slice is created.
+- `&mut self` is required for mutation and clearing.
+- Drop ignores `munmap` errors because destructors cannot report failure.
+
 ## Non-Goals
 
 This unsafe boundary intentionally does not implement stack scanning, cache
-flushes for non-x86_64 targets, SIMD clearing, guard pages, or broad platform
-memory policy. Memory locking is explicit, Linux-only, feature-gated, and still
-does not protect against crash dumps, hibernation, privileged reads, DMA, or
-external copies.
+flushes for non-x86_64 targets, SIMD clearing, non-Linux guard pages, or broad
+platform memory policy. Memory locking is explicit, Linux-only, feature-gated,
+and still does not protect against crash dumps, hibernation, privileged reads,
+DMA, or external copies.
 Assembly-backed comparison is x86_64-only and does not make length private.
 Cache-line eviction is explicit, x86_64-only, and does not prove full CPU-cache
 or microarchitectural side-channel secrecy.
+Guard pages are Linux-only, feature-gated, and detect crossings outside the
+writable mapped data pages; they do not catch logical overreads that remain
+inside capacity.

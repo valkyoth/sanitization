@@ -24,6 +24,8 @@
 //!   `cache-flush` feature.
 //! - Fixed-size lifetime enforcement is available only through the `std`
 //!   feature and [`ExpiringSecretBytes`].
+//! - Linux guard-page allocation is available only through the explicit
+//!   `guard-pages` feature on supported architectures.
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -869,6 +871,436 @@ pub mod cache_flush {
         compiler_fence(Ordering::SeqCst);
     }
 }
+
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[allow(unsafe_code)]
+mod guard_pages {
+    use core::{
+        arch::asm,
+        fmt,
+        ptr::NonNull,
+        sync::atomic::{compiler_fence, Ordering},
+    };
+
+    const PAGE_SIZE: usize = 4096;
+    const PROT_NONE: usize = 0x0;
+    const PROT_READ: usize = 0x1;
+    const PROT_WRITE: usize = 0x2;
+    const MAP_PRIVATE: usize = 0x02;
+    const MAP_ANONYMOUS: usize = 0x20;
+
+    #[cfg(target_arch = "x86_64")]
+    const SYS_MMAP: usize = 9;
+    #[cfg(target_arch = "x86_64")]
+    const SYS_MPROTECT: usize = 10;
+    #[cfg(target_arch = "x86_64")]
+    const SYS_MUNMAP: usize = 11;
+
+    #[cfg(target_arch = "aarch64")]
+    const SYS_MMAP: usize = 222;
+    #[cfg(target_arch = "aarch64")]
+    const SYS_MPROTECT: usize = 226;
+    #[cfg(target_arch = "aarch64")]
+    const SYS_MUNMAP: usize = 215;
+
+    /// Linux guard-page operation that failed.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum GuardPageOperation {
+        /// Requested length arithmetic overflowed.
+        Length,
+        /// Anonymous mapping creation failed.
+        Map,
+        /// Data-page protection update failed.
+        Protect,
+        /// Anonymous mapping release failed.
+        Unmap,
+    }
+
+    /// Error returned by guarded secret allocation operations.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct GuardPageError {
+        /// Operation that failed.
+        pub operation: GuardPageOperation,
+        /// Positive Linux errno value when the kernel returned one.
+        ///
+        /// This is `0` for local arithmetic failures before a syscall.
+        pub errno: i32,
+    }
+
+    impl fmt::Display for GuardPageError {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                formatter,
+                "guard page operation {:?} failed with errno {}",
+                self.operation, self.errno
+            )
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for GuardPageError {}
+
+    /// Dynamic secret bytes stored between inaccessible Linux guard pages.
+    ///
+    /// This type is available with the `guard-pages` feature on Linux `x86_64`
+    /// and `aarch64`. Secret bytes live in private anonymous mapped pages. The
+    /// pages immediately before and after the writable data region remain
+    /// `PROT_NONE`, so linear overreads or overwrites past the mapped data
+    /// region fault instead of reaching unrelated memory.
+    ///
+    /// The secret bytes are not allocated with the Rust global allocator.
+    pub struct GuardedSecretVec {
+        base: NonNull<u8>,
+        data: NonNull<u8>,
+        map_len: usize,
+        data_capacity: usize,
+        len: usize,
+    }
+
+    impl GuardedSecretVec {
+        /// Create an empty guarded secret buffer with at least `capacity` bytes
+        /// of writable data space.
+        pub fn with_capacity(capacity: usize) -> Result<Self, GuardPageError> {
+            let data_capacity = rounded_data_len(capacity)?;
+            let total_len = data_capacity
+                .checked_add(PAGE_SIZE)
+                .and_then(|value| value.checked_add(PAGE_SIZE))
+                .ok_or(GuardPageError {
+                    operation: GuardPageOperation::Length,
+                    errno: 0,
+                })?;
+
+            let base = map_guarded(total_len)?;
+            let data_addr =
+                (base.as_ptr() as usize)
+                    .checked_add(PAGE_SIZE)
+                    .ok_or(GuardPageError {
+                        operation: GuardPageOperation::Length,
+                        errno: 0,
+                    })?;
+            let data = NonNull::new(data_addr as *mut u8).ok_or(GuardPageError {
+                operation: GuardPageOperation::Map,
+                errno: 0,
+            })?;
+
+            if let Err(error) = protect_data(data, data_capacity) {
+                let _ = unmap_guarded(base, total_len);
+                return Err(error);
+            }
+
+            Ok(Self {
+                base,
+                data,
+                map_len: total_len,
+                data_capacity,
+                len: 0,
+            })
+        }
+
+        /// Create a guarded secret buffer by copying bytes from a slice.
+        pub fn from_slice(bytes: &[u8]) -> Result<Self, GuardPageError> {
+            let mut secret = Self::with_capacity(bytes.len())?;
+            secret.as_mut_capacity_slice()[..bytes.len()].copy_from_slice(bytes);
+            secret.len = bytes.len();
+            compiler_fence(Ordering::SeqCst);
+            Ok(secret)
+        }
+
+        /// Number of initialized secret bytes.
+        #[must_use]
+        #[inline]
+        pub const fn len(&self) -> usize {
+            self.len
+        }
+
+        /// Returns true when no bytes are held.
+        #[must_use]
+        #[inline]
+        pub const fn is_empty(&self) -> bool {
+            self.len == 0
+        }
+
+        /// Writable data capacity between the guard pages.
+        #[must_use]
+        #[inline]
+        pub const fn capacity(&self) -> usize {
+            self.data_capacity
+        }
+
+        /// Run a closure with read-only access to initialized secret bytes.
+        #[inline]
+        pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8]) -> R) -> R {
+            inspect(self.as_slice())
+        }
+
+        /// Run a closure with mutable access to initialized secret bytes.
+        #[inline]
+        pub fn with_secret_mut<R>(&mut self, edit: impl FnOnce(&mut [u8]) -> R) -> R {
+            edit(self.as_mut_slice())
+        }
+
+        /// Append bytes, growing into a new guarded mapping if needed.
+        pub fn extend_from_slice(&mut self, bytes: &[u8]) -> Result<(), GuardPageError> {
+            let required = self.len.checked_add(bytes.len()).ok_or(GuardPageError {
+                operation: GuardPageOperation::Length,
+                errno: 0,
+            })?;
+
+            if required > self.data_capacity {
+                self.grow_to(required)?;
+            }
+
+            let start = self.len;
+            let end = required;
+            self.as_mut_capacity_slice()[start..end].copy_from_slice(bytes);
+            self.len = required;
+            compiler_fence(Ordering::SeqCst);
+            Ok(())
+        }
+
+        /// Clear the full writable data region and reset initialized length.
+        #[inline(never)]
+        pub fn clear_secret(&mut self) {
+            crate::wipe::volatile_wipe(self.data.as_ptr(), self.data_capacity);
+            self.len = 0;
+        }
+
+        /// Compare against a byte slice without early exit for equal-length
+        /// inputs.
+        ///
+        /// Length mismatch returns immediately because the provided slice length
+        /// is treated as public metadata.
+        #[must_use]
+        #[inline]
+        pub fn constant_time_eq(&self, other: &[u8]) -> bool {
+            crate::constant_time_eq_slices(self.as_slice(), other)
+        }
+
+        fn grow_to(&mut self, required: usize) -> Result<(), GuardPageError> {
+            let next_capacity = self
+                .data_capacity
+                .saturating_mul(2)
+                .max(required)
+                .max(PAGE_SIZE);
+            let mut replacement = Self::with_capacity(next_capacity)?;
+            replacement.as_mut_capacity_slice()[..self.len].copy_from_slice(self.as_slice());
+            replacement.len = self.len;
+
+            self.clear_secret();
+            core::mem::swap(self, &mut replacement);
+            Ok(())
+        }
+
+        #[inline]
+        fn as_slice(&self) -> &[u8] {
+            // SAFETY: `data` points to `data_capacity` writable bytes owned by
+            // this value, and `len <= data_capacity`.
+            unsafe { core::slice::from_raw_parts(self.data.as_ptr(), self.len) }
+        }
+
+        #[inline]
+        fn as_mut_slice(&mut self) -> &mut [u8] {
+            // SAFETY: `&mut self` gives exclusive access and `len <=
+            // data_capacity`.
+            unsafe { core::slice::from_raw_parts_mut(self.data.as_ptr(), self.len) }
+        }
+
+        #[inline]
+        fn as_mut_capacity_slice(&mut self) -> &mut [u8] {
+            // SAFETY: `&mut self` gives exclusive access to the full writable
+            // data region between guard pages.
+            unsafe { core::slice::from_raw_parts_mut(self.data.as_ptr(), self.data_capacity) }
+        }
+    }
+
+    impl Drop for GuardedSecretVec {
+        #[inline]
+        fn drop(&mut self) {
+            self.clear_secret();
+            let _ = unmap_guarded(self.base, self.map_len);
+        }
+    }
+
+    impl crate::SecureSanitize for GuardedSecretVec {
+        #[inline]
+        fn secure_sanitize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    impl fmt::Debug for GuardedSecretVec {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter
+                .debug_struct("GuardedSecretVec")
+                .field("len", &self.len)
+                .field("capacity", &self.data_capacity)
+                .field("contents", &"<redacted>")
+                .finish()
+        }
+    }
+
+    fn rounded_data_len(len: usize) -> Result<usize, GuardPageError> {
+        len.max(1)
+            .checked_add(PAGE_SIZE - 1)
+            .map(|value| value & !(PAGE_SIZE - 1))
+            .ok_or(GuardPageError {
+                operation: GuardPageOperation::Length,
+                errno: 0,
+            })
+    }
+
+    fn syscall_failed(ret: isize) -> bool {
+        (-4095..=-1).contains(&ret)
+    }
+
+    fn syscall_error(operation: GuardPageOperation, ret: isize) -> GuardPageError {
+        GuardPageError {
+            operation,
+            errno: (-ret) as i32,
+        }
+    }
+
+    fn map_guarded(len: usize) -> Result<NonNull<u8>, GuardPageError> {
+        let ret = raw_syscall6(
+            SYS_MMAP,
+            0,
+            len,
+            PROT_NONE,
+            MAP_PRIVATE | MAP_ANONYMOUS,
+            usize::MAX,
+            0,
+        );
+
+        if syscall_failed(ret) {
+            return Err(syscall_error(GuardPageOperation::Map, ret));
+        }
+
+        NonNull::new(ret as *mut u8).ok_or(GuardPageError {
+            operation: GuardPageOperation::Map,
+            errno: 0,
+        })
+    }
+
+    fn protect_data(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        let ret = raw_syscall3(
+            SYS_MPROTECT,
+            ptr.as_ptr() as usize,
+            len,
+            PROT_READ | PROT_WRITE,
+        );
+        if syscall_failed(ret) {
+            Err(syscall_error(GuardPageOperation::Protect, ret))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn unmap_guarded(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        let ret = raw_syscall2(SYS_MUNMAP, ptr.as_ptr() as usize, len);
+        if syscall_failed(ret) {
+            Err(syscall_error(GuardPageOperation::Unmap, ret))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn raw_syscall2(number: usize, arg1: usize, arg2: usize) -> isize {
+        raw_syscall6(number, arg1, arg2, 0, 0, 0, 0)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
+        raw_syscall6(number, arg1, arg2, arg3, 0, 0, 0)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn raw_syscall6(
+        number: usize,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+        arg4: usize,
+        arg5: usize,
+        arg6: usize,
+    ) -> isize {
+        let ret: isize;
+
+        // SAFETY: Registers follow the Linux x86_64 syscall ABI. The syscall
+        // number and arguments are fixed by the caller wrappers above.
+        unsafe {
+            asm!(
+                "syscall",
+                inlateout("rax") number as isize => ret,
+                in("rdi") arg1,
+                in("rsi") arg2,
+                in("rdx") arg3,
+                in("r10") arg4,
+                in("r8") arg5,
+                in("r9") arg6,
+                lateout("rcx") _,
+                lateout("r11") _,
+                options(nostack)
+            );
+        }
+
+        ret
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn raw_syscall2(number: usize, arg1: usize, arg2: usize) -> isize {
+        raw_syscall6(number, arg1, arg2, 0, 0, 0, 0)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
+        raw_syscall6(number, arg1, arg2, arg3, 0, 0, 0)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn raw_syscall6(
+        number: usize,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+        arg4: usize,
+        arg5: usize,
+        arg6: usize,
+    ) -> isize {
+        let ret: isize;
+
+        // SAFETY: Registers follow the Linux aarch64 syscall ABI. The syscall
+        // number and arguments are fixed by the caller wrappers above.
+        unsafe {
+            asm!(
+                "svc 0",
+                inlateout("x0") arg1 as isize => ret,
+                in("x1") arg2,
+                in("x2") arg3,
+                in("x3") arg4,
+                in("x4") arg5,
+                in("x5") arg6,
+                in("x8") number,
+                options(nostack)
+            );
+        }
+
+        ret
+    }
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+pub use guard_pages::{GuardPageError, GuardPageOperation, GuardedSecretVec};
 
 impl SecureSanitize for [u8] {
     #[inline(never)]
@@ -2367,5 +2799,55 @@ mod tests {
 
         assert!(secret.copy_to_slice(&mut out).is_ok());
         assert_eq!(out, [0, 0, 0, 0]);
+    }
+
+    #[cfg(all(
+        feature = "guard-pages",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn guarded_secret_vec_round_trip_grow_and_clear() {
+        let mut secret = GuardedSecretVec::from_slice(&[1, 2, 3]).unwrap();
+
+        assert_eq!(secret.len(), 3);
+        assert!(secret.capacity() >= 3);
+        assert_eq!(secret.with_secret(|bytes| bytes[0]), 1);
+        assert!(secret.constant_time_eq(&[1, 2, 3]));
+        assert!(!secret.constant_time_eq(&[1, 2]));
+
+        secret.with_secret_mut(|bytes| bytes[0] = 9);
+        let original_capacity = secret.capacity();
+        let extra = [4_u8; 5000];
+        secret.extend_from_slice(&extra).unwrap();
+
+        assert!(secret.capacity() > original_capacity);
+        assert_eq!(secret.len(), 5003);
+        assert_eq!(
+            secret.with_secret(|bytes| (bytes[0], bytes[2], bytes[5002])),
+            (9, 3, 4)
+        );
+
+        secret.clear_secret();
+        assert!(secret.is_empty());
+    }
+
+    #[cfg(all(
+        feature = "guard-pages",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn guarded_secret_vec_debug_is_redacted_and_sanitizable() {
+        let mut secret = GuardedSecretVec::from_slice(b"secret").unwrap();
+        let rendered = std::format!("{secret:?}");
+
+        assert!(rendered.contains("redacted"));
+        assert!(!rendered.contains("secret"));
+
+        secret.secure_sanitize();
+        assert!(secret.is_empty());
     }
 }

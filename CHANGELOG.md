@@ -23,6 +23,8 @@
   plus `clflush`/`mfence` cache-line eviction helpers.
 - Added `std`-only `ExpiringSecretBytes<N>` for fixed-size secret lifetime
   enforcement.
+- Added the optional Linux `guard-pages` feature with `GuardedSecretVec` for
+  dynamic byte secrets stored between inaccessible pages.
 - Updated README, safety notes, and threat model for the new clearing model.
 
 ## 1.0.0-rc.4

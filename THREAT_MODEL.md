@@ -21,6 +21,8 @@ Rust applications.
   `cache-flush` feature is enabled.
 - Optional `std` lifetime enforcement for fixed-size secrets with
   `ExpiringSecretBytes<N>`.
+- Optional Linux guard-page storage for dynamic byte secrets with
+  `GuardedSecretVec`.
 
 ## Out of Scope
 
@@ -38,7 +40,7 @@ Rust applications.
 - Clearing temporary stack copies after process abort. Closure helpers clear
   their temporaries on normal return and unwinding paths only; `panic = "abort"`
   and other abort paths skip destructors and post-closure cleanup.
-- Guard pages and non-x86_64 cache-line flushing.
+- Non-Linux guard pages and non-x86_64 cache-line flushing.
 
 ## Design Position
 
@@ -74,6 +76,12 @@ With the `std` feature, `ExpiringSecretBytes<N>` checks a configured maximum age
 at access time. Expired values are cleared before access is rejected. This is an
 API-level policy control; it does not revoke bytes that callers copied out
 before expiration and does not run in the background.
+
+With the `guard-pages` feature on supported Linux targets, `GuardedSecretVec`
+stores dynamic secret bytes between inaccessible pages. This can turn linear
+overreads or overwrites beyond the mapped data pages into faults, but it does
+not catch logical overreads inside the writable capacity and does not protect
+copies made before data enters the guarded container.
 
 `SecretBytes::expose_secret_volatile` makes the volatile temporary-copy cleanup
 explicit at the call site. It clears on normal return and unwinding paths, but

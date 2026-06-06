@@ -52,6 +52,7 @@ Implemented now:
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
 - optional `std` lifetime enforcement with `ExpiringSecretBytes<N>`.
+- optional Linux guard-page dynamic byte storage with `GuardedSecretVec`.
 - explicit volatile helper APIs for existing ordinary buffers.
 - redacted `Debug` for secret-owning wrapper types.
 - clear-on-drop behavior for crate-owned secret containers.
@@ -129,6 +130,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | `memory-lock` | no | Enables Linux `LockedSecretBytes<N>` on `x86_64` and `aarch64`. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
+| `guard-pages` | no | Enables Linux `GuardedSecretVec` on `x86_64` and `aarch64`. |
 | `unsafe-wipe` | no | Compatibility no-op; volatile wiping is default. |
 
 Default builds are dependency-free and `no_std`.
@@ -289,6 +291,39 @@ This feature is explicit because OS memory locking has platform limits. It can
 fail due to resource limits or policy, and it does not protect against crash
 dumps, hibernation, debuggers, privileged process reads, DMA, malicious
 firmware, or copies made before data enters the locked container.
+
+## Guarded Heap Secrets
+
+Enable `guard-pages` on Linux `x86_64` or `aarch64` for dynamic byte secrets
+stored between inaccessible guard pages:
+
+```toml
+[dependencies]
+sanitization = { version = "1.0.0-rc.5", features = ["guard-pages"] }
+```
+
+```rust
+use sanitization::GuardedSecretVec;
+
+let mut token = GuardedSecretVec::from_slice(b"session-key").unwrap();
+
+assert!(token.constant_time_eq(b"session-key"));
+token.extend_from_slice(b"-v2").unwrap();
+assert_eq!(token.with_secret(|bytes| bytes.len()), 14);
+
+token.clear_secret();
+assert!(token.is_empty());
+```
+
+`GuardedSecretVec` uses a private Linux mapping, leaves the pages before and
+after the writable data region inaccessible, volatile-clears the full writable
+region on drop, and then unmaps the allocation. It does not use the Rust global
+allocator for the secret bytes.
+
+Guard pages are a fault-detection mechanism for crossing outside the mapped
+data pages. They do not catch logical overreads that stay inside the writable
+data capacity, and they do not protect external copies made before data enters
+the guarded container.
 
 ## Custom Structs Without Proc Macros
 
@@ -451,6 +486,7 @@ targets, Miri, and builds without `asm-compare` use the portable Rust fallback.
 | Fixed-size key with access expiry | `ExpiringSecretBytes<N>` with `std` |
 | Fixed-size key that should avoid swap on supported Linux | `LockedSecretBytes<N>` with `memory-lock` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |
+| Dynamic bytes with Linux guard pages | `GuardedSecretVec` with `guard-pages` |
 | Secret UTF-8 text | `SecretString` with `alloc` |
 | Custom struct, macro-owned drop | `secure_drop_struct!` |
 | Custom struct, custom drop | `secure_sanitize_struct!` |

@@ -285,15 +285,32 @@ Design constraints:
 
 ### 6. Guard-Page Heap Allocations
 
+Status: implemented for dynamic Linux byte secrets behind the `guard-pages`
+feature.
+
 Priority: complex, post-core.
 
 Guard pages around heap secrets can turn some overreads and overwrites into
 immediate faults. This is potentially valuable for high-assurance builds but is
 platform-specific and allocator-sensitive.
 
-This should be considered only after memory locking and volatile clearing are
-settled. It likely belongs behind an explicit feature or companion crate rather
-than the default API.
+Current implementation:
+
+- `GuardedSecretVec` is available on Linux `x86_64` and `aarch64` when the
+  `guard-pages` feature is enabled.
+- Secret bytes live in a private anonymous mapping rather than the Rust global
+  allocator.
+- The leading and trailing pages remain inaccessible.
+- The writable data region is volatile-cleared in full before unmapping.
+- Growth moves initialized bytes into a new guarded mapping, then clears and
+  unmaps the old one.
+
+Limits:
+
+- guard pages catch crossings outside the mapped data pages, not logical
+  overreads that stay inside writable capacity;
+- non-Linux support remains future work;
+- exact runtime page-size handling should be reviewed before stable.
 
 ## Priority Order
 
