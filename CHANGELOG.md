@@ -62,6 +62,8 @@
 - Configured docs.rs to build documentation with all crate features enabled.
 - Documented the current `secure_sanitize_struct!` and `secure_drop_struct!`
   macro syntax limits.
+- Clarified README unsafe-policy wording for optional feature-gated hardening
+  modules.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer

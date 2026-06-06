@@ -43,7 +43,9 @@ Implemented now:
 
 - `no_std` default build.
 - zero runtime dependencies.
-- one audited internal unsafe boundary for volatile clearing.
+- one audited internal unsafe boundary for default volatile clearing.
+- explicit feature-gated unsafe modules for platform hardening, documented in
+  `SAFETY.md`.
 - `SecretBytes<N>` for fixed-size secrets.
 - `Secret<T>` for custom sanitizable values.
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
@@ -69,7 +71,7 @@ Implemented now:
 | MSRV | Rust `1.90.0` |
 | Default target | `no_std` |
 | Runtime dependencies | zero external crates |
-| Unsafe policy | `#![deny(unsafe_code)]` at crate root, one audited wipe module |
+| Unsafe policy | `#![deny(unsafe_code)]` at crate root, isolated `#[allow(unsafe_code)]` modules documented in `SAFETY.md` |
 | Clear primitive | volatile writes by default |
 | Heap support | `alloc` feature |
 | Proc macros | none |
@@ -684,8 +686,8 @@ provide complete process-memory secrecy.
 
 Important limits:
 
-- Volatile wiping requires the crate's internal unsafe boundary; safe Rust alone
-  cannot express volatile byte stores.
+- Volatile wiping requires the crate's internal wipe unsafe boundary; safe Rust
+  alone cannot express volatile byte stores.
 - Safe Rust cannot soundly scrub old stack frames from previous moves.
 - `panic = "abort"` prevents destructors from running and prevents closure
   helpers from clearing temporary stack copies after a panic.
