@@ -207,19 +207,36 @@ the published crate's dependency posture.
 
 ### 3. Architecture-Specific Cache Eviction
 
+Status: implemented for x86_64 behind the `cache-flush` feature.
+
 Priority: optional, target-specific hardening.
 
 After memory is zeroed, old values can still exist transiently in CPU caches.
 Some targets provide cache-line flush instructions such as x86/x86_64 `clflush`.
 
-This should only be considered as an explicit feature after the core volatile
-wipe path is stable because:
+This is available as an explicit feature because:
 
 - instructions and guarantees differ by architecture;
-- cache-line size detection matters;
-- the operation is not universally available;
-- cache eviction does not solve all side channels;
-- it can be expensive and surprising as a default.
+- cache-line size detection matters: current x86_64 support uses 64-byte
+  stepping and documents the limit;
+- the operation is not universally available: unsupported targets do not expose
+  the module;
+- cache eviction does not solve all side channels: documented;
+- it can be expensive and surprising as a default: it remains explicit.
+
+Current implementation:
+
+- `cache-flush` exposes the `cache_flush` module on x86_64 outside Miri.
+- Helpers clear with the crate's volatile wipe backend before issuing
+  `clflush` over covered cache lines and `mfence`.
+- `SecretBytes<N>`, `SecretVec`, `SecretString`, and `LockedSecretBytes<N>`
+  have explicit clear-and-flush methods when the feature is available.
+
+Remaining work:
+
+- evaluate non-x86_64 support separately;
+- review cache-line sizing assumptions before stable;
+- keep guard-page allocation as a separate design.
 
 ### 4. Assembly-Backed Constant-Time Comparison
 

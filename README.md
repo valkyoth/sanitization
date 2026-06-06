@@ -50,6 +50,7 @@ Implemented now:
 - optional `alloc` support with `SecretVec` and `SecretString`.
 - optional Linux memory locking with `LockedSecretBytes<N>`.
 - optional x86_64 assembly-backed equal-length comparison.
+- optional x86_64 volatile-clear plus cache-line eviction helpers.
 - explicit volatile helper APIs for existing ordinary buffers.
 - redacted `Debug` for secret-owning wrapper types.
 - clear-on-drop behavior for crate-owned secret containers.
@@ -69,7 +70,7 @@ Implemented now:
 | Heap support | `alloc` feature |
 | Proc macros | none |
 | Main guarantee | narrow ownership, redaction, and clear-on-drop hygiene |
-| Out of scope | stack-history wiping, cache flushing, crash dumps, privileged reads |
+| Out of scope | stack-history wiping, global cache secrecy, crash dumps, privileged reads |
 
 Read [THREAT_MODEL.md](THREAT_MODEL.md) and [SAFETY.md](SAFETY.md) before
 using this crate for high-assurance secret handling.
@@ -126,6 +127,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | `std` | no | Currently aliases `alloc` for downstream convenience. |
 | `memory-lock` | no | Enables Linux `LockedSecretBytes<N>` on `x86_64` and `aarch64`. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
+| `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
 | `unsafe-wipe` | no | Compatibility no-op; volatile wiping is default. |
 
 Default builds are dependency-free and `no_std`.
@@ -370,6 +372,33 @@ let secret = VolatileOnDrop::new([1_u8, 2, 3, 4]);
 assert_eq!(secret.with_secret(|bytes| bytes.len()), 4);
 ```
 
+## Cache Flush Sanitization
+
+Enable `cache-flush` on x86_64 when a call site explicitly needs volatile
+clearing followed by `clflush`/`mfence` over the affected cache lines:
+
+```toml
+[dependencies]
+sanitization = { version = "1.0.0-rc.5", features = ["cache-flush"] }
+```
+
+```rust
+use sanitization::{cache_flush::cache_flush_sanitize_bytes, SecretBytes};
+
+let mut scratch = [0xA5; 32];
+cache_flush_sanitize_bytes(&mut scratch);
+assert_eq!(scratch, [0; 32]);
+
+let mut key = SecretBytes::<32>::from_array([7; 32]);
+key.secure_clear_and_flush();
+assert!(key.constant_time_eq(&[0; 32]));
+```
+
+With `alloc`, `cache_flush_sanitize_vec` and `cache_flush_sanitize_string`
+clear the full allocation capacity before flushing the allocation's cache
+lines. Unsupported targets, Miri, and builds without `cache-flush` do not expose
+the `cache_flush` module.
+
 ## Assembly Comparison
 
 Enable `asm-compare` on x86_64 when you want equal-length secret comparisons to
@@ -398,6 +427,7 @@ targets, Miri, and builds without `asm-compare` use the portable Rust fallback.
 | Existing ordinary buffer | `unsafe_wipe::volatile_sanitize_*` |
 | Generic clear-on-drop wrapper | `Secret<T>` |
 | Explicit x86_64 comparison compiler boundary | `asm-compare` feature |
+| Explicit x86_64 cache-line eviction after clearing | `cache-flush` feature |
 
 ## Relationship to `zeroize`
 

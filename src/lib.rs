@@ -14,12 +14,14 @@
 //! Important limits:
 //! - Safe Rust cannot soundly scrub old stack frames created by prior moves.
 //! - Process abort prevents destructors and post-closure cleanup from running.
-//! - Cache flush instructions, SIMD stores, broad memory policy, and assembly
-//!   need target-specific unsafe code and platform policy.
+//! - SIMD stores, broad memory policy, and target-specific hardening need
+//!   target-specific unsafe code and platform policy.
 //! - Linux memory locking is available only through the explicit
 //!   `memory-lock` feature on supported architectures.
 //! - x86_64 assembly-backed comparison is available only through the explicit
 //!   `asm-compare` feature.
+//! - x86_64 cache-line eviction is available only through the explicit
+//!   `cache-flush` feature.
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -415,11 +417,28 @@ mod memory_lock {
             }
         }
 
+        /// Clear the full private mapping with volatile writes, then flush the
+        /// cache lines covering that mapping.
+        #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+        #[inline(never)]
+        pub fn secure_clear_and_flush(&mut self) {
+            self.secure_clear();
+            crate::cache_flush::flush_cache_lines(self.as_mapping_slice());
+        }
+
         #[inline]
         fn as_slice(&self) -> &[u8] {
             // SAFETY: `ptr` either points to a live mapping of at least `N`
             // bytes owned by this value, or is dangling with `N == 0`.
             unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), N) }
+        }
+
+        #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+        #[inline]
+        fn as_mapping_slice(&self) -> &[u8] {
+            // SAFETY: `ptr` either points to a live mapping of `map_len` bytes
+            // owned by this value, or is dangling with `map_len == 0`.
+            unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.map_len) }
         }
 
         #[inline]
@@ -660,6 +679,192 @@ mod compare_asm {
 
         let _ = (left_ptr, right_ptr, remaining, tmp);
         core::hint::black_box(diff) == 0
+    }
+}
+
+#[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+#[allow(unsafe_code)]
+pub mod cache_flush {
+    #[cfg(feature = "alloc")]
+    use alloc::{string::String, vec::Vec};
+    use core::{
+        arch::asm,
+        sync::atomic::{compiler_fence, Ordering},
+    };
+
+    const CACHE_LINE_SIZE: usize = 64;
+
+    /// Trait for values that should be cleared with volatile byte writes and
+    /// then evicted from x86_64 cache lines.
+    pub trait CacheFlushSanitize {
+        /// Clear this value and flush the cache lines covering its storage.
+        fn cache_flush_sanitize(&mut self);
+    }
+
+    /// Flush the cache lines covering a byte slice.
+    ///
+    /// This does not clear memory by itself. Prefer
+    /// [`cache_flush_sanitize_bytes`] for secret clearing.
+    #[inline(never)]
+    pub fn flush_cache_lines(bytes: &[u8]) {
+        flush_raw(bytes.as_ptr(), bytes.len());
+    }
+
+    /// Clear a mutable byte slice with volatile writes, then flush its cache
+    /// lines.
+    #[inline(never)]
+    pub fn cache_flush_sanitize_bytes(bytes: &mut [u8]) {
+        crate::sanitize_bytes(bytes);
+        flush_raw(bytes.as_ptr(), bytes.len());
+    }
+
+    /// Clear a fixed-size byte array with volatile writes, then flush its cache
+    /// lines.
+    #[inline(never)]
+    pub fn cache_flush_sanitize_array<const N: usize>(bytes: &mut [u8; N]) {
+        cache_flush_sanitize_bytes(bytes);
+    }
+
+    /// Clear a `Vec<u8>` allocation capacity with volatile writes, then flush
+    /// the cache lines covering the allocation.
+    #[cfg(feature = "alloc")]
+    #[inline(never)]
+    pub fn cache_flush_sanitize_vec(bytes: &mut Vec<u8>) {
+        let ptr = bytes.as_ptr();
+        let len = bytes.capacity();
+        crate::unsafe_wipe::volatile_sanitize_vec(bytes);
+        flush_raw(ptr, len);
+    }
+
+    /// Clear a `String` allocation capacity with volatile writes, then flush
+    /// the cache lines covering the allocation.
+    #[cfg(feature = "alloc")]
+    #[inline(never)]
+    pub fn cache_flush_sanitize_string(text: &mut String) {
+        let ptr = text.as_ptr();
+        let len = text.capacity();
+        crate::unsafe_wipe::volatile_sanitize_string(text);
+        flush_raw(ptr, len);
+    }
+
+    impl CacheFlushSanitize for [u8] {
+        #[inline(never)]
+        fn cache_flush_sanitize(&mut self) {
+            cache_flush_sanitize_bytes(self);
+        }
+    }
+
+    impl<const N: usize> CacheFlushSanitize for [u8; N] {
+        #[inline(never)]
+        fn cache_flush_sanitize(&mut self) {
+            cache_flush_sanitize_array(self);
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl CacheFlushSanitize for Vec<u8> {
+        #[inline(never)]
+        fn cache_flush_sanitize(&mut self) {
+            cache_flush_sanitize_vec(self);
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl CacheFlushSanitize for String {
+        #[inline(never)]
+        fn cache_flush_sanitize(&mut self) {
+            cache_flush_sanitize_string(self);
+        }
+    }
+
+    /// Clear-on-drop wrapper using volatile writes followed by x86_64 cache
+    /// line eviction.
+    pub struct CacheFlushOnDrop<T: CacheFlushSanitize> {
+        inner: T,
+    }
+
+    impl<T: CacheFlushSanitize> CacheFlushOnDrop<T> {
+        /// Wrap a value that implements [`CacheFlushSanitize`].
+        #[must_use]
+        #[inline]
+        pub const fn new(inner: T) -> Self {
+            Self { inner }
+        }
+
+        /// Run a closure with read-only access to the wrapped value.
+        #[inline]
+        pub fn with_secret<R>(&self, inspect: impl FnOnce(&T) -> R) -> R {
+            inspect(&self.inner)
+        }
+
+        /// Run a closure with mutable access to the wrapped value.
+        #[inline]
+        pub fn with_secret_mut<R>(&mut self, edit: impl FnOnce(&mut T) -> R) -> R {
+            edit(&mut self.inner)
+        }
+
+        /// Consume the wrapper after first clearing and flushing the wrapped
+        /// value.
+        #[inline]
+        pub fn into_cleared(mut self) {
+            self.inner.cache_flush_sanitize();
+        }
+    }
+
+    impl<T: CacheFlushSanitize> Drop for CacheFlushOnDrop<T> {
+        #[inline]
+        fn drop(&mut self) {
+            self.inner.cache_flush_sanitize();
+        }
+    }
+
+    impl<T: CacheFlushSanitize> core::fmt::Debug for CacheFlushOnDrop<T> {
+        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            formatter
+                .debug_struct("CacheFlushOnDrop")
+                .field("contents", &"<redacted>")
+                .finish()
+        }
+    }
+
+    #[inline(never)]
+    fn flush_raw(ptr: *const u8, len: usize) {
+        if len == 0 {
+            return;
+        }
+
+        compiler_fence(Ordering::SeqCst);
+
+        let start = ptr as usize;
+        let end = start.saturating_add(len.saturating_sub(1));
+        let mut current = start & !(CACHE_LINE_SIZE - 1);
+        let end_line = end & !(CACHE_LINE_SIZE - 1);
+
+        while current <= end_line {
+            // SAFETY: `clflush` accepts any virtual address. Callers provide a
+            // pointer range derived from a live slice or owned allocation, and
+            // this function does not read or write through the pointer.
+            unsafe {
+                asm!(
+                    "clflush [{address}]",
+                    address = in(reg) current as *const u8,
+                    options(nostack, preserves_flags)
+                );
+            }
+
+            match current.checked_add(CACHE_LINE_SIZE) {
+                Some(next) => current = next,
+                None => break,
+            }
+        }
+
+        // SAFETY: `mfence` orders prior cache flushes before later memory
+        // operations and does not access memory itself.
+        unsafe {
+            asm!("mfence", options(nostack, preserves_flags));
+        }
+
+        compiler_fence(Ordering::SeqCst);
     }
 }
 
@@ -951,6 +1156,14 @@ impl<const N: usize> SecretBytes<N> {
         wipe::volatile_wipe(self.bytes.as_mut_ptr(), N);
     }
 
+    /// Clear all bytes now with volatile writes, then flush the cache lines
+    /// covering the fixed-size storage.
+    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[inline(never)]
+    pub fn secure_clear_and_flush(&mut self) {
+        crate::cache_flush::cache_flush_sanitize_bytes(self.bytes.as_mut_slice());
+    }
+
     #[inline]
     fn load(&self, index: usize) -> u8 {
         self.bytes[index]
@@ -1101,6 +1314,14 @@ impl SecretVec {
     #[inline(never)]
     pub fn clear_secret(&mut self) {
         sanitize_vec_capacity(&mut self.inner);
+    }
+
+    /// Clear this value immediately with volatile writes, then flush the cache
+    /// lines covering the heap allocation.
+    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[inline(never)]
+    pub fn clear_secret_and_flush(&mut self) {
+        crate::cache_flush::cache_flush_sanitize_vec(&mut self.inner);
     }
 
     /// Compare against a byte slice without early exit for equal-length inputs.
@@ -1272,6 +1493,14 @@ impl SecretString {
     #[inline(never)]
     pub fn clear_secret(&mut self) {
         sanitize_vec_capacity(&mut self.inner);
+    }
+
+    /// Clear this value immediately with volatile writes, then flush the cache
+    /// lines covering the heap allocation.
+    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[inline(never)]
+    pub fn clear_secret_and_flush(&mut self) {
+        crate::cache_flush::cache_flush_sanitize_vec(&mut self.inner);
     }
 
     /// Compare against UTF-8 text without early exit for equal-length inputs.
@@ -1760,6 +1989,23 @@ mod tests {
         secret.into_cleared();
     }
 
+    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[test]
+    fn cache_flush_sanitize_clears_slice_and_secret_bytes() {
+        let mut bytes = [0xA5; 16];
+        crate::cache_flush::cache_flush_sanitize_array(&mut bytes);
+        assert_eq!(bytes, [0; 16]);
+
+        let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+        secret.secure_clear_and_flush();
+        assert!(secret.constant_time_eq(&[0, 0, 0, 0]));
+
+        let mut wrapped = crate::cache_flush::CacheFlushOnDrop::new([1, 2, 3, 4]);
+        wrapped.with_secret_mut(|value| value[0] = 9);
+        assert_eq!(wrapped.with_secret(|value| value[0]), 9);
+        wrapped.into_cleared();
+    }
+
     #[cfg(feature = "alloc")]
     #[test]
     fn volatile_constructor_aliases_still_work() {
@@ -1771,6 +2017,24 @@ mod tests {
 
         bytes.clear_secret();
         text.clear_secret();
+
+        assert!(bytes.is_empty());
+        assert!(text.is_empty());
+    }
+
+    #[cfg(all(
+        feature = "cache-flush",
+        feature = "alloc",
+        target_arch = "x86_64",
+        not(miri)
+    ))]
+    #[test]
+    fn cache_flush_sanitize_clears_alloc_types() {
+        let mut bytes = SecretVec::from_slice(&[1, 2, 3]);
+        let mut text = SecretString::from_secret_str("secret");
+
+        bytes.clear_secret_and_flush();
+        text.clear_secret_and_flush();
 
         assert!(bytes.is_empty());
         assert!(text.is_empty());
@@ -1793,6 +2057,24 @@ mod tests {
         assert!(!secret.constant_time_eq(&[1, 2, 3]));
 
         secret.secure_clear();
+        assert!(secret.copy_to_slice(&mut out).is_ok());
+        assert_eq!(out, [0, 0, 0, 0]);
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        feature = "cache-flush",
+        target_os = "linux",
+        target_arch = "x86_64",
+        not(miri)
+    ))]
+    #[test]
+    fn locked_secret_bytes_can_clear_and_flush() {
+        let mut secret = LockedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+        let mut out = [0; 4];
+
+        secret.secure_clear_and_flush();
+
         assert!(secret.copy_to_slice(&mut out).is_ok());
         assert_eq!(out, [0, 0, 0, 0]);
     }

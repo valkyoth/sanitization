@@ -10,6 +10,8 @@ Unsafe code is allowed only inside narrow `src/lib.rs` modules:
   Linux targets.
 - `compare_asm`, available only with the `asm-compare` feature on x86_64
   outside Miri.
+- `cache_flush`, available only with the `cache-flush` feature on x86_64
+  outside Miri.
 
 Public APIs, including `unsafe_wipe`, are safe wrappers around those internal
 backends.
@@ -112,10 +114,42 @@ Invariant:
 - Length remains public metadata and mismatched lengths return before the
   assembly path.
 
+### x86_64 cache-line flush instructions
+
+Location: `cache_flush`
+
+Purpose: provide explicit volatile-clear plus cache-line eviction helpers for
+call sites that need x86_64 cache hardening.
+
+Operation:
+
+- Public sanitization helpers first route through the crate's volatile wipe
+  backend.
+- The module aligns the provided address range down to 64-byte cache-line
+  boundaries.
+- The module executes `clflush` for every covered cache line, followed by
+  `mfence`.
+- Unsupported targets, Miri, and builds without `cache-flush` do not expose the
+  module.
+
+Invariant:
+
+- The pointer and length come from a live slice or owned contiguous allocation.
+- The zero-length path does not execute `clflush`.
+- `clflush` does not read or write through the Rust pointer; it asks the CPU to
+  evict the addressed cache line.
+- The module assumes 64-byte x86_64 cache-line stepping. This can over-flush
+  adjacent bytes in the same cache line but does not read or write them through
+  Rust references.
+- `mfence` orders the flush operations before later memory operations.
+
 ## Non-Goals
 
 This unsafe boundary intentionally does not implement stack scanning, cache
-flushes, SIMD clearing, guard pages, or broad platform memory policy. Memory
-locking is explicit, Linux-only, feature-gated, and still does not protect
-against crash dumps, hibernation, privileged reads, DMA, or external copies.
+flushes for non-x86_64 targets, SIMD clearing, guard pages, or broad platform
+memory policy. Memory locking is explicit, Linux-only, feature-gated, and still
+does not protect against crash dumps, hibernation, privileged reads, DMA, or
+external copies.
 Assembly-backed comparison is x86_64-only and does not make length private.
+Cache-line eviction is explicit, x86_64-only, and does not prove full CPU-cache
+or microarchitectural side-channel secrecy.
