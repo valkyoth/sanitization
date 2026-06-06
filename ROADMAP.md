@@ -144,8 +144,9 @@ Current implementation:
   `memory-lock` feature is enabled.
 - Secret bytes live in a private anonymous `mmap` allocation rather than the
   Rust global allocator.
-- The mapping is marked with `MADV_DONTDUMP`, locked with `mlock`,
-  volatile-cleared in full on drop, then released with `munlock` and `munmap`.
+- The mapping is marked with `MADV_DONTDUMP` and `MADV_DONTFORK`, locked with
+  `mlock`, volatile-cleared in full on drop, then released with `munlock` and
+  `munmap`.
 - Moving the Rust value copies only pointer metadata, not the secret byte
   allocation.
 
@@ -318,7 +319,8 @@ Current implementation:
 - The leading and trailing pages remain inaccessible.
 - When `memory-lock` is also enabled, `locked_with_capacity` and
   `locked_from_slice` mark the writable data pages with `MADV_DONTDUMP` and
-  lock them with `mlock` before secret bytes are copied into them.
+  `MADV_DONTFORK`, then lock them with `mlock` before secret bytes are copied
+  into them.
 - The writable data region is volatile-cleared in full before unmapping.
 - Growth moves initialized bytes into a new guarded mapping, then clears and
   unmaps the old one. Locked guarded vectors grow into locked replacement

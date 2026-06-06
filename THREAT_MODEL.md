@@ -17,6 +17,8 @@ Rust applications.
   `memory-lock` feature is enabled on supported architectures.
 - Optional Linux `MADV_DONTDUMP` on locked secret mappings to reduce ordinary
   core-dump exposure.
+- Optional Linux `MADV_DONTFORK` on locked secret mappings to reduce accidental
+  inheritance across `fork`.
 - Optional x86_64 assembly-backed equal-length comparison when the
   `asm-compare` feature is enabled.
 - Optional x86_64 volatile-clear plus cache-line eviction when the
@@ -59,12 +61,13 @@ but they do not solve broader process, OS, hardware, or allocator threats.
 
 With the `memory-lock` feature on supported Linux targets,
 `LockedSecretBytes<N>` uses a private anonymous mapping, `MADV_DONTDUMP`, and
-`mlock` to reduce the chance that the secret's storage reaches ordinary core
-dumps or swap. This is a high-assurance building block, not a complete OS
-secrecy guarantee. Resource limits or policy can make setup fail, and locked
-memory can still be exposed through hibernation, nonstandard crash dump
-mechanisms, debuggers, privileged reads, DMA, malicious firmware, or copies made
-before data enters the locked container.
+`MADV_DONTFORK`, and `mlock` to reduce the chance that the secret's storage
+reaches ordinary core dumps, child processes created by `fork`, or swap. This is
+a high-assurance building block, not a complete OS secrecy guarantee. Resource
+limits or policy can make setup fail, and locked memory can still be exposed
+through hibernation, nonstandard crash dump mechanisms, debuggers, privileged
+reads, DMA, malicious firmware, or copies made before data enters the locked
+container.
 
 With the `asm-compare` feature on x86_64, equal-length comparisons use an
 inline-assembly loop. This gives the comparison body a stronger compiler
@@ -89,9 +92,10 @@ not catch logical overreads inside the writable capacity and does not protect
 copies made before data enters the guarded container.
 
 When both `guard-pages` and `memory-lock` are enabled, `GuardedSecretVec`
-locked constructors also call `MADV_DONTDUMP` and `mlock` on the writable data
-pages. This combines guard-page fault isolation with ordinary core-dump and
-swap-reduction for dynamic secrets, but all memory-lock limits still apply.
+locked constructors also call `MADV_DONTDUMP`, `MADV_DONTFORK`, and `mlock` on
+the writable data pages. This combines guard-page fault isolation with ordinary
+core-dump, fork-inheritance, and swap-reduction for dynamic secrets, but all
+memory-lock limits still apply.
 
 `SecretBytes::expose_secret_volatile` makes the volatile temporary-copy cleanup
 explicit at the call site. It clears on normal return and unwinding paths, but

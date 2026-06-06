@@ -269,7 +269,7 @@ redact `Debug`.
 
 Enable `memory-lock` on Linux `x86_64` or `aarch64` for fixed-size secrets
 stored in a private anonymous mapping excluded from ordinary Linux core dumps
-and locked with `mlock`.
+and fork inheritance, then locked with `mlock`.
 
 ```rust
 use sanitization::LockedSecretBytes;
@@ -288,8 +288,8 @@ assert!(key.constant_time_eq(&[0; 32]));
 
 `LockedSecretBytes<N>` does not use the Rust global allocator for the secret
 bytes. It creates a private Linux mapping with `mmap`, marks that mapping with
-`MADV_DONTDUMP`, locks it with `mlock`, volatile-clears the full mapping on
-drop, then calls `munlock` and `munmap`.
+`MADV_DONTDUMP` and `MADV_DONTFORK`, locks it with `mlock`, volatile-clears the
+full mapping on drop, then calls `munlock` and `munmap`.
 Use `from_fn` when bytes can be generated directly into locked storage. Use
 `from_slice` when loading bytes from an existing runtime buffer. `from_array` is
 still available for fixed arrays and clears its owned input array before
@@ -297,9 +297,10 @@ returning.
 
 This feature is explicit because OS memory locking has platform limits. It can
 fail due to resource limits or policy. `MADV_DONTDUMP` reduces ordinary Linux
-core-dump exposure for the mapping, but it does not protect against all crash
-dump mechanisms, hibernation, debuggers, privileged process reads, DMA,
-malicious firmware, or copies made before data enters the locked container.
+core-dump exposure and `MADV_DONTFORK` reduces accidental fork inheritance for
+the mapping, but they do not protect against all crash dump mechanisms,
+hibernation, debuggers, privileged process reads, DMA, malicious firmware, or
+copies made before data enters the locked container.
 
 ## Guarded Heap Secrets
 
@@ -330,8 +331,8 @@ region on drop, and then unmaps the allocation. It does not use the Rust global
 allocator for the secret bytes.
 
 When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
-can also mark their writable data pages with `MADV_DONTDUMP` and lock those
-pages with `mlock`:
+can also mark their writable data pages with `MADV_DONTDUMP` and
+`MADV_DONTFORK`, then lock those pages with `mlock`:
 
 ```toml
 [dependencies]
@@ -349,8 +350,9 @@ assert!(token.constant_time_eq(b"session-key"));
 
 Locked guarded mappings preserve the lock state when they grow. Guard pages are
 not dump-excluded or locked because they never contain secret bytes. Core-dump
-exclusion and locking can fail due to OS resource limits or policy, and this
-does not change the broader memory-lock limits described above.
+exclusion, fork-inheritance exclusion, and locking can fail due to OS resource
+limits or policy, and this does not change the broader memory-lock limits
+described above.
 
 Guard pages are a fault-detection mechanism for crossing outside the mapped
 data pages. They do not catch logical overreads that stay inside the writable

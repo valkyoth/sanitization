@@ -70,6 +70,8 @@ Operations:
 - `mmap` creates a private anonymous read/write mapping.
 - `madvise(MADV_DONTDUMP)` asks the kernel to exclude that mapping from
   ordinary Linux core dumps.
+- `madvise(MADV_DONTFORK)` asks the kernel to prevent the mapping from being
+  inherited by child processes created with `fork`.
 - `mlock` asks the kernel to keep that mapping resident instead of swapping it.
 - `munlock` releases the lock during drop.
 - `munmap` releases the mapping during drop.
@@ -87,8 +89,8 @@ Invariant:
 - The Rust value stores only pointer metadata, so moving it does not move or
   copy the secret byte allocation.
 - The mapping length is at least `N` bytes when `N > 0`.
-- Secret bytes are not copied into the mapping until `MADV_DONTDUMP` and
-  `mlock` have both succeeded.
+- Secret bytes are not copied into the mapping until `MADV_DONTDUMP`,
+  `MADV_DONTFORK`, and `mlock` have all succeeded.
 - `&mut self` is required for mutation and clearing.
 - Drop volatile-clears the full mapping before attempting `munlock` and
   `munmap`.
@@ -165,8 +167,8 @@ Operations:
 - Raw pointers from the writable middle region are converted into slices for
   initialized length or full writable capacity.
 - When `memory-lock` is also enabled, locked constructors call
-  `madvise(MADV_DONTDUMP)` and `mlock` on the writable data pages before
-  copying secret bytes into them.
+  `madvise(MADV_DONTDUMP)`, `madvise(MADV_DONTFORK)`, and `mlock` on the
+  writable data pages before copying secret bytes into them.
 - Growth allocates a new guarded mapping, copies initialized bytes into it,
   volatile-clears the old writable region, swaps metadata, and lets the old
   mapping unlock and unmap during drop. Locked mappings grow into locked
@@ -184,10 +186,10 @@ Invariant:
 - The writable data pointer is one page after the mapping base.
 - The writable data length is rounded to a whole number of pages.
 - `len <= data_capacity` is preserved before any slice is created.
-- The `locked` flag is set only after `MADV_DONTDUMP` and `mlock` both
-  succeed.
-- Guard pages are not marked `MADV_DONTDUMP` or locked because they never
-  contain secret bytes.
+- The `locked` flag is set only after `MADV_DONTDUMP`, `MADV_DONTFORK`, and
+  `mlock` all succeed.
+- Guard pages are not marked `MADV_DONTDUMP`, marked `MADV_DONTFORK`, or locked
+  because they never contain secret bytes.
 - `&mut self` is required for mutation and clearing.
 - Drop ignores `munlock` and `munmap` errors because destructors cannot report
   failure.

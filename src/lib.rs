@@ -237,6 +237,7 @@ mod memory_lock {
     const PROT_WRITE: usize = 0x2;
     const MAP_PRIVATE: usize = 0x02;
     const MAP_ANONYMOUS: usize = 0x20;
+    const MADV_DONTFORK: usize = 10;
     const MADV_DONTDUMP: usize = 16;
 
     #[cfg(target_arch = "x86_64")]
@@ -270,6 +271,8 @@ mod memory_lock {
         Map,
         /// Core-dump exclusion failed.
         DontDump,
+        /// Fork inheritance exclusion failed.
+        DontFork,
         /// Page locking failed.
         Lock,
         /// Page unlocking failed.
@@ -346,9 +349,9 @@ mod memory_lock {
     ///
     /// This type is available with the `memory-lock` feature on Linux
     /// `x86_64` and `aarch64`. It allocates a private anonymous mapping with
-    /// `mmap`, marks it with `MADV_DONTDUMP`, locks it with `mlock`,
-    /// volatile-clears the full mapping on drop, then calls `munlock` and
-    /// `munmap`.
+    /// `mmap`, marks it with `MADV_DONTDUMP` and `MADV_DONTFORK`, locks it
+    /// with `mlock`, volatile-clears the full mapping on drop, then calls
+    /// `munlock` and `munmap`.
     ///
     /// The secret bytes are not stored inline in the Rust value. Moving this
     /// type only moves pointer metadata, so ordinary Rust moves do not copy the
@@ -373,6 +376,11 @@ mod memory_lock {
             let ptr = map_private(map_len)?;
 
             if let Err(error) = mark_dontdump(ptr, map_len) {
+                let _ = unmap_private(ptr, map_len);
+                return Err(error);
+            }
+
+            if let Err(error) = mark_dontfork(ptr, map_len) {
                 let _ = unmap_private(ptr, map_len);
                 return Err(error);
             }
@@ -406,9 +414,9 @@ mod memory_lock {
         ///
         /// This is the preferred constructor when the secret is already held in
         /// a runtime buffer. It creates the private mapping, applies
-        /// `MADV_DONTDUMP`, and locks it with `mlock` before copying bytes into
-        /// the mapping. The source slice is borrowed and cannot be cleared by
-        /// this function.
+        /// `MADV_DONTDUMP` and `MADV_DONTFORK`, and locks it with `mlock`
+        /// before copying bytes into the mapping. The source slice is borrowed
+        /// and cannot be cleared by this function.
         #[inline]
         pub fn from_slice(source: &[u8]) -> Result<Self, LockedSecretBytesError> {
             if source.len() != N {
@@ -429,8 +437,8 @@ mod memory_lock {
         ///
         /// This avoids requiring a full temporary `[u8; N]` or input slice at
         /// the call boundary. The private mapping is created, marked with
-        /// `MADV_DONTDUMP`, and locked with `mlock` before `make_byte` is
-        /// called.
+        /// `MADV_DONTDUMP` and `MADV_DONTFORK`, and locked with `mlock` before
+        /// `make_byte` is called.
         #[inline]
         pub fn from_fn(mut make_byte: impl FnMut(usize) -> u8) -> Result<Self, MemoryLockError> {
             let mut secret = Self::zeroed()?;
@@ -637,6 +645,15 @@ mod memory_lock {
         let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_DONTDUMP);
         if syscall_failed(ret) {
             Err(syscall_error(MemoryLockOperation::DontDump, ret))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+        let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_DONTFORK);
+        if syscall_failed(ret) {
+            Err(syscall_error(MemoryLockOperation::DontFork, ret))
         } else {
             Ok(())
         }
@@ -1009,6 +1026,8 @@ mod guard_pages {
     const MAP_PRIVATE: usize = 0x02;
     const MAP_ANONYMOUS: usize = 0x20;
     #[cfg(feature = "memory-lock")]
+    const MADV_DONTFORK: usize = 10;
+    #[cfg(feature = "memory-lock")]
     const MADV_DONTDUMP: usize = 16;
 
     #[cfg(target_arch = "x86_64")]
@@ -1048,6 +1067,8 @@ mod guard_pages {
         Protect,
         /// Core-dump exclusion failed.
         DontDump,
+        /// Fork inheritance exclusion failed.
+        DontFork,
         /// Page locking failed.
         Lock,
         /// Page unlocking failed.
@@ -1106,14 +1127,15 @@ mod guard_pages {
         }
 
         /// Create an empty guarded secret buffer and lock its writable data
-        /// pages with Linux `madvise(MADV_DONTDUMP)` and `mlock`.
+        /// pages with Linux `madvise(MADV_DONTDUMP)`,
+        /// `madvise(MADV_DONTFORK)`, and `mlock`.
         ///
         /// This constructor is available when both `guard-pages` and
         /// `memory-lock` are enabled. Locking can fail due to operating-system
-        /// resource limits or policy. Core-dump exclusion can fail if the
-        /// kernel rejects `MADV_DONTDUMP`. On failure, the mapping is unmapped
-        /// before the error is returned. Guard pages are not locked because
-        /// they never contain secret bytes.
+        /// resource limits or policy. Core-dump and fork-inheritance exclusion
+        /// can fail if the kernel rejects the requested `madvise` policies. On
+        /// failure, the mapping is unmapped before the error is returned. Guard
+        /// pages are not locked because they never contain secret bytes.
         #[cfg(feature = "memory-lock")]
         pub fn locked_with_capacity(capacity: usize) -> Result<Self, GuardPageError> {
             Self::with_capacity_locked_state(capacity, true)
@@ -1157,6 +1179,11 @@ mod guard_pages {
                     return Err(error);
                 }
 
+                if let Err(error) = mark_dontfork(data, data_capacity) {
+                    let _ = unmap_guarded(base, total_len);
+                    return Err(error);
+                }
+
                 if let Err(error) = lock_mapping(data, data_capacity) {
                     let _ = unmap_guarded(base, total_len);
                     return Err(error);
@@ -1185,8 +1212,9 @@ mod guard_pages {
         /// Create a guarded and memory-locked secret buffer by copying bytes
         /// from a slice.
         ///
-        /// The writable data pages are marked with `MADV_DONTDUMP` and locked
-        /// with Linux `mlock` before bytes are copied into them.
+        /// The writable data pages are marked with `MADV_DONTDUMP` and
+        /// `MADV_DONTFORK`, then locked with Linux `mlock` before bytes are
+        /// copied into them.
         #[cfg(feature = "memory-lock")]
         pub fn locked_from_slice(bytes: &[u8]) -> Result<Self, GuardPageError> {
             let mut secret = Self::locked_with_capacity(bytes.len())?;
@@ -1412,6 +1440,16 @@ mod guard_pages {
         let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_DONTDUMP);
         if syscall_failed(ret) {
             Err(syscall_error(GuardPageOperation::DontDump, ret))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "memory-lock")]
+    fn mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_DONTFORK);
+        if syscall_failed(ret) {
+            Err(syscall_error(GuardPageOperation::DontFork, ret))
         } else {
             Ok(())
         }
@@ -3179,7 +3217,10 @@ mod tests {
         let mut secret = match GuardedSecretVec::locked_from_slice(&[1, 2, 3]) {
             Ok(secret) => secret,
             Err(GuardPageError {
-                operation: GuardPageOperation::DontDump | GuardPageOperation::Lock,
+                operation:
+                    GuardPageOperation::DontDump
+                    | GuardPageOperation::DontFork
+                    | GuardPageOperation::Lock,
                 ..
             }) => return,
             Err(error) => panic!("unexpected guarded lock error: {error:?}"),

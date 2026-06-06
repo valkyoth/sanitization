@@ -23,6 +23,7 @@
 - Added the optional Linux `memory-lock` feature with `LockedSecretBytes<N>` for
   fixed-size secrets backed by private `mmap` storage and `mlock`.
 - Added `MADV_DONTDUMP` setup for Linux memory-locked secret mappings.
+- Added `MADV_DONTFORK` setup for Linux memory-locked secret mappings.
 - Added `LockedSecretBytes::from_slice` for direct runtime-buffer loading.
 - Added `LockedSecretBytes::from_fn` for direct byte generation inside locked
   storage.
