@@ -318,6 +318,11 @@ key.with_secret(|bytes| {
     assert_eq!(bytes.len(), 32);
 });
 
+key.replace_from_slice(&[8; 32]).unwrap();
+key.replace_from_fn(|index| index as u8).unwrap();
+key.try_replace_from_fn(|index| Ok::<u8, &'static str>(index as u8))
+    .unwrap();
+
 key.secure_clear();
 assert!(key.constant_time_eq(&[0; 32]));
 ```
@@ -330,6 +335,9 @@ Use `from_fn` when bytes can be generated directly into locked storage. Use
 `try_from_fn` for fallible generators such as RNG or KDF APIs. Use `from_slice`
 when loading bytes from an existing runtime buffer. `from_array` is still
 available for fixed arrays and clears its owned input array before returning.
+Use `replace_from_slice`, `replace_from_fn`, or `try_replace_from_fn` when
+rotating the whole locked value. Fallible generated replacement keeps the old
+locked value unchanged on generator error.
 
 This feature is explicit because OS memory locking has platform limits. It can
 fail due to resource limits or policy. `MADV_DONTDUMP` reduces ordinary Linux
