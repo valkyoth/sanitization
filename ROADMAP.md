@@ -96,6 +96,11 @@ Keep and harden:
 - redacted `Debug`;
 - dependency-free struct macros.
 
+Implemented dynamic rotation helpers:
+
+- `SecretVec::replace_from_slice`;
+- `SecretString::replace_from_secret_str`.
+
 Avoid before `1.0.0`:
 
 - broad blanket impls for every primitive and container;

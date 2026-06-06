@@ -2422,6 +2422,25 @@ impl SecretVec {
         self.inner.extend_from_slice(bytes);
     }
 
+    /// Replace all bytes with a new slice.
+    ///
+    /// If capacity must grow, the old allocation is wiped before it is dropped
+    /// and the old secret bytes are not copied into the replacement allocation.
+    #[inline]
+    pub fn replace_from_slice(&mut self, bytes: &[u8]) {
+        if bytes.len() > self.inner.capacity() {
+            let new_capacity = next_secret_capacity(self.inner.capacity(), bytes.len());
+            let mut replacement = Vec::with_capacity(new_capacity);
+            replacement.extend_from_slice(bytes);
+            self.clear_secret();
+            self.inner = replacement;
+            return;
+        }
+
+        self.clear_secret();
+        self.inner.extend_from_slice(bytes);
+    }
+
     /// Clear this value immediately with volatile writes.
     #[inline(never)]
     pub fn clear_secret(&mut self) {
@@ -2598,6 +2617,25 @@ impl SecretString {
     #[inline]
     pub fn push_str(&mut self, text: &str) {
         self.grow_for(text.len());
+        self.inner.extend_from_slice(text.as_bytes());
+    }
+
+    /// Replace all text with a new string slice.
+    ///
+    /// If capacity must grow, the old allocation is wiped before it is dropped
+    /// and the old secret bytes are not copied into the replacement allocation.
+    #[inline]
+    pub fn replace_from_secret_str(&mut self, text: &str) {
+        if text.len() > self.inner.capacity() {
+            let new_capacity = next_secret_capacity(self.inner.capacity(), text.len());
+            let mut replacement = Vec::with_capacity(new_capacity);
+            replacement.extend_from_slice(text.as_bytes());
+            self.clear_secret();
+            self.inner = replacement;
+            return;
+        }
+
+        self.clear_secret();
         self.inner.extend_from_slice(text.as_bytes());
     }
 
@@ -3071,6 +3109,27 @@ mod tests {
 
     #[cfg(feature = "alloc")]
     #[test]
+    fn secret_vec_can_replace_secret() {
+        let mut secret = SecretVec::with_capacity(8);
+        secret.extend_from_slice(&[1, 2, 3, 4]);
+
+        secret.replace_from_slice(&[9, 8]);
+
+        assert_eq!(secret.len(), 2);
+        assert!(secret.constant_time_eq(&[9, 8]));
+
+        let larger = [7_u8; 64];
+        secret.replace_from_slice(&larger);
+
+        assert_eq!(secret.len(), larger.len());
+        assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[63])), (7, 7));
+
+        secret.clear_secret();
+        assert!(secret.is_empty());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
     fn secret_vec_grows_exponentially() {
         let mut secret = SecretVec::from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let initial_capacity = secret.inner.capacity();
@@ -3097,6 +3156,27 @@ mod tests {
         let rendered = std::format!("{secret:?}");
         assert!(rendered.contains("redacted"));
         assert!(!rendered.contains("secret-token"));
+
+        secret.clear_secret();
+        assert!(secret.is_empty());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn secret_string_can_replace_secret() {
+        let mut secret = SecretString::with_capacity(8);
+        secret.push_str("secret");
+
+        secret.replace_from_secret_str("rotated");
+
+        assert_eq!(secret.len(), 7);
+        assert!(secret.constant_time_eq("rotated"));
+
+        let larger = "larger-rotated-secret";
+        secret.replace_from_secret_str(larger);
+
+        assert_eq!(secret.len(), larger.len());
+        assert_eq!(secret.try_with_secret(|text| text == larger), Ok(true));
 
         secret.clear_secret();
         assert!(secret.is_empty());

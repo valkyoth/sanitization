@@ -253,17 +253,20 @@ assert!(token.constant_time_eq("bearer-token"));
 
 token.push_str("-v2");
 assert_eq!(token.try_with_secret(|text| text.ends_with("-v2")), Ok(true));
+token.replace_from_secret_str("rotated-token");
 
 let mut bytes = SecretVec::from_slice(b"session-key");
 assert_eq!(bytes.with_secret(|value| value.len()), 11);
 assert!(bytes.constant_time_eq(b"session-key"));
 
 bytes.with_secret_mut(|value| value[0] = b'S');
+bytes.replace_from_slice(b"rotated-session-key");
 ```
 
 `SecretVec` and `SecretString` wipe initialized bytes and spare heap capacity
-before freeing their allocations. They expose contents through closures and
-redact `Debug`.
+before freeing their allocations. Use `replace_from_slice` and
+`replace_from_secret_str` when rotating entire dynamic values. They expose
+contents through closures and redact `Debug`.
 
 ## Memory-Locked Secrets
 
