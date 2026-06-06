@@ -22,6 +22,9 @@
 - Added `GuardedSecretVec::replace_from_fn` and
   `GuardedSecretVec::try_replace_from_fn` for generated guarded whole-value
   rotation while preserving lock state.
+- Added `ExpiringSecretBytes::try_from_fn`, `replace_from_fn`, and
+  `try_replace_from_fn` for fallible generation and generated rotation with
+  lifetime-window restart semantics.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer

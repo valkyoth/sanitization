@@ -105,6 +105,9 @@ Implemented dynamic rotation helpers:
 - `SecretVec::replace_from_slice`;
 - `SecretVec::replace_from_fn`;
 - `SecretVec::try_replace_from_fn`;
+- `ExpiringSecretBytes::try_from_fn`;
+- `ExpiringSecretBytes::replace_from_fn`;
+- `ExpiringSecretBytes::try_replace_from_fn`;
 - `GuardedSecretVec::try_from_fn`;
 - `GuardedSecretVec::locked_try_from_fn`;
 - `GuardedSecretVec::replace_from_fn`;
@@ -315,6 +318,8 @@ Design constraints:
   expired access clears before returning `SecretExpiredError`;
 - account for clock behavior and testability: uses `std::time::Instant`; review
   clock assumptions before stable.
+- fallible generated replacement preserves a still-live old value on generator
+  error, but clears an already-expired old value before returning the error.
 
 ### 6. Guard-Page Heap Allocations
 

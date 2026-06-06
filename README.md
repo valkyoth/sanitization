@@ -178,18 +178,30 @@ use sanitization::ExpiringSecretBytes;
 use std::time::Duration;
 
 let mut key = ExpiringSecretBytes::<32>::from_array([7; 32], Duration::from_secs(300));
+let mut generated =
+    ExpiringSecretBytes::<32>::try_from_fn(Duration::from_secs(300), |_| {
+        Ok::<u8, &'static str>(7)
+    })
+    .unwrap();
 
 assert_eq!(key.try_constant_time_eq(&[7; 32]), Ok(true));
+assert_eq!(generated.try_constant_time_eq(&[7; 32]), Ok(true));
 
 key.try_expose_secret(|bytes| {
     assert_eq!(bytes.len(), 32);
 }).unwrap();
+
+key.replace_from_fn(|index| index as u8);
+key.try_replace_from_fn(|index| Ok::<u8, &'static str>(index as u8))
+    .unwrap();
 ```
 
 There is no background timer. Expiration is checked when a fallible access
 method is called. If the value has expired, the wrapped secret is cleared before
-returning `SecretExpiredError`. Full replacement with `replace_from_slice`
-restarts the lifetime window for the new value.
+returning `SecretExpiredError`. Full replacement with `replace_from_slice`,
+`replace_from_fn`, or `try_replace_from_fn` restarts the lifetime window for the
+new value. Fallible generated replacement keeps a still-live old value unchanged
+on generator error.
 
 ## Copying Secrets Into External APIs
 

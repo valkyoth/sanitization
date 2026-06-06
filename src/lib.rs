@@ -2385,6 +2385,22 @@ impl<const N: usize> ExpiringSecretBytes<N> {
         }
     }
 
+    /// Create an expiring secret by fallibly producing each byte directly.
+    ///
+    /// If `make_byte` returns an error, any bytes generated before the error
+    /// are cleared before the error is returned.
+    #[inline]
+    pub fn try_from_fn<E>(
+        max_age: std::time::Duration,
+        make_byte: impl FnMut(usize) -> Result<u8, E>,
+    ) -> Result<Self, E> {
+        Ok(Self {
+            inner: SecretBytes::try_from_fn(make_byte)?,
+            created_at: std::time::Instant::now(),
+            max_age,
+        })
+    }
+
     /// Wrap an existing [`SecretBytes<N>`] and start a new lifetime window.
     #[must_use]
     #[inline]
@@ -2442,6 +2458,51 @@ impl<const N: usize> ExpiringSecretBytes<N> {
         }
 
         self.inner.copy_from_slice(source)?;
+        self.created_at = std::time::Instant::now();
+        Ok(())
+    }
+
+    /// Replace all bytes from a generator and restart the lifetime window.
+    ///
+    /// If the previous value has already expired, it is cleared before the new
+    /// value is generated. If `make_byte` panics and the old value was still
+    /// live, the old value remains unchanged.
+    #[inline]
+    pub fn replace_from_fn(&mut self, make_byte: impl FnMut(usize) -> u8) {
+        let expired = self.is_expired();
+        if expired {
+            self.inner.secure_clear();
+        }
+
+        let replacement = SecretBytes::from_fn(make_byte);
+        if !expired {
+            self.inner.secure_clear();
+        }
+        self.inner = replacement;
+        self.created_at = std::time::Instant::now();
+    }
+
+    /// Replace all bytes from a fallible generator and restart the lifetime
+    /// window.
+    ///
+    /// If the old value is still live and generation fails, the old value
+    /// remains unchanged. If the old value has already expired, it is cleared
+    /// before generation and remains cleared if generation fails.
+    #[inline]
+    pub fn try_replace_from_fn<E>(
+        &mut self,
+        make_byte: impl FnMut(usize) -> Result<u8, E>,
+    ) -> Result<(), E> {
+        let expired = self.is_expired();
+        if expired {
+            self.inner.secure_clear();
+        }
+
+        let replacement = SecretBytes::try_from_fn(make_byte)?;
+        if !expired {
+            self.inner.secure_clear();
+        }
+        self.inner = replacement;
         self.created_at = std::time::Instant::now();
         Ok(())
     }
@@ -3309,6 +3370,63 @@ mod tests {
         secret.replace_from_slice(&[5, 6, 7, 8]).unwrap();
         assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
         assert_eq!(out, [5, 6, 7, 8]);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn expiring_secret_can_initialize_from_fallible_fn() {
+        let mut secret =
+            ExpiringSecretBytes::<4>::try_from_fn(std::time::Duration::from_secs(60), |index| {
+                Ok::<u8, &'static str>((index as u8) + 1)
+            })
+            .unwrap();
+        let mut out = [0; 4];
+
+        assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+        assert_eq!(out, [1, 2, 3, 4]);
+
+        assert_eq!(
+            ExpiringSecretBytes::<4>::try_from_fn(std::time::Duration::from_secs(60), |index| {
+                if index == 2 {
+                    Err("generation failed")
+                } else {
+                    Ok(index as u8)
+                }
+            })
+            .err(),
+            Some("generation failed")
+        );
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn expiring_secret_can_replace_from_fn() {
+        let mut secret =
+            ExpiringSecretBytes::<4>::from_array([1, 2, 3, 4], std::time::Duration::from_secs(60));
+        let mut out = [0; 4];
+
+        secret.replace_from_fn(|index| (index as u8) + 7);
+        assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+        assert_eq!(out, [7, 8, 9, 10]);
+
+        assert_eq!(
+            secret.try_replace_from_fn(|index| {
+                if index == 2 {
+                    Err("generation failed")
+                } else {
+                    Ok(index as u8)
+                }
+            }),
+            Err("generation failed")
+        );
+        assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+        assert_eq!(out, [7, 8, 9, 10]);
+
+        secret
+            .try_replace_from_fn(|index| Ok::<u8, &'static str>((index as u8) + 1))
+            .unwrap();
+        assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+        assert_eq!(out, [1, 2, 3, 4]);
     }
 
     #[test]
