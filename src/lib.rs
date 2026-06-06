@@ -3627,6 +3627,51 @@ mod tests {
         assert!(std::error::Error::source(&error).is_some());
     }
 
+    #[cfg(all(
+        feature = "std",
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn locked_secret_errors_expose_sources() {
+        let length = LockedSecretBytesError::Length(LengthError {
+            expected: 4,
+            actual: 2,
+        });
+        let memory = LockedSecretBytesError::Memory(MemoryLockError {
+            operation: MemoryLockOperation::Lock,
+            errno: 12,
+        });
+        let generated: LockedSecretBytesGenerateError<std::io::Error> =
+            LockedSecretBytesGenerateError::Generate(std::io::Error::other("generation failed"));
+
+        assert!(std::error::Error::source(&length).is_some());
+        assert!(std::error::Error::source(&memory).is_some());
+        assert!(std::error::Error::source(&generated).is_some());
+    }
+
+    #[cfg(all(
+        feature = "std",
+        feature = "guard-pages",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn guarded_secret_errors_expose_sources() {
+        let guarded: GuardedSecretVecGenerateError<std::io::Error> =
+            GuardedSecretVecGenerateError::Guard(GuardPageError {
+                operation: GuardPageOperation::Protect,
+                errno: 13,
+            });
+        let generated: GuardedSecretVecGenerateError<std::io::Error> =
+            GuardedSecretVecGenerateError::Generate(std::io::Error::other("generation failed"));
+
+        assert!(std::error::Error::source(&guarded).is_some());
+        assert!(std::error::Error::source(&generated).is_some());
+    }
+
     #[test]
     fn secret_bytes_round_trip_and_clear() {
         let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
