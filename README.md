@@ -274,8 +274,7 @@ and locked with `mlock`.
 ```rust
 use sanitization::LockedSecretBytes;
 
-let runtime_key = [7_u8; 32];
-let mut key = LockedSecretBytes::<32>::from_slice(&runtime_key).unwrap();
+let mut key = LockedSecretBytes::<32>::from_fn(|_| 7).unwrap();
 
 assert!(key.constant_time_eq(&[7; 32]));
 
@@ -291,8 +290,10 @@ assert!(key.constant_time_eq(&[0; 32]));
 bytes. It creates a private Linux mapping with `mmap`, marks that mapping with
 `MADV_DONTDUMP`, locks it with `mlock`, volatile-clears the full mapping on
 drop, then calls `munlock` and `munmap`.
-Use `from_slice` when loading bytes from a runtime buffer. `from_array` is still
-available for fixed arrays and clears its owned input array before returning.
+Use `from_fn` when bytes can be generated directly into locked storage. Use
+`from_slice` when loading bytes from an existing runtime buffer. `from_array` is
+still available for fixed arrays and clears its owned input array before
+returning.
 
 This feature is explicit because OS memory locking has platform limits. It can
 fail due to resource limits or policy. `MADV_DONTDUMP` reduces ordinary Linux

@@ -425,6 +425,24 @@ mod memory_lock {
             Ok(secret)
         }
 
+        /// Allocate locked storage and produce each byte directly into it.
+        ///
+        /// This avoids requiring a full temporary `[u8; N]` or input slice at
+        /// the call boundary. The private mapping is created, marked with
+        /// `MADV_DONTDUMP`, and locked with `mlock` before `make_byte` is
+        /// called.
+        #[inline]
+        pub fn from_fn(mut make_byte: impl FnMut(usize) -> u8) -> Result<Self, MemoryLockError> {
+            let mut secret = Self::zeroed()?;
+            let mut index = 0;
+            while index < N {
+                secret.as_mut_slice()[index] = make_byte(index);
+                index += 1;
+            }
+            compiler_fence(Ordering::SeqCst);
+            Ok(secret)
+        }
+
         /// Number of secret bytes stored in the locked mapping.
         #[must_use]
         #[inline]
@@ -3076,6 +3094,24 @@ mod tests {
                 actual: 2,
             }))
         );
+
+        secret.secure_clear();
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn locked_secret_bytes_can_initialize_from_fn() {
+        let mut secret = LockedSecretBytes::<4>::from_fn(|index| (index as u8) + 1).unwrap();
+        let mut out = [0; 4];
+
+        assert!(secret.copy_to_slice(&mut out).is_ok());
+        assert_eq!(out, [1, 2, 3, 4]);
+        assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
 
         secret.secure_clear();
     }

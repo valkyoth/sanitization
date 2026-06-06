@@ -30,8 +30,7 @@ fn main() {
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     {
-        let source = [9_u8; 32];
-        let mut key = LockedSecretBytes::<32>::from_slice(&source).unwrap();
+        let mut key = LockedSecretBytes::<32>::from_fn(|_| 9).unwrap();
         assert!(key.constant_time_eq(&[9; 32]));
         key.secure_clear();
     }
