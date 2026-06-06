@@ -1,22 +1,19 @@
 #![no_std]
-#![cfg_attr(not(feature = "unsafe-wipe"), forbid(unsafe_code))]
-#![cfg_attr(feature = "unsafe-wipe", deny(unsafe_code))]
-#![cfg_attr(feature = "unsafe-wipe", deny(unsafe_op_in_unsafe_fn))]
+#![deny(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 //! Dependency-free secret memory sanitization for `no_std` Rust.
 //!
-//! Default builds contain no unsafe code. The primary type is [`SecretBytes`],
-//! a fixed-size clear-on-drop container designed for secrets that are controlled
-//! from creation through destruction.
+//! The primary type is [`SecretBytes`], a fixed-size clear-on-drop container
+//! designed for secrets that are controlled from creation through destruction.
 //!
-//! The optional `unsafe-wipe` feature exposes [`unsafe_wipe`], an explicit
-//! volatile-write backend for ordinary mutable buffers. It is not enabled by
-//! default and is not wired into [`SecureSanitize`] implicitly; call sites must
-//! opt in by module and function name.
+//! Clearing routes through a small internal volatile-write backend. That backend
+//! uses one isolated unsafe boundary so the optimizer cannot remove secret
+//! clearing as a dead store.
 //!
 //! Important limits:
-//! - Safe Rust cannot perform volatile writes to arbitrary `&mut [u8]`.
 //! - Safe Rust cannot soundly scrub old stack frames created by prior moves.
+//! - Process abort prevents destructors and post-closure cleanup from running.
 //! - Cache flush instructions, SIMD stores, memory locking, and assembly need
 //!   target-specific unsafe code and platform policy.
 
@@ -28,12 +25,8 @@ extern crate std;
 
 #[cfg(feature = "alloc")]
 use alloc::{string::String, vec::Vec};
-#[cfg(not(target_has_atomic = "8"))]
-use core::cell::Cell;
 #[cfg(feature = "alloc")]
 use core::str::Utf8Error;
-#[cfg(target_has_atomic = "8")]
-use core::sync::atomic::{fence, AtomicU8};
 use core::{
     fmt,
     hint::black_box,
@@ -154,36 +147,59 @@ macro_rules! secure_drop_struct {
     };
 }
 
-/// Best-effort clearing for ordinary mutable byte slices.
+#[allow(unsafe_code)]
+mod wipe {
+    use core::{
+        ptr,
+        sync::atomic::{compiler_fence, fence, Ordering},
+    };
+
+    #[inline(never)]
+    pub(crate) fn volatile_wipe(ptr: *mut u8, len: usize) {
+        compiler_fence(Ordering::SeqCst);
+
+        let mut offset = 0;
+        while offset < len {
+            // SAFETY: Callers pass a pointer and length from either a live
+            // mutable byte slice or the full capacity of an owned contiguous
+            // allocation. Each computed address is allocated and writable for a
+            // single byte, including spare capacity, and is never read through
+            // this pointer.
+            unsafe {
+                ptr::write_volatile(ptr.add(offset), 0);
+            }
+            offset += 1;
+        }
+
+        compiler_fence(Ordering::SeqCst);
+        fence(Ordering::SeqCst);
+    }
+}
+
+/// Clear ordinary mutable bytes with volatile writes.
 ///
-/// This function exists for safe-only integration edges. It cannot provide the
-/// same optimizer resistance as volatile writes because safe Rust has no
-/// volatile slice-write primitive. Prefer [`SecretBytes`] for new secret
-/// storage. If you need volatile clearing for ordinary memory, enable the
-/// `unsafe-wipe` feature and call [`unsafe_wipe::volatile_sanitize_bytes`].
+/// This is the default clearing primitive used by this crate. It uses a small
+/// internal unsafe boundary around [`core::ptr::write_volatile`] so the
+/// optimizer cannot remove clearing as a dead store.
+#[inline(never)]
+pub fn sanitize_bytes(bytes: &mut [u8]) {
+    wipe::volatile_wipe(bytes.as_mut_ptr(), bytes.len());
+}
+
+/// Compatibility alias for [`sanitize_bytes`].
 ///
-/// Link-time optimization can make dead-store analysis stronger across crate
-/// boundaries. Treat this path as cleanup hygiene, not as an
-/// optimizer-resistant wipe. Use `unsafe-wipe` for that boundary.
+/// Older release candidates exposed this function as a safe best-effort clear.
+/// It now uses the same volatile clear backend as the rest of the crate.
 #[inline(never)]
 pub fn sanitize_bytes_best_effort(bytes: &mut [u8]) {
-    compiler_fence(Ordering::SeqCst);
-    bytes.fill(0);
-    black_box(bytes);
-    compiler_fence(Ordering::SeqCst);
+    sanitize_bytes(bytes);
 }
 
 #[cfg(feature = "alloc")]
 #[inline(never)]
-fn sanitize_vec_capacity_best_effort(bytes: &mut Vec<u8>) {
-    sanitize_bytes_best_effort(bytes.as_mut_slice());
-    compiler_fence(Ordering::SeqCst);
-    for byte in bytes.spare_capacity_mut() {
-        byte.write(0);
-    }
-    black_box(bytes.spare_capacity_mut());
+fn sanitize_vec_capacity(bytes: &mut Vec<u8>) {
+    wipe::volatile_wipe(bytes.as_mut_ptr(), bytes.capacity());
     bytes.clear();
-    compiler_fence(Ordering::SeqCst);
 }
 
 #[cfg(feature = "alloc")]
@@ -229,16 +245,14 @@ struct TemporaryBytes<'a, const N: usize> {
 impl<const N: usize> Drop for TemporaryBytes<'_, N> {
     #[inline]
     fn drop(&mut self) {
-        sanitize_bytes_best_effort(self.bytes);
+        sanitize_bytes(self.bytes);
     }
 }
 
-#[cfg(feature = "unsafe-wipe")]
 struct VolatileTemporaryBytes<'a, const N: usize> {
     bytes: &'a mut [u8; N],
 }
 
-#[cfg(feature = "unsafe-wipe")]
 impl<const N: usize> Drop for VolatileTemporaryBytes<'_, N> {
     #[inline]
     fn drop(&mut self) {
@@ -248,30 +262,20 @@ impl<const N: usize> Drop for VolatileTemporaryBytes<'_, N> {
 
 /// Fixed-size secret byte storage with automatic sanitization on drop.
 ///
-/// On targets with 8-bit atomics, each byte is stored as an [`AtomicU8`].
-/// Atomic stores are observable side effects, giving a safe, dependency-free
-/// clear path without raw pointers or volatile writes. On targets without
-/// 8-bit atomics the type remains available through safe [`core::cell::Cell`]
-/// storage, but clearing cannot claim the same optimizer resistance as the
-/// atomic path.
+/// Bytes are stored in a plain `[u8; N]` and all clearing routes through the
+/// crate's internal volatile wipe backend. This gives the same clearing behavior
+/// on targets with and without native byte atomics.
 ///
 /// # Platform Notes
 ///
-/// On targets with 8-bit atomics (`target_has_atomic = "8"`), this type is
-/// `Sync` and can be shared across threads for read-only access. Mutating and
+/// This type is `Sync` because it contains only plain bytes. Mutating and
 /// clearing operations require `&mut self` to prevent partially-cleared
-/// multi-byte observations through shared references. On targets without 8-bit
-/// atomics, this type uses [`core::cell::Cell`] and is `!Sync`, so static or
-/// cross-thread sharing patterns that compile on server targets may not compile
-/// on no-atomic embedded targets.
+/// multi-byte observations through shared references.
 ///
 /// The type deliberately does not implement `Clone`, `Copy`, `Deref`,
 /// `AsRef<[u8]>`, `PartialEq`, or secret-printing `Debug`.
 pub struct SecretBytes<const N: usize> {
-    #[cfg(target_has_atomic = "8")]
-    bytes: [AtomicU8; N],
-    #[cfg(not(target_has_atomic = "8"))]
-    bytes: [Cell<u8>; N],
+    bytes: [u8; N],
 }
 
 impl<const N: usize> SecretBytes<N> {
@@ -279,15 +283,10 @@ impl<const N: usize> SecretBytes<N> {
     #[must_use]
     #[inline]
     pub const fn zeroed() -> Self {
-        Self {
-            #[cfg(target_has_atomic = "8")]
-            bytes: [const { AtomicU8::new(0) }; N],
-            #[cfg(not(target_has_atomic = "8"))]
-            bytes: [const { Cell::new(0) }; N],
-        }
+        Self { bytes: [0; N] }
     }
 
-    /// Create a secret from an array, then best-effort clear the input array.
+    /// Create a secret from an array, then volatile-clear the input array.
     ///
     /// For the strongest move hygiene, prefer [`SecretBytes::from_fn`] or
     /// [`SecretBytes::copy_from_slice`] so callers can avoid building a normal
@@ -300,7 +299,7 @@ impl<const N: usize> SecretBytes<N> {
             secret.store(index, byte);
         }
         secret.after_secret_write();
-        sanitize_bytes_best_effort(&mut bytes);
+        sanitize_bytes(&mut bytes);
         secret
     }
 
@@ -429,11 +428,9 @@ impl<const N: usize> SecretBytes<N> {
 
     /// Call a closure with a temporary array copy, then volatile-clear that copy.
     ///
-    /// This is available only with the explicit `unsafe-wipe` feature. The
-    /// temporary stack copy is cleared with volatile writes on normal return and
-    /// during unwinding. Like all destructor-based cleanup, it cannot run if the
-    /// process aborts, including `panic = "abort"`.
-    #[cfg(feature = "unsafe-wipe")]
+    /// The temporary stack copy is cleared with volatile writes on normal return
+    /// and during unwinding. Like all destructor-based cleanup, it cannot run if
+    /// the process aborts, including `panic = "abort"`.
     #[inline]
     pub fn expose_secret_volatile<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
         let mut temporary = [0; N];
@@ -487,57 +484,21 @@ impl<const N: usize> SecretBytes<N> {
     /// Clear all bytes now. This is also called from `Drop`.
     #[inline(never)]
     pub fn secure_clear(&mut self) {
-        compiler_fence(Ordering::SeqCst);
-
-        #[cfg(target_has_atomic = "8")]
-        {
-            for byte in &self.bytes {
-                byte.store(0, Ordering::SeqCst);
-            }
-            fence(Ordering::SeqCst);
-        }
-
-        #[cfg(not(target_has_atomic = "8"))]
-        {
-            for byte in &self.bytes {
-                byte.set(0);
-            }
-        }
-
-        compiler_fence(Ordering::SeqCst);
+        wipe::volatile_wipe(self.bytes.as_mut_ptr(), N);
     }
 
     #[inline]
     fn load(&self, index: usize) -> u8 {
-        #[cfg(target_has_atomic = "8")]
-        {
-            self.bytes[index].load(Ordering::SeqCst)
-        }
-
-        #[cfg(not(target_has_atomic = "8"))]
-        {
-            self.bytes[index].get()
-        }
+        self.bytes[index]
     }
 
     #[inline]
     fn store(&mut self, index: usize, value: u8) {
-        #[cfg(target_has_atomic = "8")]
-        {
-            self.bytes[index].store(value, Ordering::SeqCst);
-        }
-
-        #[cfg(not(target_has_atomic = "8"))]
-        {
-            self.bytes[index].set(value);
-        }
+        self.bytes[index] = value;
     }
 
     #[inline]
     fn after_secret_write(&self) {
-        #[cfg(target_has_atomic = "8")]
-        fence(Ordering::SeqCst);
-
         compiler_fence(Ordering::SeqCst);
     }
 }
@@ -573,50 +534,31 @@ impl<const N: usize> fmt::Debug for SecretBytes<N> {
     }
 }
 
-#[cfg(feature = "alloc")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum HeapWipeMode {
-    BestEffort,
-    #[cfg(feature = "unsafe-wipe")]
-    Volatile,
-}
-
 /// Heap-allocated secret bytes with clear-on-drop behavior.
 ///
 /// This type is available with the `alloc` feature. It is intended for
 /// integration boundaries where the secret length is dynamic, such as decoded
-/// tokens or PEM/DER material. The default constructor uses safe best-effort
-/// clearing. With the `unsafe-wipe` feature, [`SecretVec::new_volatile`] opts
-/// this specific value into volatile clearing on drop.
+/// tokens or PEM/DER material. Clearing uses volatile writes over the full
+/// allocation capacity before the vector length is set to zero.
 #[cfg(feature = "alloc")]
 pub struct SecretVec {
     inner: Vec<u8>,
-    wipe: HeapWipeMode,
 }
 
 #[cfg(feature = "alloc")]
 impl SecretVec {
-    /// Wrap a vector using safe best-effort clearing on drop.
+    /// Wrap a vector using volatile clearing on drop.
     #[must_use]
     #[inline]
     pub const fn new(inner: Vec<u8>) -> Self {
-        Self {
-            inner,
-            wipe: HeapWipeMode::BestEffort,
-        }
+        Self { inner }
     }
 
-    /// Wrap a vector using volatile clearing on drop.
-    ///
-    /// Requires the `unsafe-wipe` feature.
-    #[cfg(feature = "unsafe-wipe")]
+    /// Compatibility alias for [`SecretVec::new`].
     #[must_use]
     #[inline]
     pub const fn new_volatile(inner: Vec<u8>) -> Self {
-        Self {
-            inner,
-            wipe: HeapWipeMode::Volatile,
-        }
+        Self::new(inner)
     }
 
     /// Create an empty secret vector.
@@ -633,15 +575,11 @@ impl SecretVec {
         Self::new(Vec::with_capacity(capacity))
     }
 
-    /// Create an empty volatile-wiping secret vector with at least the
-    /// requested capacity.
-    ///
-    /// Requires the `unsafe-wipe` feature.
-    #[cfg(feature = "unsafe-wipe")]
+    /// Compatibility alias for [`SecretVec::with_capacity`].
     #[must_use]
     #[inline]
     pub fn with_capacity_volatile(capacity: usize) -> Self {
-        Self::new_volatile(Vec::with_capacity(capacity))
+        Self::with_capacity(capacity)
     }
 
     /// Create a secret vector by copying bytes from a slice.
@@ -651,14 +589,11 @@ impl SecretVec {
         Self::new(Vec::from(bytes))
     }
 
-    /// Create a volatile-wiping secret vector by copying bytes from a slice.
-    ///
-    /// Requires the `unsafe-wipe` feature.
-    #[cfg(feature = "unsafe-wipe")]
+    /// Compatibility alias for [`SecretVec::from_slice`].
     #[must_use]
     #[inline]
     pub fn from_slice_volatile(bytes: &[u8]) -> Self {
-        Self::new_volatile(Vec::from(bytes))
+        Self::from_slice(bytes)
     }
 
     /// Number of bytes currently held.
@@ -698,18 +633,10 @@ impl SecretVec {
         self.inner.extend_from_slice(bytes);
     }
 
-    /// Clear this value immediately using its configured wipe mode.
+    /// Clear this value immediately with volatile writes.
     #[inline(never)]
     pub fn clear_secret(&mut self) {
-        match self.wipe {
-            HeapWipeMode::BestEffort => {
-                sanitize_vec_capacity_best_effort(&mut self.inner);
-            }
-            #[cfg(feature = "unsafe-wipe")]
-            HeapWipeMode::Volatile => {
-                crate::unsafe_wipe::volatile_sanitize_vec(&mut self.inner);
-            }
-        }
+        sanitize_vec_capacity(&mut self.inner);
     }
 
     /// Compare against a byte slice without early exit for equal-length inputs.
@@ -772,49 +699,37 @@ impl fmt::Debug for SecretVec {
 /// Heap-allocated secret UTF-8 text with clear-on-drop behavior.
 ///
 /// This type is available with the `alloc` feature. Use it for bearer tokens,
-/// passphrases, and textual secrets that must cross APIs as UTF-8. The default
-/// constructor uses safe best-effort clearing. With the `unsafe-wipe` feature,
-/// [`SecretString::new_volatile`] opts this specific value into volatile
-/// clearing on drop.
+/// passphrases, and textual secrets that must cross APIs as UTF-8. Clearing
+/// uses volatile writes over the full allocation capacity before the internal
+/// byte vector length is set to zero.
 #[cfg(feature = "alloc")]
 pub struct SecretString {
     inner: Vec<u8>,
-    wipe: HeapWipeMode,
 }
 
 #[cfg(feature = "alloc")]
 impl SecretString {
-    /// Wrap a string using safe best-effort clearing on drop.
+    /// Wrap a string using volatile clearing on drop.
     #[must_use]
     #[inline]
     pub fn new(inner: String) -> Self {
         Self {
             inner: inner.into_bytes(),
-            wipe: HeapWipeMode::BestEffort,
         }
     }
 
-    /// Wrap a string using volatile clearing on drop.
-    ///
-    /// Requires the `unsafe-wipe` feature.
-    #[cfg(feature = "unsafe-wipe")]
+    /// Compatibility alias for [`SecretString::new`].
     #[must_use]
     #[inline]
     pub fn new_volatile(inner: String) -> Self {
-        Self {
-            inner: inner.into_bytes(),
-            wipe: HeapWipeMode::Volatile,
-        }
+        Self::new(inner)
     }
 
     /// Create an empty secret string.
     #[must_use]
     #[inline]
     pub const fn empty() -> Self {
-        Self {
-            inner: Vec::new(),
-            wipe: HeapWipeMode::BestEffort,
-        }
+        Self { inner: Vec::new() }
     }
 
     /// Create an empty secret string with at least the requested byte capacity.
@@ -823,22 +738,14 @@ impl SecretString {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             inner: Vec::with_capacity(capacity),
-            wipe: HeapWipeMode::BestEffort,
         }
     }
 
-    /// Create an empty volatile-wiping secret string with at least the requested
-    /// byte capacity.
-    ///
-    /// Requires the `unsafe-wipe` feature.
-    #[cfg(feature = "unsafe-wipe")]
+    /// Compatibility alias for [`SecretString::with_capacity`].
     #[must_use]
     #[inline]
     pub fn with_capacity_volatile(capacity: usize) -> Self {
-        Self {
-            inner: Vec::with_capacity(capacity),
-            wipe: HeapWipeMode::Volatile,
-        }
+        Self::with_capacity(capacity)
     }
 
     /// Create a secret string by copying from a string slice.
@@ -847,21 +754,14 @@ impl SecretString {
     pub fn from_secret_str(text: &str) -> Self {
         Self {
             inner: Vec::from(text.as_bytes()),
-            wipe: HeapWipeMode::BestEffort,
         }
     }
 
-    /// Create a volatile-wiping secret string by copying from a string slice.
-    ///
-    /// Requires the `unsafe-wipe` feature.
-    #[cfg(feature = "unsafe-wipe")]
+    /// Compatibility alias for [`SecretString::from_secret_str`].
     #[must_use]
     #[inline]
     pub fn from_secret_str_volatile(text: &str) -> Self {
-        Self {
-            inner: Vec::from(text.as_bytes()),
-            wipe: HeapWipeMode::Volatile,
-        }
+        Self::from_secret_str(text)
     }
 
     /// Number of bytes currently held.
@@ -904,18 +804,10 @@ impl SecretString {
         self.inner.extend_from_slice(text.as_bytes());
     }
 
-    /// Clear this value immediately using its configured wipe mode.
+    /// Clear this value immediately with volatile writes.
     #[inline(never)]
     pub fn clear_secret(&mut self) {
-        match self.wipe {
-            HeapWipeMode::BestEffort => {
-                sanitize_vec_capacity_best_effort(&mut self.inner);
-            }
-            #[cfg(feature = "unsafe-wipe")]
-            HeapWipeMode::Volatile => {
-                crate::unsafe_wipe::volatile_sanitize_vec(&mut self.inner);
-            }
-        }
+        sanitize_vec_capacity(&mut self.inner);
     }
 
     /// Compare against UTF-8 text without early exit for equal-length inputs.
@@ -984,10 +876,10 @@ impl fmt::Debug for SecretString {
 /// # Clearing Strength
 ///
 /// When `T = [u8; N]`, this wrapper clears through [`SecureSanitize`] for byte
-/// arrays, which currently delegates to [`sanitize_bytes_best_effort`]. That is
-/// useful cleanup hygiene but is weaker than [`SecretBytes<N>`]. For fixed-size
-/// byte secrets, prefer [`SecretBytes<N>`], whose crate-owned storage clears
-/// with atomic stores on targets with 8-bit atomics.
+/// arrays, which uses the same volatile byte clearing primitive as the rest of
+/// the crate. For fixed-size byte secrets, still prefer [`SecretBytes<N>`],
+/// which avoids implementing `Clone`, `Copy`, `Deref`, `AsRef<[u8]>`, or
+/// secret-printing `Debug`.
 pub struct Secret<T: SecureSanitize> {
     inner: T,
 }
@@ -1037,25 +929,14 @@ impl<T: SecureSanitize> fmt::Debug for Secret<T> {
 
 /// Explicit volatile-write backend for ordinary mutable buffers.
 ///
-/// This module only exists with the `unsafe-wipe` feature. It contains the
-/// crate's unsafe implementation details and leaves the default safe API
-/// unchanged. Use it at integration boundaries where secrets already live in
-/// ordinary memory and best-effort safe clearing is not sufficient.
-#[cfg(feature = "unsafe-wipe")]
-#[allow(unsafe_code)]
+/// This module is kept as a named integration boundary for callers that need to
+/// clear ordinary buffers directly. The unsafe implementation details live in a
+/// private internal module; these APIs are safe wrappers around that backend.
 pub mod unsafe_wipe {
-    use core::{
-        ptr,
-        sync::atomic::{compiler_fence, fence, Ordering},
-    };
-
     #[cfg(feature = "alloc")]
     use alloc::{string::String, vec::Vec};
 
     /// Trait for values that should be cleared with volatile byte writes.
-    ///
-    /// This trait is intentionally separate from [`crate::SecureSanitize`] so
-    /// enabling `unsafe-wipe` cannot silently alter ordinary safe sanitization.
     pub trait VolatileSanitize {
         /// Clear this value using volatile byte stores where possible.
         fn volatile_sanitize(&mut self);
@@ -1064,7 +945,7 @@ pub mod unsafe_wipe {
     /// Clear a mutable byte slice using volatile writes.
     #[inline(never)]
     pub fn volatile_sanitize_bytes(bytes: &mut [u8]) {
-        volatile_wipe_raw(bytes.as_mut_ptr(), bytes.len());
+        crate::wipe::volatile_wipe(bytes.as_mut_ptr(), bytes.len());
     }
 
     /// Clear a fixed-size byte array using volatile writes.
@@ -1074,12 +955,10 @@ pub mod unsafe_wipe {
     }
 
     /// Clear a `Vec<u8>` using volatile writes, then set its length to zero.
-    ///
-    /// Requires the `alloc` feature in addition to `unsafe-wipe`.
     #[cfg(feature = "alloc")]
     #[inline(never)]
     pub fn volatile_sanitize_vec(bytes: &mut Vec<u8>) {
-        volatile_wipe_raw(bytes.as_mut_ptr(), bytes.capacity());
+        crate::wipe::volatile_wipe(bytes.as_mut_ptr(), bytes.capacity());
         bytes.clear();
     }
 
@@ -1088,11 +967,10 @@ pub mod unsafe_wipe {
     /// Zero bytes are valid UTF-8, so the string remains valid during clearing.
     /// The full allocation capacity is wiped, including spare capacity beyond
     /// the current string length.
-    /// Requires the `alloc` feature in addition to `unsafe-wipe`.
     #[cfg(feature = "alloc")]
     #[inline(never)]
     pub fn volatile_sanitize_string(text: &mut String) {
-        volatile_wipe_raw(text.as_mut_ptr(), text.capacity());
+        crate::wipe::volatile_wipe(text.as_mut_ptr(), text.capacity());
         text.clear();
     }
 
@@ -1176,26 +1054,6 @@ pub mod unsafe_wipe {
                 .finish()
         }
     }
-
-    #[inline(never)]
-    fn volatile_wipe_raw(ptr: *mut u8, len: usize) {
-        compiler_fence(Ordering::SeqCst);
-
-        let mut offset = 0;
-        while offset < len {
-            // SAFETY: The pointer and length come from a live mutable slice or
-            // the full capacity of an owned contiguous allocation. Each
-            // computed address is allocated and writable for a single byte,
-            // including spare capacity, and is never read through this pointer.
-            unsafe {
-                ptr::write_volatile(ptr.add(offset), 0);
-            }
-            offset += 1;
-        }
-
-        compiler_fence(Ordering::SeqCst);
-        fence(Ordering::SeqCst);
-    }
 }
 
 #[cfg(test)]
@@ -1241,7 +1099,6 @@ mod tests {
         assert!(!left.constant_time_eq_secret(&different));
     }
 
-    #[cfg(feature = "unsafe-wipe")]
     #[test]
     fn volatile_exposure_returns_closure_result() {
         let secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
@@ -1384,9 +1241,8 @@ mod tests {
         assert!(secret.inner.capacity() >= initial_capacity.saturating_mul(2));
     }
 
-    #[cfg(feature = "unsafe-wipe")]
     #[test]
-    fn volatile_wipe_clears_slice_when_feature_enabled() {
+    fn volatile_wipe_clears_slice() {
         let mut bytes = [0xA5; 16];
 
         crate::unsafe_wipe::volatile_sanitize_bytes(&mut bytes);
@@ -1394,7 +1250,7 @@ mod tests {
         assert_eq!(bytes, [0; 16]);
     }
 
-    #[cfg(all(feature = "unsafe-wipe", feature = "alloc"))]
+    #[cfg(feature = "alloc")]
     #[test]
     fn volatile_wipe_clears_alloc_types_when_enabled() {
         let mut bytes = std::vec![0xBB; 8];
@@ -1407,7 +1263,6 @@ mod tests {
         assert!(text.is_empty());
     }
 
-    #[cfg(feature = "unsafe-wipe")]
     #[test]
     fn volatile_on_drop_wrapper_is_explicit() {
         let mut secret = crate::unsafe_wipe::VolatileOnDrop::new([1, 2, 3, 4]);
@@ -1419,9 +1274,9 @@ mod tests {
         secret.into_cleared();
     }
 
-    #[cfg(all(feature = "unsafe-wipe", feature = "alloc"))]
+    #[cfg(feature = "alloc")]
     #[test]
-    fn heap_secrets_can_opt_into_volatile_mode() {
+    fn volatile_constructor_aliases_still_work() {
         let mut bytes = SecretVec::from_slice_volatile(&[1, 2, 3]);
         let mut text = SecretString::from_secret_str_volatile("secret");
 

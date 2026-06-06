@@ -30,6 +30,8 @@ pulling in `zeroize` or a proc-macro dependency by default. The main design is
 architectural: keep secrets inside redacted, non-`Copy`, non-`Clone`,
 clear-on-drop containers from creation, and use explicit opt-in APIs when an
 ordinary buffer must be wiped.
+Every crate clearing path uses volatile writes by default through one audited
+internal unsafe boundary.
 
 ## Current Status
 
@@ -41,12 +43,12 @@ Implemented now:
 
 - `no_std` default build.
 - zero runtime dependencies.
-- no unsafe code in default builds.
+- one audited internal unsafe boundary for volatile clearing.
 - `SecretBytes<N>` for fixed-size secrets.
 - `Secret<T>` for custom sanitizable values.
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
 - optional `alloc` support with `SecretVec` and `SecretString`.
-- optional `unsafe-wipe` volatile backend for existing ordinary buffers.
+- explicit volatile helper APIs for existing ordinary buffers.
 - redacted `Debug` for secret-owning wrapper types.
 - clear-on-drop behavior for crate-owned secret containers.
 - local CI/check script and GitHub workflow.
@@ -60,8 +62,8 @@ Implemented now:
 | MSRV | Rust `1.90.0` |
 | Default target | `no_std` |
 | Runtime dependencies | zero external crates |
-| Default unsafe policy | `#![forbid(unsafe_code)]` |
-| Optional unsafe | only behind `unsafe-wipe`, isolated in `unsafe_wipe` |
+| Unsafe policy | `#![deny(unsafe_code)]` at crate root, one audited wipe module |
+| Clear primitive | volatile writes by default |
 | Heap support | `alloc` feature |
 | Proc macros | none |
 | Main guarantee | narrow ownership, redaction, and clear-on-drop hygiene |
@@ -94,29 +96,18 @@ Compatibility evidence:
 
 ```toml
 [dependencies]
-sanitization = "1.0.0-rc.4"
+sanitization = "1.0.0-rc.5"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.4", features = ["alloc"] }
+sanitization = { version = "1.0.0-rc.5", features = ["alloc"] }
 ```
 
-For explicit volatile wiping of ordinary buffers:
-
-```toml
-[dependencies]
-sanitization = { version = "1.0.0-rc.4", features = ["unsafe-wipe"] }
-```
-
-For heap containers plus volatile wiping:
-
-```toml
-[dependencies]
-sanitization = { version = "1.0.0-rc.4", features = ["alloc", "unsafe-wipe"] }
-```
+The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
+release-candidate dependency declarations. Volatile clearing is now the default.
 
 ## Features
 
@@ -124,9 +115,9 @@ sanitization = { version = "1.0.0-rc.4", features = ["alloc", "unsafe-wipe"] }
 | --- | --- | --- |
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Currently aliases `alloc` for downstream convenience. |
-| `unsafe-wipe` | no | Enables explicit volatile wiping APIs for ordinary buffers. |
+| `unsafe-wipe` | no | Compatibility no-op; volatile wiping is default. |
 
-Default builds are dependency-free, `no_std`, and forbid unsafe code.
+Default builds are dependency-free and `no_std`.
 
 ## Fixed-Size Secrets
 
@@ -169,9 +160,9 @@ let first_byte = key.expose_secret(|bytes| {
 assert_eq!(first_byte, 7);
 ```
 
-With `unsafe-wipe`, `expose_secret_volatile` uses volatile writes for the
-temporary stack copy on normal return and unwinding paths. It still cannot clear
-the copy if the process aborts.
+`expose_secret_volatile` is an explicit alias for callers that want the
+volatile-clearing behavior visible at the call site. Like `expose_secret`, it
+cannot clear the temporary stack copy if the process aborts.
 
 ```rust
 use sanitization::SecretBytes;
@@ -304,9 +295,8 @@ pair.with_secret_mut(|value| value.left[0] = 9);
 
 ## Explicit Volatile Wiping
 
-Safe Rust cannot volatile-wipe arbitrary existing memory. If a secret already
-lives in an ordinary buffer, enable `unsafe-wipe` and call the volatile backend
-explicitly.
+If a secret already lives in an ordinary buffer, call the volatile helper
+directly.
 
 ```rust
 use sanitization::unsafe_wipe::volatile_sanitize_bytes;
@@ -316,7 +306,7 @@ volatile_sanitize_bytes(&mut bytes);
 assert_eq!(bytes, [0; 32]);
 ```
 
-With `alloc` and `unsafe-wipe`, `Vec<u8>` and `String` helpers are available:
+With `alloc`, `Vec<u8>` and `String` helpers are available:
 
 ```rust
 use sanitization::unsafe_wipe::{volatile_sanitize_string, volatile_sanitize_vec};
@@ -382,13 +372,13 @@ provide complete process-memory secrecy.
 
 Important limits:
 
-- Safe Rust cannot volatile-wipe arbitrary existing memory.
+- Volatile wiping requires the crate's internal unsafe boundary; safe Rust alone
+  cannot express volatile byte stores.
 - Safe Rust cannot soundly scrub old stack frames from previous moves.
 - `panic = "abort"` prevents destructors from running and prevents closure
   helpers from clearing temporary stack copies after a panic.
-- Whole-program optimization and LTO can weaken best-effort safe cleanup. Use
-  the explicit `unsafe-wipe` feature when optimizer-resistant clearing of
-  ordinary memory is required.
+- Volatile writes prevent the intended clear operation from being optimized away,
+  but cannot clear copies made elsewhere before data enters the container.
 - CPU cache flushes, SIMD clearing, platform memory locking, guard pages, and
   inline assembly require target-specific unsafe code and are intentionally not
   part of the default API.

@@ -43,36 +43,40 @@ crates.
 
 ### 1. Make Volatile Wiping the Default Clear Path
 
-The current `unsafe-wipe` feature creates two clearing tiers:
+Status: implemented in `1.0.0-rc.5`.
+
+Earlier release candidates had two clearing tiers:
 
 - default safe best-effort clearing;
 - opt-in volatile clearing.
 
-That split is honest, but it is easy for users to miss. Before `1.0.0`, the
-planned direction is to make optimizer-resistant volatile clearing the normal
-clear path for secret-owned memory.
+That split was honest, but it was easy for users to miss. The crate now uses
+optimizer-resistant volatile clearing as the normal clear path for secret-owned
+memory and ordinary byte-slice sanitization.
 
 Expected shape:
 
-- Move the volatile wipe backend into one small internal module.
-- Keep the unsafe code isolated and audited.
-- Route byte-slice, heap-capacity, and temporary-copy clearing through that
+- The volatile wipe backend lives in one small internal module.
+- Unsafe code remains isolated and audited.
+- Byte-slice, heap-capacity, and temporary-copy clearing route through that
   backend where applicable.
-- Remove or repurpose `unsafe-wipe` so users do not need to opt in for serious
-  clearing.
+- `unsafe-wipe` remains as a no-op compatibility feature for older
+  release-candidate dependency declarations.
 
 ### 2. Simplify `SecretBytes<N>` Storage
 
-`SecretBytes<N>` currently uses atomic byte storage on targets with 8-bit
-atomics and falls back on non-atomic storage elsewhere. That is defensible, but
-it is surprising and creates target-dependent clearing behavior.
+Status: implemented in `1.0.0-rc.5`.
+
+Earlier release candidates used atomic byte storage on targets with 8-bit
+atomics and fell back on non-atomic storage elsewhere. That was defensible, but
+surprising and target-dependent.
 
 Planned direction:
 
-- Store fixed-size bytes as `[u8; N]`.
-- Keep mutation behind `&mut self`.
-- Clear with the same internal volatile wipe path used by other byte buffers.
-- Re-evaluate `Sync` explicitly during the implementation.
+- Fixed-size bytes are stored as `[u8; N]`.
+- Mutation remains behind `&mut self`.
+- Clearing uses the same internal volatile wipe path as other byte buffers.
+- `Sync` follows from plain byte storage instead of interior mutability.
 
 This should make behavior easier to audit and more consistent across embedded
 and server targets.
@@ -247,22 +251,19 @@ than the default API.
 
 If resources are limited, the implementation order should be:
 
-1. Make volatile clearing the default path.
-2. Simplify `SecretBytes<N>` storage and clearing.
-3. Rework or remove the `unsafe-wipe` feature split.
-4. Add stronger verification around the unsafe wipe and comparison paths.
-5. Evaluate dependency-free memory locking.
-6. Evaluate assembly-backed comparison on major targets.
-7. Evaluate cache eviction and guard pages as explicit hardening features.
-8. Evaluate secret lifetime enforcement as a `std` policy feature.
+1. Add stronger verification around the unsafe wipe and comparison paths.
+2. Evaluate dependency-free memory locking.
+3. Evaluate assembly-backed comparison on major targets.
+4. Evaluate cache eviction and guard pages as explicit hardening features.
+5. Evaluate secret lifetime enforcement as a `std` policy feature.
 
 ## Stable Release Bar
 
 Do not tag `1.0.0` until:
 
-- the volatile default clearing architecture is implemented;
-- `SecretBytes<N>` storage behavior is settled;
-- the `unsafe-wipe` feature split is removed, renamed, or clearly justified;
+- the volatile default clearing architecture remains implemented and documented;
+- `SecretBytes<N>` storage behavior remains settled;
+- the `unsafe-wipe` compatibility feature remains clearly documented;
 - README, SAFETY, SECURITY, and THREAT_MODEL match the final design;
 - the roadmap clearly marks post-`1.0.0` high-assurance features as optional
   rather than stable guarantees;

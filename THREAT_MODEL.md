@@ -9,11 +9,10 @@ Rust applications.
 - Avoiding accidental `Copy`, `Clone`, direct slice exposure, equality, and
   secret-printing `Debug` implementations for crate-owned secret types.
 - Closure-based accessors that keep normal use sites narrow.
-- Best-effort safe clearing for ordinary mutable byte slices.
-- Best-effort clearing of `SecretVec` and `SecretString` initialized bytes and
+- Volatile clearing for ordinary mutable byte slices.
+- Volatile clearing of `SecretVec` and `SecretString` initialized bytes and
   spare heap capacity before freeing their allocations.
-- Optional volatile byte clearing for existing ordinary buffers when the
-  `unsafe-wipe` feature is explicitly enabled and called.
+- Explicit volatile helper APIs for existing ordinary buffers.
 
 ## Out of Scope
 
@@ -37,14 +36,9 @@ by this crate from initialization to drop. `SecretVec` and `SecretString` are
 more practical for dynamic integration boundaries but still cannot control
 copies made before data enters the container.
 
-The `unsafe-wipe` feature is for existing ordinary memory. It improves clearing
-resistance against compiler optimization by using volatile byte writes, but it
-does not solve broader process, OS, hardware, or allocator threats.
+Volatile byte writes improve clearing resistance against compiler optimization,
+but they do not solve broader process, OS, hardware, or allocator threats.
 
-Safe best-effort clearing can still be weakened by aggressive whole-program
-optimization. Use the explicit `unsafe-wipe` APIs when optimizer-resistant
-clearing of ordinary buffers is required.
-
-With `unsafe-wipe`, `SecretBytes::expose_secret_volatile` uses volatile writes
-for its temporary stack copy on normal return and unwinding paths. It is still
-not a solution for aborting processes.
+`SecretBytes::expose_secret_volatile` makes the volatile temporary-copy cleanup
+explicit at the call site. It clears on normal return and unwinding paths, but
+it is still not a solution for aborting processes.

@@ -7,7 +7,8 @@ security issues privately to the repository owner.
 
 Security-sensitive changes should include:
 
-- tests for default, `alloc`, `unsafe-wipe`, and all-features builds;
+- tests for default, `alloc`, compatibility `unsafe-wipe`, and all-features
+  builds;
 - `SAFETY.md` updates for unsafe code;
 - `THREAT_MODEL.md` updates for guarantee or scope changes.
 

@@ -1,6 +1,6 @@
 [package]
 name = "sanitization"
-version = "1.0.0-rc.4"
+version = "1.0.0-rc.5"
 edition = "2021"
 rust-version = "1.90"
 description = "Dependency-free no_std secret memory sanitization with safe defaults and an explicit volatile wipe backend."
@@ -34,6 +34,8 @@ include = [
 default = []
 alloc = []
 std = ["alloc"]
+# Compatibility flag for older release-candidate dependency declarations.
+# Volatile wiping is now the default clear path.
 unsafe-wipe = []
 
 [lib]

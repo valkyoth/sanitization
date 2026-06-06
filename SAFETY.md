@@ -1,15 +1,17 @@
 # Unsafe Boundary
 
-Default builds use `#![forbid(unsafe_code)]`.
+The crate root uses `#![deny(unsafe_code)]` and
+`#![deny(unsafe_op_in_unsafe_fn)]`.
 
-When the `unsafe-wipe` feature is enabled, unsafe code remains denied at the
-crate root and is allowed only inside `src/lib.rs` module `unsafe_wipe`.
+Unsafe code is allowed only inside the private `src/lib.rs` module `wipe`.
+Public APIs, including `unsafe_wipe`, are safe wrappers around that internal
+backend.
 
 ## Unsafe Operations
 
 ### `ptr::write_volatile`
 
-Location: `unsafe_wipe::volatile_wipe_raw`
+Location: `wipe::volatile_wipe`
 
 Purpose: force one byte store per address so clearing ordinary mutable buffers
 is not optimized away as dead memory writes.
@@ -32,7 +34,7 @@ Invariant:
 Location: `unsafe_wipe::volatile_sanitize_string`
 
 Purpose: obtain a raw pointer to the `String` allocation so its full capacity
-can be zeroed with volatile writes before calling `clear()`.
+can be passed to `wipe::volatile_wipe` before calling `clear()`.
 
 Invariant:
 

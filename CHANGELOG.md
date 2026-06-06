@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.0-rc.5
+
+- Made volatile clearing the default clear path through one internal audited
+  unsafe backend.
+- Simplified `SecretBytes<N>` storage from atomic/`Cell` byte storage to plain
+  `[u8; N]` with volatile clearing on drop.
+- Changed `SecretVec`, `SecretString`, `Secret<T>`, byte slices, and byte arrays
+  to use volatile clearing by default.
+- Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
+  release-candidate dependency declarations.
+- Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer
+  wiping.
+- Updated README, safety notes, and threat model for the new clearing model.
+
 ## 1.0.0-rc.4
 
 - Hardened equal-length comparison accumulators against optimizer-introduced
