@@ -350,6 +350,7 @@ key.try_replace_from_fn(|index| Ok::<u8, &'static str>(index as u8))
 
 key.secure_clear();
 assert!(key.constant_time_eq(&[0; 32]));
+key.into_cleared();
 ```
 
 `LockedSecretBytes<N>` does not use the Rust global allocator for the secret
@@ -403,6 +404,7 @@ token
 
 token.clear_secret();
 assert!(token.is_empty());
+token.into_cleared();
 ```
 
 `GuardedSecretVec` uses a private Linux mapping, leaves the pages before and

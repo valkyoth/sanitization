@@ -650,6 +650,15 @@ mod memory_lock {
             }
         }
 
+        /// Consume this value after first clearing the full private mapping.
+        ///
+        /// Drop still runs after this method returns, so the mapping is
+        /// unlocked and unmapped normally.
+        #[inline]
+        pub fn into_cleared(mut self) {
+            self.secure_clear();
+        }
+
         /// Clear the full private mapping with volatile writes, then flush the
         /// cache lines covering that mapping.
         #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
@@ -1574,6 +1583,16 @@ mod guard_pages {
         pub fn clear_secret(&mut self) {
             crate::wipe::volatile_wipe(self.data.as_ptr(), self.data_capacity);
             self.len = 0;
+        }
+
+        /// Consume this value after first clearing the full writable data
+        /// region.
+        ///
+        /// Drop still runs after this method returns, so locked mappings are
+        /// unlocked and the guarded mapping is unmapped normally.
+        #[inline]
+        pub fn into_cleared(mut self) {
+            self.clear_secret();
         }
 
         /// Clear the full writable data region with volatile writes, flush the
@@ -3856,6 +3875,8 @@ mod tests {
 
         secret.clear_secret();
         assert!(secret.is_empty());
+
+        secret.into_cleared();
     }
 
     #[cfg(feature = "alloc")]
@@ -3878,6 +3899,8 @@ mod tests {
 
         secret.clear_secret();
         assert!(secret.is_empty());
+
+        secret.into_cleared();
     }
 
     #[cfg(feature = "alloc")]
@@ -4246,6 +4269,8 @@ mod tests {
         secret.secure_clear();
         assert!(secret.copy_to_slice(&mut out).is_ok());
         assert_eq!(out, [0, 0, 0, 0]);
+
+        secret.into_cleared();
     }
 
     #[cfg(all(
@@ -4448,6 +4473,8 @@ mod tests {
 
         secret.clear_secret();
         assert!(secret.is_empty());
+
+        secret.into_cleared();
     }
 
     #[cfg(all(

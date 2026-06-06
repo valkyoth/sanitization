@@ -40,7 +40,7 @@ fn main() {
         key.try_replace_from_fn(|_| Ok::<u8, &'static str>(7))
             .unwrap();
         assert!(key.constant_time_eq(&[7; 32]));
-        key.secure_clear();
+        key.into_cleared();
     }
 
     #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
@@ -71,7 +71,7 @@ fn main() {
             .try_replace_from_fn(12, |index| Ok::<u8, &'static str>(b"session-key!"[index]))
             .unwrap();
         assert!(token.constant_time_eq(b"session-key!"));
-        token.clear_secret();
+        token.into_cleared();
     }
 
     #[cfg(all(
