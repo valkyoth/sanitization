@@ -317,6 +317,9 @@ Current implementation:
 - Secret bytes live in a private anonymous mapping rather than the Rust global
   allocator.
 - The leading and trailing pages remain inaccessible.
+- Guard layout uses a dependency-free Linux page granule: 4 KiB on `x86_64`,
+  and a conservative 64 KiB on `aarch64` so the protected data region remains
+  page-aligned on 4 KiB, 16 KiB, and 64 KiB aarch64 kernels.
 - When `memory-lock` is also enabled, `locked_with_capacity` and
   `locked_from_slice` mark the writable data pages with `MADV_DONTDUMP` and
   `MADV_DONTFORK`, then lock them with `mlock` before secret bytes are copied
@@ -337,7 +340,8 @@ Limits:
   policy, hibernation, nonstandard dump paths, privileged reads, DMA, and
   external copies remain out of scope;
 - non-Linux support remains future work;
-- exact runtime page-size handling should be reviewed before stable.
+- exact runtime page-size discovery remains future work if the crate later
+  wants tighter aarch64 capacity overhead than the conservative 64 KiB granule.
 
 ## Priority Order
 

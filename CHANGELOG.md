@@ -39,6 +39,9 @@
   `memory-lock` are enabled.
 - Added `GuardedSecretVec::from_fn` and `GuardedSecretVec::locked_from_fn` for
   direct byte generation inside guarded mappings.
+- Changed Linux mapping length rounding to use a conservative 64 KiB granule on
+  `aarch64`, keeping guarded and locked mappings compatible with 4 KiB, 16 KiB,
+  and 64 KiB Linux kernels without a libc dependency.
 - Expanded the local check matrix and examples for optional high-assurance
   features.
 - Updated README, safety notes, and threat model for the new clearing model.

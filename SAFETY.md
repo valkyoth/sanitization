@@ -185,8 +185,10 @@ Invariant:
 - Syscall register assignments follow the Linux syscall ABI for the target
   architecture.
 - The base mapping pointer is owned by exactly one `GuardedSecretVec`.
-- The writable data pointer is one page after the mapping base.
-- The writable data length is rounded to a whole number of pages.
+- The writable data pointer is one Linux page granule after the mapping base.
+- The writable data length is rounded to a Linux page granule: 4 KiB on
+  `x86_64`, and a conservative 64 KiB on `aarch64` to cover 4 KiB, 16 KiB, and
+  64 KiB Linux kernels without a libc dependency.
 - `len <= data_capacity` is preserved before any slice is created.
 - The `locked` flag is set only after `MADV_DONTDUMP`, `MADV_DONTFORK`, and
   `mlock` all succeed.

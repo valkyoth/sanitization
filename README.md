@@ -330,7 +330,9 @@ after the writable data region inaccessible, volatile-clears the full writable
 region on drop, and then unmaps the allocation. It does not use the Rust global
 allocator for the secret bytes. Use `GuardedSecretVec::from_fn` when bytes can
 be generated directly into the guarded mapping; use `from_slice` when loading
-bytes from an existing runtime buffer.
+bytes from an existing runtime buffer. Guarded mappings use a 4 KiB page
+granule on `x86_64` and a conservative 64 KiB granule on `aarch64` to support
+4 KiB, 16 KiB, and 64 KiB Linux kernels without a libc dependency.
 
 When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
 can also mark their writable data pages with `MADV_DONTDUMP` and

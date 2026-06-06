@@ -232,7 +232,13 @@ mod memory_lock {
         sync::atomic::{compiler_fence, Ordering},
     };
 
-    const FALLBACK_PAGE_SIZE: usize = 4096;
+    // Linux exposes page size at runtime rather than through a direct syscall.
+    // Use a conservative architecture granule so requested mappings are page
+    // multiples on supported kernels without depending on libc.
+    #[cfg(target_arch = "x86_64")]
+    const LINUX_PAGE_GRANULE: usize = 4096;
+    #[cfg(target_arch = "aarch64")]
+    const LINUX_PAGE_GRANULE: usize = 65_536;
     const PROT_READ: usize = 0x1;
     const PROT_WRITE: usize = 0x2;
     const MAP_PRIVATE: usize = 0x02;
@@ -592,8 +598,8 @@ mod memory_lock {
     }
 
     fn rounded_mapping_len(len: usize) -> Result<usize, MemoryLockError> {
-        len.checked_add(FALLBACK_PAGE_SIZE - 1)
-            .map(|value| value & !(FALLBACK_PAGE_SIZE - 1))
+        len.checked_add(LINUX_PAGE_GRANULE - 1)
+            .map(|value| value & !(LINUX_PAGE_GRANULE - 1))
             .ok_or(MemoryLockError {
                 operation: MemoryLockOperation::Length,
                 errno: 0,
@@ -1019,7 +1025,13 @@ mod guard_pages {
         sync::atomic::{compiler_fence, Ordering},
     };
 
-    const PAGE_SIZE: usize = 4096;
+    // Guard layout must place the writable region on a kernel page boundary.
+    // x86_64 Linux uses 4 KiB base pages; aarch64 Linux commonly supports
+    // 4 KiB, 16 KiB, and 64 KiB kernels, so 64 KiB is the conservative granule.
+    #[cfg(target_arch = "x86_64")]
+    const LINUX_PAGE_GRANULE: usize = 4096;
+    #[cfg(target_arch = "aarch64")]
+    const LINUX_PAGE_GRANULE: usize = 65_536;
     const PROT_NONE: usize = 0x0;
     const PROT_READ: usize = 0x1;
     const PROT_WRITE: usize = 0x2;
@@ -1147,21 +1159,20 @@ mod guard_pages {
         ) -> Result<Self, GuardPageError> {
             let data_capacity = rounded_data_len(capacity)?;
             let total_len = data_capacity
-                .checked_add(PAGE_SIZE)
-                .and_then(|value| value.checked_add(PAGE_SIZE))
+                .checked_add(LINUX_PAGE_GRANULE)
+                .and_then(|value| value.checked_add(LINUX_PAGE_GRANULE))
                 .ok_or(GuardPageError {
                     operation: GuardPageOperation::Length,
                     errno: 0,
                 })?;
 
             let base = map_guarded(total_len)?;
-            let data_addr =
-                (base.as_ptr() as usize)
-                    .checked_add(PAGE_SIZE)
-                    .ok_or(GuardPageError {
-                        operation: GuardPageOperation::Length,
-                        errno: 0,
-                    })?;
+            let data_addr = (base.as_ptr() as usize)
+                .checked_add(LINUX_PAGE_GRANULE)
+                .ok_or(GuardPageError {
+                    operation: GuardPageOperation::Length,
+                    errno: 0,
+                })?;
             let data = NonNull::new(data_addr as *mut u8).ok_or(GuardPageError {
                 operation: GuardPageOperation::Map,
                 errno: 0,
@@ -1334,7 +1345,7 @@ mod guard_pages {
                 .data_capacity
                 .saturating_mul(2)
                 .max(required)
-                .max(PAGE_SIZE);
+                .max(LINUX_PAGE_GRANULE);
             let mut replacement = Self::with_capacity_locked_state(next_capacity, self.locked)?;
             replacement.as_mut_capacity_slice()[..self.len].copy_from_slice(self.as_slice());
             replacement.len = self.len;
@@ -1419,8 +1430,8 @@ mod guard_pages {
 
     fn rounded_data_len(len: usize) -> Result<usize, GuardPageError> {
         len.max(1)
-            .checked_add(PAGE_SIZE - 1)
-            .map(|value| value & !(PAGE_SIZE - 1))
+            .checked_add(LINUX_PAGE_GRANULE - 1)
+            .map(|value| value & !(LINUX_PAGE_GRANULE - 1))
             .ok_or(GuardPageError {
                 operation: GuardPageOperation::Length,
                 errno: 0,
