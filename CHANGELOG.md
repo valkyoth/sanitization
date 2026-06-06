@@ -49,6 +49,8 @@
 - Added `Default` for `SecretVec` and `SecretString`, producing empty
   clear-on-drop heap secret containers.
 - Added `Default` for `Secret<T>` when `T: SecureSanitize + Default`.
+- Added `SecretBytes::into_cleared` for consuming fixed-size secrets after an
+  explicit clear.
 - Added `into_cleared` consume helpers for `LockedSecretBytes<N>` and
   `GuardedSecretVec`.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older

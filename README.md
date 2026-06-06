@@ -163,6 +163,7 @@ key.replace_from_fn(|index| 31 - index as u8);
 key.try_replace_from_fn(|index| Ok::<u8, &'static str>(index as u8))
     .unwrap();
 key.replace_from_array([9; 32]);
+key.into_cleared();
 ```
 
 The type intentionally does not implement `Clone`, `Copy`, `Deref`,

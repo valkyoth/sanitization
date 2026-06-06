@@ -2351,6 +2351,15 @@ impl<const N: usize> SecretBytes<N> {
         wipe::volatile_wipe(self.bytes.as_mut_ptr(), N);
     }
 
+    /// Consume this value after first clearing the fixed-size storage.
+    ///
+    /// Drop still runs after this method returns, so the storage is cleared a
+    /// second time on the normal path.
+    #[inline]
+    pub fn into_cleared(mut self) {
+        self.secure_clear();
+    }
+
     /// Clear all bytes now with volatile writes, then flush the cache lines
     /// covering the fixed-size storage.
     #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
@@ -3557,6 +3566,8 @@ mod tests {
         secret.secure_clear();
         assert!(secret.copy_to_slice(&mut out).is_ok());
         assert_eq!(out, [0, 0, 0, 0]);
+
+        secret.into_cleared();
     }
 
     #[test]

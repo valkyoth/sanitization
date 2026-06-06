@@ -102,6 +102,7 @@ Implemented dynamic rotation helpers:
 - `SecretBytes::replace_from_array`;
 - `SecretBytes::replace_from_fn`;
 - `SecretBytes::try_replace_from_fn`;
+- `SecretBytes::into_cleared`;
 - `LockedSecretBytes::try_from_fn`;
 - `LockedSecretBytes::replace_from_array`;
 - `LockedSecretBytes::replace_from_slice`;
