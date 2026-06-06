@@ -261,12 +261,15 @@ assert!(bytes.constant_time_eq(b"session-key"));
 
 bytes.with_secret_mut(|value| value[0] = b'S');
 bytes.replace_from_slice(b"rotated-session-key");
+bytes.replace_from_fn(16, |index| index as u8);
 ```
 
 `SecretVec` and `SecretString` wipe initialized bytes and spare heap capacity
 before freeing their allocations. Use `replace_from_slice` and
-`replace_from_secret_str` when rotating entire dynamic values. They expose
-contents through closures and redact `Debug`.
+`replace_from_secret_str` when rotating entire dynamic values. Use
+`SecretVec::from_fn` or `replace_from_fn` when dynamic bytes can be generated
+directly into clear-on-drop storage. They expose contents through closures and
+redact `Debug`.
 
 ## Memory-Locked Secrets
 

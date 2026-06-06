@@ -98,7 +98,9 @@ Keep and harden:
 
 Implemented dynamic rotation helpers:
 
+- `SecretVec::from_fn`;
 - `SecretVec::replace_from_slice`;
+- `SecretVec::replace_from_fn`;
 - `SecretString::replace_from_secret_str`.
 
 Avoid before `1.0.0`:
