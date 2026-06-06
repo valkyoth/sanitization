@@ -186,6 +186,12 @@ fn sanitize_vec_capacity_best_effort(bytes: &mut Vec<u8>) {
     compiler_fence(Ordering::SeqCst);
 }
 
+#[cfg(feature = "alloc")]
+#[inline]
+fn next_secret_capacity(current: usize, required: usize) -> usize {
+    current.saturating_mul(2).max(required).max(8)
+}
+
 impl SecureSanitize for [u8] {
     #[inline(never)]
     fn secure_sanitize(&mut self) {
@@ -210,10 +216,10 @@ fn constant_time_eq_slices(left: &[u8], right: &[u8]) -> bool {
     let mut diff = 0usize;
     let mut index = 0;
     while index < left.len() {
-        diff |= usize::from(left[index] ^ right[index]);
+        diff = black_box(diff | usize::from(left[index] ^ right[index]));
         index += 1;
     }
-    diff == 0
+    black_box(diff) == 0
 }
 
 struct TemporaryBytes<'a, const N: usize> {
@@ -224,6 +230,19 @@ impl<const N: usize> Drop for TemporaryBytes<'_, N> {
     #[inline]
     fn drop(&mut self) {
         sanitize_bytes_best_effort(self.bytes);
+    }
+}
+
+#[cfg(feature = "unsafe-wipe")]
+struct VolatileTemporaryBytes<'a, const N: usize> {
+    bytes: &'a mut [u8; N],
+}
+
+#[cfg(feature = "unsafe-wipe")]
+impl<const N: usize> Drop for VolatileTemporaryBytes<'_, N> {
+    #[inline]
+    fn drop(&mut self) {
+        crate::unsafe_wipe::volatile_sanitize_array(self.bytes);
     }
 }
 
@@ -346,6 +365,7 @@ impl<const N: usize> SecretBytes<N> {
             *byte = self.load(index);
         }
         compiler_fence(Ordering::SeqCst);
+        black_box(destination);
         Ok(())
     }
 
@@ -401,9 +421,33 @@ impl<const N: usize> SecretBytes<N> {
             bytes: &mut temporary,
         };
         let result = inspect(guard.bytes);
-        // Eagerly clear the stack copy for panic=abort safety. The guard still
-        // clears on normal return and unwind paths as defense in depth.
+        // Eagerly clear before returning; the guard also clears on normal
+        // return and unwind paths as defense in depth.
         sanitize_bytes_best_effort(guard.bytes);
+        result
+    }
+
+    /// Call a closure with a temporary array copy, then volatile-clear that copy.
+    ///
+    /// This is available only with the explicit `unsafe-wipe` feature. The
+    /// temporary stack copy is cleared with volatile writes on normal return and
+    /// during unwinding. Like all destructor-based cleanup, it cannot run if the
+    /// process aborts, including `panic = "abort"`.
+    #[cfg(feature = "unsafe-wipe")]
+    #[inline]
+    pub fn expose_secret_volatile<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+        let mut temporary = [0; N];
+        let mut index = 0;
+        while index < N {
+            temporary[index] = self.load(index);
+            index += 1;
+        }
+        compiler_fence(Ordering::SeqCst);
+        let guard = VolatileTemporaryBytes {
+            bytes: &mut temporary,
+        };
+        let result = inspect(guard.bytes);
+        crate::unsafe_wipe::volatile_sanitize_array(guard.bytes);
         result
     }
 
@@ -421,10 +465,10 @@ impl<const N: usize> SecretBytes<N> {
         let mut diff = 0usize;
         let mut index = 0;
         while index < N {
-            diff |= usize::from(self.load(index) ^ other[index]);
+            diff = black_box(diff | usize::from(self.load(index) ^ other[index]));
             index += 1;
         }
-        diff == 0
+        black_box(diff) == 0
     }
 
     /// Compare against another secret without early exit.
@@ -434,10 +478,10 @@ impl<const N: usize> SecretBytes<N> {
         let mut diff = 0usize;
         let mut index = 0;
         while index < N {
-            diff |= usize::from(self.load(index) ^ other.load(index));
+            diff = black_box(diff | usize::from(self.load(index) ^ other.load(index)));
             index += 1;
         }
-        diff == 0
+        black_box(diff) == 0
     }
 
     /// Clear all bytes now. This is also called from `Drop`.
@@ -690,7 +734,8 @@ impl SecretVec {
             return;
         }
 
-        let mut replacement = Vec::with_capacity(required);
+        let new_capacity = next_secret_capacity(self.inner.capacity(), required);
+        let mut replacement = Vec::with_capacity(new_capacity);
         replacement.extend_from_slice(self.inner.as_slice());
         self.clear_secret();
         self.inner = replacement;
@@ -895,7 +940,8 @@ impl SecretString {
             return;
         }
 
-        let mut replacement = Vec::with_capacity(required);
+        let new_capacity = next_secret_capacity(self.inner.capacity(), required);
+        let mut replacement = Vec::with_capacity(new_capacity);
         replacement.extend_from_slice(self.inner.as_slice());
         self.clear_secret();
         self.inner = replacement;
@@ -934,6 +980,14 @@ impl fmt::Debug for SecretString {
 /// This is useful for structs that implement [`SecureSanitize`] by clearing
 /// their sensitive fields. Like [`SecretBytes`], this wrapper intentionally does
 /// not implement `Clone`, `Copy`, or secret-printing `Debug`.
+///
+/// # Clearing Strength
+///
+/// When `T = [u8; N]`, this wrapper clears through [`SecureSanitize`] for byte
+/// arrays, which currently delegates to [`sanitize_bytes_best_effort`]. That is
+/// useful cleanup hygiene but is weaker than [`SecretBytes<N>`]. For fixed-size
+/// byte secrets, prefer [`SecretBytes<N>`], whose crate-owned storage clears
+/// with atomic stores on targets with 8-bit atomics.
 pub struct Secret<T: SecureSanitize> {
     inner: T,
 }
@@ -1187,6 +1241,21 @@ mod tests {
         assert!(!left.constant_time_eq_secret(&different));
     }
 
+    #[cfg(feature = "unsafe-wipe")]
+    #[test]
+    fn volatile_exposure_returns_closure_result() {
+        let secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+
+        let sum = secret.expose_secret_volatile(|bytes| {
+            bytes
+                .iter()
+                .copied()
+                .fold(0_u8, |total, byte| total.wrapping_add(byte))
+        });
+
+        assert_eq!(sum, 10);
+    }
+
     #[test]
     fn debug_output_is_redacted() {
         let secret = SecretBytes::<3>::from_array([b'a', b'b', b'c']);
@@ -1273,6 +1342,17 @@ mod tests {
 
     #[cfg(feature = "alloc")]
     #[test]
+    fn secret_vec_grows_exponentially() {
+        let mut secret = SecretVec::from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let initial_capacity = secret.inner.capacity();
+
+        secret.extend_from_slice(&[9]);
+
+        assert!(secret.inner.capacity() >= initial_capacity.saturating_mul(2));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
     fn secret_string_round_trip_and_clear() {
         let mut secret = SecretString::from_secret_str("secret");
 
@@ -1291,6 +1371,17 @@ mod tests {
 
         secret.clear_secret();
         assert!(secret.is_empty());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn secret_string_grows_exponentially() {
+        let mut secret = SecretString::from_secret_str("abcdefgh");
+        let initial_capacity = secret.inner.capacity();
+
+        secret.push_str("i");
+
+        assert!(secret.inner.capacity() >= initial_capacity.saturating_mul(2));
     }
 
     #[cfg(feature = "unsafe-wipe")]

@@ -1,10 +1,9 @@
 # Security Policy
 
-This crate is pre-release and not published yet.
+This crate is published as a release candidate on crates.io.
 
-Do not publish exploitable details publicly before a fix is available. For now,
-report issues privately to the repository owner once the upstream repository is
-created.
+Do not publish exploitable details publicly before a fix is available. Report
+security issues privately to the repository owner.
 
 Security-sensitive changes should include:
 

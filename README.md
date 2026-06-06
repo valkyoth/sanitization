@@ -91,28 +91,28 @@ Compatibility evidence:
 
 ```toml
 [dependencies]
-sanitization = "1.0.0-rc.3"
+sanitization = "1.0.0-rc.4"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.3", features = ["alloc"] }
+sanitization = { version = "1.0.0-rc.4", features = ["alloc"] }
 ```
 
 For explicit volatile wiping of ordinary buffers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.3", features = ["unsafe-wipe"] }
+sanitization = { version = "1.0.0-rc.4", features = ["unsafe-wipe"] }
 ```
 
 For heap containers plus volatile wiping:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.3", features = ["alloc", "unsafe-wipe"] }
+sanitization = { version = "1.0.0-rc.4", features = ["alloc", "unsafe-wipe"] }
 ```
 
 ## Features
@@ -162,6 +162,19 @@ let first_byte = key.expose_secret(|bytes| {
     // Call the external API here.
     bytes[0]
 });
+
+assert_eq!(first_byte, 7);
+```
+
+With `unsafe-wipe`, `expose_secret_volatile` uses volatile writes for the
+temporary stack copy on normal return and unwinding paths. It still cannot clear
+the copy if the process aborts.
+
+```rust
+use sanitization::SecretBytes;
+
+let key = SecretBytes::<32>::from_array([7; 32]);
+let first_byte = key.expose_secret_volatile(|bytes| bytes[0]);
 
 assert_eq!(first_byte, 7);
 ```
@@ -368,8 +381,11 @@ Important limits:
 
 - Safe Rust cannot volatile-wipe arbitrary existing memory.
 - Safe Rust cannot soundly scrub old stack frames from previous moves.
-- `panic = "abort"` prevents destructors from running.
-- Whole-program optimization can weaken best-effort safe cleanup.
+- `panic = "abort"` prevents destructors from running and prevents closure
+  helpers from clearing temporary stack copies after a panic.
+- Whole-program optimization and LTO can weaken best-effort safe cleanup. Use
+  the explicit `unsafe-wipe` feature when optimizer-resistant clearing of
+  ordinary memory is required.
 - CPU cache flushes, SIMD clearing, platform memory locking, guard pages, and
   inline assembly require target-specific unsafe code and are intentionally not
   part of the default API.

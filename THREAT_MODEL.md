@@ -23,6 +23,9 @@ Rust applications.
   compromise, DMA, malicious firmware, or privileged co-tenants.
 - Soundly scrubbing old stack frames, prior Rust move copies, CPU registers, CPU
   caches, SIMD registers, allocator metadata, or third-party library copies.
+- Clearing temporary stack copies after process abort. Closure helpers clear
+  their temporaries on normal return and unwinding paths only; `panic = "abort"`
+  and other abort paths skip destructors and post-closure cleanup.
 - Memory locking, guard pages, cache-line flushing, platform syscalls, and
   assembly-level hardening.
 
@@ -41,3 +44,7 @@ does not solve broader process, OS, hardware, or allocator threats.
 Safe best-effort clearing can still be weakened by aggressive whole-program
 optimization. Use the explicit `unsafe-wipe` APIs when optimizer-resistant
 clearing of ordinary buffers is required.
+
+With `unsafe-wipe`, `SecretBytes::expose_secret_volatile` uses volatile writes
+for its temporary stack copy on normal return and unwinding paths. It is still
+not a solution for aborting processes.
