@@ -2726,6 +2726,17 @@ impl SecretVec {
         Self { inner }
     }
 
+    /// Wrap an existing vector using volatile clearing on drop.
+    ///
+    /// This is an explicit ownership-taking alias for [`SecretVec::new`]. The
+    /// vector is not copied; its full capacity will be volatile-cleared when
+    /// this `SecretVec` is cleared or dropped.
+    #[must_use]
+    #[inline]
+    pub const fn from_vec(bytes: Vec<u8>) -> Self {
+        Self::new(bytes)
+    }
+
     /// Compatibility alias for [`SecretVec::new`].
     #[must_use]
     #[inline]
@@ -2996,6 +3007,17 @@ impl SecretString {
         Self {
             inner: inner.into_bytes(),
         }
+    }
+
+    /// Wrap an existing string using volatile clearing on drop.
+    ///
+    /// This is an explicit ownership-taking alias for [`SecretString::new`].
+    /// The string allocation is not copied; its full capacity will be
+    /// volatile-cleared when this `SecretString` is cleared or dropped.
+    #[must_use]
+    #[inline]
+    pub fn from_string(text: String) -> Self {
+        Self::new(text)
     }
 
     /// Compatibility alias for [`SecretString::new`].
@@ -3763,7 +3785,7 @@ mod tests {
     #[cfg(feature = "alloc")]
     #[test]
     fn secret_vec_round_trip_and_clear() {
-        let mut secret = SecretVec::from_slice(&[1, 2, 3]);
+        let mut secret = SecretVec::from_vec(std::vec![1, 2, 3]);
 
         assert_eq!(secret.with_secret(|bytes| bytes.len()), 3);
         assert!(secret.constant_time_eq(&[1, 2, 3]));
@@ -3904,7 +3926,7 @@ mod tests {
     #[cfg(feature = "alloc")]
     #[test]
     fn secret_string_round_trip_and_clear() {
-        let mut secret = SecretString::from_secret_str("secret");
+        let mut secret = SecretString::from_string(std::string::String::from("secret"));
 
         assert_eq!(secret.try_with_secret(|text| text.len()), Ok(6));
         secret.push_str("-token");

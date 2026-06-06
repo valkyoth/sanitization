@@ -267,7 +267,7 @@ Enable `alloc` for dynamic secret bytes and secret UTF-8 text.
 ```rust
 use sanitization::{SecretString, SecretVec};
 
-let mut token = SecretString::from_secret_str("bearer-token");
+let mut token = SecretString::from_string(String::from("bearer-token"));
 assert_eq!(token.try_with_secret(str::len), Ok(12));
 assert!(token.constant_time_eq("bearer-token"));
 
@@ -282,7 +282,8 @@ token
     })
     .unwrap();
 
-let mut bytes = SecretVec::from_slice(b"session-key");
+let mut bytes = SecretVec::from_vec(vec![115, 101, 115, 115, 105, 111, 110]);
+bytes.extend_from_slice(b"-key");
 assert_eq!(bytes.with_secret(|value| value.len()), 11);
 assert!(bytes.constant_time_eq(b"session-key"));
 
@@ -296,11 +297,12 @@ bytes
 ```
 
 `SecretVec` and `SecretString` wipe initialized bytes and spare heap capacity
-before freeing their allocations. Use `replace_from_slice` and
-`replace_from_secret_str` when rotating from borrowed data. Use
-`replace_from_vec` and `replace_from_string` to take ownership of existing heap
-allocations without copying; those allocations become clear-on-drop secret
-storage. Use `SecretVec::from_fn`, `try_from_fn`, `replace_from_fn`, or
+before freeing their allocations. Use `from_slice` and `from_secret_str` when
+loading borrowed data. Use `from_vec`, `from_string`, `replace_from_vec`, and
+`replace_from_string` to take ownership of existing heap allocations without
+copying; those allocations become clear-on-drop secret storage. Use
+`replace_from_slice` and `replace_from_secret_str` when rotating from borrowed
+data. Use `SecretVec::from_fn`, `try_from_fn`, `replace_from_fn`, or
 `try_replace_from_fn` when dynamic bytes can be generated directly into
 clear-on-drop storage. Use `SecretString::from_chars`, `try_from_chars`,
 `replace_from_chars`, or `try_replace_from_chars` when secret UTF-8 text can be

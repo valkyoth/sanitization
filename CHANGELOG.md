@@ -38,6 +38,8 @@
 - Added `SecretVec::replace_from_vec` and
   `SecretString::replace_from_string` for owned heap-allocation rotation without
   copying the new value.
+- Added `SecretVec::from_vec` and `SecretString::from_string` as explicit
+  ownership-taking constructors for existing heap allocations.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer
