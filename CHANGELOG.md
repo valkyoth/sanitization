@@ -29,6 +29,8 @@
   `try_replace_from_chars` for UTF-8-safe generated secret text.
 - Added `LockedSecretBytes::replace_from_slice`, `replace_from_fn`, and
   `try_replace_from_fn` for staged whole-value rotation inside locked storage.
+- Added `SecretBytes::replace_from_fn` and `try_replace_from_fn` for staged
+  generated fixed-size rotation.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer

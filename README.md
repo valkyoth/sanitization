@@ -146,7 +146,7 @@ secret byte arrays that you control from creation.
 ```rust
 use sanitization::SecretBytes;
 
-let key = SecretBytes::<32>::from_fn(|index| index as u8);
+let mut key = SecretBytes::<32>::from_fn(|index| index as u8);
 let fallible_key =
     SecretBytes::<32>::try_from_fn(|index| Ok::<u8, &'static str>(index as u8)).unwrap();
 
@@ -158,6 +158,10 @@ assert!(key.constant_time_eq(&[
     16, 17, 18, 19, 20, 21, 22, 23,
     24, 25, 26, 27, 28, 29, 30, 31,
 ]));
+
+key.replace_from_fn(|index| 31 - index as u8);
+key.try_replace_from_fn(|index| Ok::<u8, &'static str>(index as u8))
+    .unwrap();
 ```
 
 The type intentionally does not implement `Clone`, `Copy`, `Deref`,

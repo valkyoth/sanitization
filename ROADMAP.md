@@ -99,6 +99,8 @@ Keep and harden:
 Implemented dynamic rotation helpers:
 
 - `SecretBytes::try_from_fn`;
+- `SecretBytes::replace_from_fn`;
+- `SecretBytes::try_replace_from_fn`;
 - `LockedSecretBytes::try_from_fn`;
 - `LockedSecretBytes::replace_from_slice`;
 - `LockedSecretBytes::replace_from_fn`;
