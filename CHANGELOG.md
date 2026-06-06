@@ -35,6 +35,9 @@
   `ExpiringSecretBytes::replace_from_array`, and
   `LockedSecretBytes::replace_from_array` for owned-array rotation with input
   clearing.
+- Added `SecretVec::replace_from_vec` and
+  `SecretString::replace_from_string` for owned heap-allocation rotation without
+  copying the new value.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer

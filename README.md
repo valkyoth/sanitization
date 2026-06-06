@@ -274,6 +274,7 @@ assert!(token.constant_time_eq("bearer-token"));
 token.push_str("-v2");
 assert_eq!(token.try_with_secret(|text| text.ends_with("-v2")), Ok(true));
 token.replace_from_secret_str("rotated-token");
+token.replace_from_string(String::from("owned-token"));
 token.replace_from_chars(5, |index| ['t', 'o', 'k', 'e', 'n'][index]);
 token
     .try_replace_from_chars(5, |index| {
@@ -287,6 +288,7 @@ assert!(bytes.constant_time_eq(b"session-key"));
 
 bytes.with_secret_mut(|value| value[0] = b'S');
 bytes.replace_from_slice(b"rotated-session-key");
+bytes.replace_from_vec(vec![1, 2, 3, 4]);
 bytes.replace_from_fn(16, |index| index as u8);
 bytes
     .try_replace_from_fn(16, |index| Ok::<u8, &'static str>(index as u8))
@@ -295,8 +297,10 @@ bytes
 
 `SecretVec` and `SecretString` wipe initialized bytes and spare heap capacity
 before freeing their allocations. Use `replace_from_slice` and
-`replace_from_secret_str` when rotating entire dynamic values. Use
-`SecretVec::from_fn`, `try_from_fn`, `replace_from_fn`, or
+`replace_from_secret_str` when rotating from borrowed data. Use
+`replace_from_vec` and `replace_from_string` to take ownership of existing heap
+allocations without copying; those allocations become clear-on-drop secret
+storage. Use `SecretVec::from_fn`, `try_from_fn`, `replace_from_fn`, or
 `try_replace_from_fn` when dynamic bytes can be generated directly into
 clear-on-drop storage. Use `SecretString::from_chars`, `try_from_chars`,
 `replace_from_chars`, or `try_replace_from_chars` when secret UTF-8 text can be
