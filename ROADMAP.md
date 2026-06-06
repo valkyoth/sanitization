@@ -118,6 +118,8 @@ Implemented now:
 - `scripts/verify-codegen.sh` builds release LLVM IR and checks that the wipe
   backend contains volatile byte-zero stores.
 - `scripts/checks.sh` runs the codegen verification as part of the local gate.
+- `scripts/verify-miri.sh` runs default, `alloc`, and all-features tests under
+  Miri when a nightly toolchain with Miri is available.
 
 Property-based or timing-distribution tests can live outside the published
 crate if keeping dev dependencies out of the repository remains preferred.

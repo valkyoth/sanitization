@@ -366,6 +366,13 @@ The check script covers formatting, feature-matrix tests, examples, clippy, docs
 with warnings denied, release LLVM IR verification for volatile byte-zero
 stores, and package listing.
 
+When a nightly toolchain with Miri is available, run the interpreter-based
+unsafe-boundary check separately:
+
+```bash
+scripts/verify-miri.sh
+```
+
 ## Limits
 
 This crate reduces accidental retention and accidental exposure. It does not

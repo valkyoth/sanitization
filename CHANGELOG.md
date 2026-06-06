@@ -13,6 +13,8 @@
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer
   wiping.
 - Added a release LLVM IR codegen check for volatile byte-zero stores.
+- Added an optional Miri verification script for the wipe boundary and feature
+  matrix.
 - Updated README, safety notes, and threat model for the new clearing model.
 
 ## 1.0.0-rc.4

@@ -29,6 +29,7 @@ include = [
     "scripts/checks.sh",
     "scripts/ci_install_rust.sh",
     "scripts/verify-codegen.sh",
+    "scripts/verify-miri.sh",
 ]
 
 [features]
