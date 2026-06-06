@@ -91,28 +91,28 @@ Compatibility evidence:
 
 ```toml
 [dependencies]
-sanitization = "1.0.0-rc.2"
+sanitization = "1.0.0-rc.3"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.2", features = ["alloc"] }
+sanitization = { version = "1.0.0-rc.3", features = ["alloc"] }
 ```
 
 For explicit volatile wiping of ordinary buffers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.2", features = ["unsafe-wipe"] }
+sanitization = { version = "1.0.0-rc.3", features = ["unsafe-wipe"] }
 ```
 
 For heap containers plus volatile wiping:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.2", features = ["alloc", "unsafe-wipe"] }
+sanitization = { version = "1.0.0-rc.3", features = ["alloc", "unsafe-wipe"] }
 ```
 
 ## Features

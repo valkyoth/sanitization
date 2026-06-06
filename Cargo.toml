@@ -1,12 +1,14 @@
 [package]
 name = "sanitization"
-version = "1.0.0-rc.2"
+version = "1.0.0-rc.3"
 edition = "2021"
 rust-version = "1.90"
 description = "Dependency-free no_std secret memory sanitization with safe defaults and an explicit volatile wipe backend."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 documentation = "https://docs.rs/sanitization"
+homepage = "https://github.com/valkyoth/sanitization-rust-crate"
+repository = "https://github.com/valkyoth/sanitization-rust-crate"
 keywords = ["zeroize", "secrets", "security", "no-std", "memory"]
 categories = ["cryptography", "no-std", "memory-management"]
 include = [
