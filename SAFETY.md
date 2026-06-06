@@ -260,3 +260,14 @@ or microarchitectural side-channel secrecy.
 Guard pages are Linux-only, feature-gated, and detect crossings outside the
 writable mapped data pages; they do not catch logical overreads that remain
 inside capacity.
+
+## Thread Safety
+
+`LockedSecretBytes<N>` and `GuardedSecretVec` explicitly implement `Send`
+because each value exclusively owns its private Linux mapping. Moving the Rust
+value to another thread moves only pointer metadata; it does not move or copy
+the mapped secret bytes. Mutation and clearing still require `&mut self`.
+
+These mapped containers intentionally do not implement `Sync`. Concurrent
+shared access should be provided by caller-owned synchronization such as
+`Mutex<T>` when cross-thread sharing is required.

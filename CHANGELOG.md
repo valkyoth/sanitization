@@ -64,6 +64,12 @@
   macro syntax limits.
 - Clarified README unsafe-policy wording for optional feature-gated hardening
   modules.
+- Documented portable comparison timing limits and fixed-size exposure stack
+  usage.
+- Fixed a guarded mapping cleanup path so theoretical address-computation
+  errors unmap before returning.
+- Added explicit `Send` implementations for Linux mapped secret containers while
+  keeping them intentionally non-`Sync`.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer

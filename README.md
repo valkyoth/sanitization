@@ -170,6 +170,9 @@ key.into_cleared();
 
 The type intentionally does not implement `Clone`, `Copy`, `Deref`,
 `AsRef<[u8]>`, or secret-printing `Debug`.
+`SecretBytes<N>` stores `N` bytes inline, and `expose_secret` creates an
+additional `N`-byte stack copy. On embedded targets or small thread stacks,
+choose `N` well below the available stack budget or use heap-backed containers.
 
 ## Expiring Secrets
 
@@ -619,6 +622,10 @@ The public API does not change. `SecretBytes<N>`, `SecretVec`, `SecretString`,
 and `LockedSecretBytes<N>` still use their normal `constant_time_eq` methods.
 Length mismatch remains public metadata and returns immediately. Unsupported
 targets, Miri, and builds without `asm-compare` use the portable Rust fallback.
+The portable fallback is designed to avoid data-dependent early exit, but it is
+not a formal hardware-level constant-time guarantee. Use `asm-compare` where it
+is available, or pair this crate with a dedicated constant-time comparison
+library when a protocol requires externally audited timing guarantees.
 
 ## Choosing the Right API
 

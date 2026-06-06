@@ -203,6 +203,9 @@ mod wipe {
         }
 
         compiler_fence(Ordering::SeqCst);
+        // Retain the hardware fence as a defense-in-depth ordering boundary
+        // for callers that clear secrets immediately before handing memory to
+        // lower-level or platform-specific code.
         fence(Ordering::SeqCst);
     }
 }
@@ -435,6 +438,11 @@ mod memory_lock {
         ptr: NonNull<u8>,
         map_len: usize,
     }
+
+    // SAFETY: The value exclusively owns a private mapping. Moving ownership to
+    // another thread does not invalidate the mapping, and mutation/clearing
+    // still requires `&mut self`. `Sync` is intentionally not implemented.
+    unsafe impl<const N: usize> Send for LockedSecretBytes<N> {}
 
     impl<const N: usize> LockedSecretBytes<N> {
         /// Allocate locked zeroed storage for `N` bytes.
@@ -670,6 +678,11 @@ mod memory_lock {
         ///
         /// Length mismatch returns immediately because the provided slice length
         /// is treated as public metadata.
+        ///
+        /// The portable fallback is intended to avoid data-dependent early
+        /// exit, but it is not a formal hardware-level constant-time
+        /// guarantee. On x86_64, enable `asm-compare` for a stronger compiler
+        /// boundary.
         #[must_use]
         #[inline]
         pub fn constant_time_eq(&self, other: &[u8]) -> bool {
@@ -1335,6 +1348,12 @@ mod guard_pages {
         locked: bool,
     }
 
+    // SAFETY: The value exclusively owns a private guarded mapping. Moving
+    // ownership to another thread does not invalidate the mapping, and
+    // mutation/clearing still requires `&mut self`. `Sync` is intentionally not
+    // implemented.
+    unsafe impl Send for GuardedSecretVec {}
+
     impl GuardedSecretVec {
         /// Create an empty guarded secret buffer with at least `capacity` bytes
         /// of writable data space.
@@ -1371,16 +1390,26 @@ mod guard_pages {
                 })?;
 
             let base = map_guarded(total_len)?;
-            let data_addr = (base.as_ptr() as usize)
-                .checked_add(LINUX_PAGE_GRANULE)
-                .ok_or(GuardPageError {
-                    operation: GuardPageOperation::Length,
-                    errno: 0,
-                })?;
-            let data = NonNull::new(data_addr as *mut u8).ok_or(GuardPageError {
-                operation: GuardPageOperation::Map,
-                errno: 0,
-            })?;
+            let data_addr = match (base.as_ptr() as usize).checked_add(LINUX_PAGE_GRANULE) {
+                Some(address) => address,
+                None => {
+                    let _ = unmap_guarded(base, total_len);
+                    return Err(GuardPageError {
+                        operation: GuardPageOperation::Length,
+                        errno: 0,
+                    });
+                }
+            };
+            let data = match NonNull::new(data_addr as *mut u8) {
+                Some(data) => data,
+                None => {
+                    let _ = unmap_guarded(base, total_len);
+                    return Err(GuardPageError {
+                        operation: GuardPageOperation::Map,
+                        errno: 0,
+                    });
+                }
+            };
 
             if let Err(error) = protect_data(data, data_capacity) {
                 let _ = unmap_guarded(base, total_len);
@@ -1653,6 +1682,11 @@ mod guard_pages {
         ///
         /// Length mismatch returns immediately because the provided slice length
         /// is treated as public metadata.
+        ///
+        /// The portable fallback is intended to avoid data-dependent early
+        /// exit, but it is not a formal hardware-level constant-time
+        /// guarantee. On x86_64, enable `asm-compare` for a stronger compiler
+        /// boundary.
         #[must_use]
         #[inline]
         pub fn constant_time_eq(&self, other: &[u8]) -> bool {
@@ -2132,6 +2166,10 @@ impl<const N: usize> Drop for VolatileTemporaryBytes<'_, N> {
 /// clearing operations require `&mut self` to prevent partially-cleared
 /// multi-byte observations through shared references.
 ///
+/// `SecretBytes<N>` stores `N` bytes inline. Closure exposure methods create an
+/// additional `N`-byte stack copy, so embedded targets and small thread stacks
+/// should choose `N` well below the available stack budget.
+///
 /// The type deliberately does not implement `Clone`, `Copy`, `Deref`,
 /// `AsRef<[u8]>`, `PartialEq`, or secret-printing `Debug`.
 pub struct SecretBytes<const N: usize> {
@@ -2326,6 +2364,10 @@ impl<const N: usize> SecretBytes<N> {
     /// still intentionally copy bytes elsewhere, so use it only at true
     /// cryptographic or protocol boundaries.
     ///
+    /// This method creates an additional `N`-byte stack copy. On embedded,
+    /// RTOS, or small-thread-stack targets, keep `N` well below the available
+    /// stack size or use heap-backed secret containers instead.
+    ///
     /// If the closure aborts the process, for example under `panic = "abort"`,
     /// Rust destructors do not run and the temporary stack copy cannot be
     /// cleared. On the normal return path the temporary is cleared eagerly
@@ -2355,6 +2397,9 @@ impl<const N: usize> SecretBytes<N> {
     /// The temporary stack copy is cleared with volatile writes on normal return
     /// and during unwinding. Like all destructor-based cleanup, it cannot run if
     /// the process aborts, including `panic = "abort"`.
+    ///
+    /// Like [`SecretBytes::expose_secret`], this method creates an additional
+    /// `N`-byte stack copy.
     #[inline]
     pub fn expose_secret_volatile<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
         let mut temporary = [0; N];
@@ -2376,6 +2421,12 @@ impl<const N: usize> SecretBytes<N> {
     ///
     /// Length mismatch returns immediately because the provided slice length is
     /// treated as public metadata. Prefer fixed-size inputs where possible.
+    ///
+    /// The portable fallback is intended to avoid data-dependent early exit, but
+    /// it is not a formal hardware-level constant-time guarantee. On x86_64,
+    /// enable `asm-compare` for a stronger compiler boundary. Use a dedicated
+    /// constant-time comparison crate if your protocol requires externally
+    /// audited timing guarantees.
     #[must_use]
     #[inline]
     pub fn constant_time_eq(&self, other: &[u8]) -> bool {
@@ -2383,6 +2434,9 @@ impl<const N: usize> SecretBytes<N> {
     }
 
     /// Compare against another secret without early exit.
+    ///
+    /// See [`SecretBytes::constant_time_eq`] for the portable fallback timing
+    /// limits.
     #[must_use]
     #[inline]
     pub fn constant_time_eq_secret(&self, other: &Self) -> bool {
@@ -2742,6 +2796,9 @@ impl<const N: usize> ExpiringSecretBytes<N> {
     /// Compare against a slice if the secret has not expired.
     ///
     /// Length mismatch remains public metadata and returns `Ok(false)`.
+    ///
+    /// This delegates to [`SecretBytes::constant_time_eq`]; see that method for
+    /// portable fallback timing limits.
     #[inline]
     pub fn try_constant_time_eq(&mut self, other: &[u8]) -> Result<bool, SecretExpiredError> {
         self.enforce_live()?;
@@ -3037,6 +3094,12 @@ impl SecretVec {
     ///
     /// Length mismatch returns immediately because the provided slice length is
     /// treated as public metadata.
+    ///
+    /// The portable fallback is intended to avoid data-dependent early exit, but
+    /// it is not a formal hardware-level constant-time guarantee. On x86_64,
+    /// enable `asm-compare` for a stronger compiler boundary. Use a dedicated
+    /// constant-time comparison crate if your protocol requires externally
+    /// audited timing guarantees.
     #[must_use]
     #[inline]
     pub fn constant_time_eq(&self, other: &[u8]) -> bool {
@@ -3357,6 +3420,12 @@ impl SecretString {
     ///
     /// Length mismatch returns immediately because the provided string length
     /// is treated as public metadata.
+    ///
+    /// The portable fallback is intended to avoid data-dependent early exit, but
+    /// it is not a formal hardware-level constant-time guarantee. On x86_64,
+    /// enable `asm-compare` for a stronger compiler boundary. Use a dedicated
+    /// constant-time comparison crate if your protocol requires externally
+    /// audited timing guarantees.
     #[must_use]
     #[inline]
     pub fn constant_time_eq(&self, other: &str) -> bool {
@@ -3674,6 +3743,18 @@ mod tests {
     }
 
     #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn locked_secret_bytes_is_send() {
+        fn assert_send<T: Send>() {}
+
+        assert_send::<LockedSecretBytes<4>>();
+    }
+
+    #[cfg(all(
         feature = "std",
         feature = "guard-pages",
         target_os = "linux",
@@ -3692,6 +3773,19 @@ mod tests {
 
         assert!(std::error::Error::source(&guarded).is_some());
         assert!(std::error::Error::source(&generated).is_some());
+    }
+
+    #[cfg(all(
+        feature = "guard-pages",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn guarded_secret_vec_is_send() {
+        fn assert_send<T: Send>() {}
+
+        assert_send::<GuardedSecretVec>();
     }
 
     #[test]
