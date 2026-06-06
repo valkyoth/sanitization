@@ -14,13 +14,15 @@
 //! Important limits:
 //! - Safe Rust cannot soundly scrub old stack frames created by prior moves.
 //! - Process abort prevents destructors and post-closure cleanup from running.
-//! - Cache flush instructions, SIMD stores, memory locking, and assembly need
-//!   target-specific unsafe code and platform policy.
+//! - Cache flush instructions, SIMD stores, broad memory policy, and assembly
+//!   need target-specific unsafe code and platform policy.
+//! - Linux memory locking is available only through the explicit
+//!   `memory-lock` feature on supported architectures.
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "std"))]
 extern crate std;
 
 #[cfg(feature = "alloc")]
@@ -207,6 +209,421 @@ fn sanitize_vec_capacity(bytes: &mut Vec<u8>) {
 fn next_secret_capacity(current: usize, required: usize) -> usize {
     current.saturating_mul(2).max(required).max(8)
 }
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[allow(unsafe_code)]
+mod memory_lock {
+    use core::{
+        arch::asm,
+        fmt,
+        ptr::NonNull,
+        sync::atomic::{compiler_fence, Ordering},
+    };
+
+    const FALLBACK_PAGE_SIZE: usize = 4096;
+    const PROT_READ: usize = 0x1;
+    const PROT_WRITE: usize = 0x2;
+    const MAP_PRIVATE: usize = 0x02;
+    const MAP_ANONYMOUS: usize = 0x20;
+
+    #[cfg(target_arch = "x86_64")]
+    const SYS_MMAP: usize = 9;
+    #[cfg(target_arch = "x86_64")]
+    const SYS_MUNMAP: usize = 11;
+    #[cfg(target_arch = "x86_64")]
+    const SYS_MLOCK: usize = 149;
+    #[cfg(target_arch = "x86_64")]
+    const SYS_MUNLOCK: usize = 150;
+
+    #[cfg(target_arch = "aarch64")]
+    const SYS_MMAP: usize = 222;
+    #[cfg(target_arch = "aarch64")]
+    const SYS_MUNMAP: usize = 215;
+    #[cfg(target_arch = "aarch64")]
+    const SYS_MLOCK: usize = 228;
+    #[cfg(target_arch = "aarch64")]
+    const SYS_MUNLOCK: usize = 229;
+
+    /// Linux memory-locking operation that failed.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum MemoryLockOperation {
+        /// The requested mapping length overflowed.
+        Length,
+        /// Anonymous mapping creation failed.
+        Map,
+        /// Page locking failed.
+        Lock,
+        /// Page unlocking failed.
+        Unlock,
+        /// Anonymous mapping release failed.
+        Unmap,
+    }
+
+    /// Error returned by Linux memory-locking operations.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct MemoryLockError {
+        /// Operation that failed.
+        pub operation: MemoryLockOperation,
+        /// Positive Linux errno value when the kernel returned one.
+        ///
+        /// This is `0` for local arithmetic failures before a syscall.
+        pub errno: i32,
+    }
+
+    impl fmt::Display for MemoryLockError {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                formatter,
+                "memory lock operation {:?} failed with errno {}",
+                self.operation, self.errno
+            )
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for MemoryLockError {}
+
+    /// Fixed-size secret bytes stored in a private locked Linux mapping.
+    ///
+    /// This type is available with the `memory-lock` feature on Linux
+    /// `x86_64` and `aarch64`. It allocates a private anonymous mapping with
+    /// `mmap`, locks it with `mlock`, volatile-clears the full mapping on drop,
+    /// then calls `munlock` and `munmap`.
+    ///
+    /// The secret bytes are not stored inline in the Rust value. Moving this
+    /// type only moves pointer metadata, so ordinary Rust moves do not copy the
+    /// secret byte array itself.
+    pub struct LockedSecretBytes<const N: usize> {
+        ptr: NonNull<u8>,
+        map_len: usize,
+    }
+
+    impl<const N: usize> LockedSecretBytes<N> {
+        /// Allocate locked zeroed storage for `N` bytes.
+        #[inline]
+        pub fn zeroed() -> Result<Self, MemoryLockError> {
+            if N == 0 {
+                return Ok(Self {
+                    ptr: NonNull::dangling(),
+                    map_len: 0,
+                });
+            }
+
+            let map_len = rounded_mapping_len(N)?;
+            let ptr = map_private(map_len)?;
+
+            if let Err(error) = lock_mapping(ptr, map_len) {
+                let _ = unmap_private(ptr, map_len);
+                return Err(error);
+            }
+
+            Ok(Self { ptr, map_len })
+        }
+
+        /// Allocate locked storage, copy an array into it, then clear the input
+        /// array with the crate's volatile wipe backend.
+        #[inline]
+        pub fn from_array(mut bytes: [u8; N]) -> Result<Self, MemoryLockError> {
+            let mut secret = match Self::zeroed() {
+                Ok(secret) => secret,
+                Err(error) => {
+                    crate::sanitize_bytes(&mut bytes);
+                    return Err(error);
+                }
+            };
+
+            let _ = secret.copy_from_slice(&bytes);
+            crate::sanitize_bytes(&mut bytes);
+            Ok(secret)
+        }
+
+        /// Number of secret bytes stored in the locked mapping.
+        #[must_use]
+        #[inline]
+        pub const fn len(&self) -> usize {
+            N
+        }
+
+        /// Returns true when the locked secret has zero length.
+        #[must_use]
+        #[inline]
+        pub const fn is_empty(&self) -> bool {
+            N == 0
+        }
+
+        /// Replace all secret bytes from a same-length slice.
+        #[inline]
+        pub fn copy_from_slice(&mut self, source: &[u8]) -> Result<(), crate::LengthError> {
+            if source.len() != N {
+                return Err(crate::LengthError {
+                    expected: N,
+                    actual: source.len(),
+                });
+            }
+
+            self.as_mut_slice().copy_from_slice(source);
+            compiler_fence(Ordering::SeqCst);
+            Ok(())
+        }
+
+        /// Fill a caller-provided destination with a copy of the secret bytes.
+        #[inline]
+        pub fn copy_to_slice(&self, destination: &mut [u8]) -> Result<(), crate::LengthError> {
+            if destination.len() != N {
+                return Err(crate::LengthError {
+                    expected: N,
+                    actual: destination.len(),
+                });
+            }
+
+            destination.copy_from_slice(self.as_slice());
+            compiler_fence(Ordering::SeqCst);
+            core::hint::black_box(destination);
+            Ok(())
+        }
+
+        /// Run a closure with read-only access to the locked secret bytes.
+        ///
+        /// The closure can still copy bytes elsewhere. Keep usage limited to
+        /// cryptographic or protocol boundaries that genuinely need raw bytes.
+        #[inline]
+        pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+            inspect(self.as_array())
+        }
+
+        /// Compare against a slice without early exit for equal-length inputs.
+        ///
+        /// Length mismatch returns immediately because the provided slice length
+        /// is treated as public metadata.
+        #[must_use]
+        #[inline]
+        pub fn constant_time_eq(&self, other: &[u8]) -> bool {
+            if other.len() != N {
+                return false;
+            }
+
+            let left = self.as_slice();
+            let mut diff = 0usize;
+            let mut index = 0;
+            while index < N {
+                diff = core::hint::black_box(diff | usize::from(left[index] ^ other[index]));
+                index += 1;
+            }
+            core::hint::black_box(diff) == 0
+        }
+
+        /// Clear the full private mapping with volatile writes.
+        #[inline(never)]
+        pub fn secure_clear(&mut self) {
+            if self.map_len != 0 {
+                crate::wipe::volatile_wipe(self.ptr.as_ptr(), self.map_len);
+            }
+        }
+
+        #[inline]
+        fn as_slice(&self) -> &[u8] {
+            // SAFETY: `ptr` either points to a live mapping of at least `N`
+            // bytes owned by this value, or is dangling with `N == 0`.
+            unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), N) }
+        }
+
+        #[inline]
+        fn as_mut_slice(&mut self) -> &mut [u8] {
+            // SAFETY: `&mut self` gives exclusive access to the live mapping,
+            // and the mapping is at least `N` bytes long when `N > 0`.
+            unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), N) }
+        }
+
+        #[inline]
+        fn as_array(&self) -> &[u8; N] {
+            // SAFETY: `as_slice` is exactly `N` bytes long, and the pointer is
+            // valid for a `[u8; N]` reference for the duration of `&self`.
+            unsafe { &*(self.ptr.as_ptr() as *const [u8; N]) }
+        }
+    }
+
+    impl<const N: usize> Drop for LockedSecretBytes<N> {
+        #[inline]
+        fn drop(&mut self) {
+            self.secure_clear();
+
+            if self.map_len != 0 {
+                let _ = unlock_mapping(self.ptr, self.map_len);
+                let _ = unmap_private(self.ptr, self.map_len);
+            }
+        }
+    }
+
+    impl<const N: usize> crate::SecureSanitize for LockedSecretBytes<N> {
+        #[inline]
+        fn secure_sanitize(&mut self) {
+            self.secure_clear();
+        }
+    }
+
+    impl<const N: usize> fmt::Debug for LockedSecretBytes<N> {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter
+                .debug_struct("LockedSecretBytes")
+                .field("len", &N)
+                .field("contents", &"<redacted>")
+                .finish()
+        }
+    }
+
+    fn rounded_mapping_len(len: usize) -> Result<usize, MemoryLockError> {
+        len.checked_add(FALLBACK_PAGE_SIZE - 1)
+            .map(|value| value & !(FALLBACK_PAGE_SIZE - 1))
+            .ok_or(MemoryLockError {
+                operation: MemoryLockOperation::Length,
+                errno: 0,
+            })
+    }
+
+    fn syscall_failed(ret: isize) -> bool {
+        (-4095..=-1).contains(&ret)
+    }
+
+    fn syscall_error(operation: MemoryLockOperation, ret: isize) -> MemoryLockError {
+        MemoryLockError {
+            operation,
+            errno: (-ret) as i32,
+        }
+    }
+
+    fn map_private(len: usize) -> Result<NonNull<u8>, MemoryLockError> {
+        let ret = raw_syscall6(
+            SYS_MMAP,
+            0,
+            len,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS,
+            usize::MAX,
+            0,
+        );
+
+        if syscall_failed(ret) {
+            return Err(syscall_error(MemoryLockOperation::Map, ret));
+        }
+
+        NonNull::new(ret as *mut u8).ok_or(MemoryLockError {
+            operation: MemoryLockOperation::Map,
+            errno: 0,
+        })
+    }
+
+    fn lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+        let ret = raw_syscall2(SYS_MLOCK, ptr.as_ptr() as usize, len);
+        if syscall_failed(ret) {
+            Err(syscall_error(MemoryLockOperation::Lock, ret))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn unlock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+        let ret = raw_syscall2(SYS_MUNLOCK, ptr.as_ptr() as usize, len);
+        if syscall_failed(ret) {
+            Err(syscall_error(MemoryLockOperation::Unlock, ret))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn unmap_private(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+        let ret = raw_syscall2(SYS_MUNMAP, ptr.as_ptr() as usize, len);
+        if syscall_failed(ret) {
+            Err(syscall_error(MemoryLockOperation::Unmap, ret))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn raw_syscall2(number: usize, arg1: usize, arg2: usize) -> isize {
+        raw_syscall6(number, arg1, arg2, 0, 0, 0, 0)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn raw_syscall6(
+        number: usize,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+        arg4: usize,
+        arg5: usize,
+        arg6: usize,
+    ) -> isize {
+        let ret: isize;
+
+        // SAFETY: Registers follow the Linux x86_64 syscall ABI. The syscall
+        // number and arguments are fixed by the caller wrappers above.
+        unsafe {
+            asm!(
+                "syscall",
+                inlateout("rax") number as isize => ret,
+                in("rdi") arg1,
+                in("rsi") arg2,
+                in("rdx") arg3,
+                in("r10") arg4,
+                in("r8") arg5,
+                in("r9") arg6,
+                lateout("rcx") _,
+                lateout("r11") _,
+                options(nostack)
+            );
+        }
+
+        ret
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn raw_syscall2(number: usize, arg1: usize, arg2: usize) -> isize {
+        raw_syscall6(number, arg1, arg2, 0, 0, 0, 0)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn raw_syscall6(
+        number: usize,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+        arg4: usize,
+        arg5: usize,
+        arg6: usize,
+    ) -> isize {
+        let ret: isize;
+
+        // SAFETY: Registers follow the Linux aarch64 syscall ABI. The syscall
+        // number and arguments are fixed by the caller wrappers above.
+        unsafe {
+            asm!(
+                "svc 0",
+                inlateout("x0") arg1 as isize => ret,
+                in("x1") arg2,
+                in("x2") arg3,
+                in("x3") arg4,
+                in("x4") arg5,
+                in("x5") arg6,
+                in("x8") number,
+                options(nostack)
+            );
+        }
+
+        ret
+    }
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub use memory_lock::{LockedSecretBytes, MemoryLockError, MemoryLockOperation};
 
 impl SecureSanitize for [u8] {
     #[inline(never)]
@@ -1288,5 +1705,26 @@ mod tests {
 
         assert!(bytes.is_empty());
         assert!(text.is_empty());
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn locked_secret_bytes_round_trip_and_clear() {
+        let mut secret = LockedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+        let mut out = [0; 4];
+
+        assert!(secret.copy_to_slice(&mut out).is_ok());
+        assert_eq!(out, [1, 2, 3, 4]);
+        assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+        assert!(!secret.constant_time_eq(&[1, 2, 3]));
+
+        secret.secure_clear();
+        assert!(secret.copy_to_slice(&mut out).is_ok());
+        assert_eq!(out, [0, 0, 0, 0]);
     }
 }

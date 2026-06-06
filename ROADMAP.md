@@ -126,30 +126,42 @@ crate if keeping dev dependencies out of the repository remains preferred.
 
 ### 5. Evaluate Memory Locking as a High-Assurance Feature
 
+Status: partially implemented for fixed-size Linux secrets behind the
+`memory-lock` feature.
+
 `mlock`, `VirtualLock`, guard pages, and platform-specific memory policies are
 important for high-assurance deployments. Memory locking is the biggest
 ecosystem gap because it prevents secret pages from being swapped to disk,
 pagefiles, or hibernation images.
 
-Planned stance:
+Current implementation:
 
-- Keep memory locking out of the default API until the volatile clear path is
-  settled.
-- Evaluate a feature-gated, zero-dependency implementation using direct
-  platform calls where practical.
-- Pair any lock operation with automatic unlock on drop.
+- `LockedSecretBytes<N>` is available on Linux `x86_64` and `aarch64` when the
+  `memory-lock` feature is enabled.
+- Secret bytes live in a private anonymous `mmap` allocation rather than the
+  Rust global allocator.
+- The mapping is locked with `mlock`, volatile-cleared in full on drop, then
+  released with `munlock` and `munmap`.
+- Moving the Rust value copies only pointer metadata, not the secret byte
+  allocation.
+
+Remaining stance:
+
+- Keep memory locking out of the default API.
+- Extend only after target-specific review.
+- Pair every lock operation with automatic unlock on drop.
 - Document OS limits clearly: resource limits, privileges, page alignment,
   partial failures, crash dumps, hibernation policy, and platform differences.
 
-Candidate API shape:
+Implemented API shape:
 
 ```rust
-let key = SecretBytes::<32>::locked()?;
+let key = LockedSecretBytes::<32>::zeroed()?;
 ```
 
-This must not be rushed. Raw syscalls, `VirtualLock`, `mlock`, `munlock`, page
-rounding, and allocator interactions all need platform-specific tests and
-review.
+This must continue to be reviewed carefully. `VirtualLock`, broader platform
+support, exact runtime page-size handling, guard pages, and allocator-sensitive
+dynamic containers all need platform-specific tests and review.
 
 ## Candidate Differentiators
 

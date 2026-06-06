@@ -15,6 +15,8 @@
 - Added a release LLVM IR codegen check for volatile byte-zero stores.
 - Added an optional Miri verification script for the wipe boundary and feature
   matrix.
+- Added the optional Linux `memory-lock` feature with `LockedSecretBytes<N>` for
+  fixed-size secrets backed by private `mmap` storage and `mlock`.
 - Updated README, safety notes, and threat model for the new clearing model.
 
 ## 1.0.0-rc.4

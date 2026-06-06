@@ -48,6 +48,7 @@ Implemented now:
 - `Secret<T>` for custom sanitizable values.
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
 - optional `alloc` support with `SecretVec` and `SecretString`.
+- optional Linux memory locking with `LockedSecretBytes<N>`.
 - explicit volatile helper APIs for existing ordinary buffers.
 - redacted `Debug` for secret-owning wrapper types.
 - clear-on-drop behavior for crate-owned secret containers.
@@ -67,13 +68,13 @@ Implemented now:
 | Heap support | `alloc` feature |
 | Proc macros | none |
 | Main guarantee | narrow ownership, redaction, and clear-on-drop hygiene |
-| Out of scope | stack-history wiping, cache flushing, OS memory locking, dumps/swap |
+| Out of scope | stack-history wiping, cache flushing, crash dumps, privileged reads |
 
 Read [THREAT_MODEL.md](THREAT_MODEL.md) and [SAFETY.md](SAFETY.md) before
 using this crate for high-assurance secret handling.
 
-Read [ROADMAP.md](ROADMAP.md) for the pre-`1.0.0` architecture plan, including
-the planned move toward one audited volatile wipe path by default.
+Read [ROADMAP.md](ROADMAP.md) for the pre-`1.0.0` architecture plan and the
+remaining high-assurance feature work.
 
 ## Rust Version Support
 
@@ -109,12 +110,20 @@ sanitization = { version = "1.0.0-rc.5", features = ["alloc"] }
 The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
 release-candidate dependency declarations. Volatile clearing is now the default.
 
+For Linux memory-locked fixed-size secrets on supported architectures:
+
+```toml
+[dependencies]
+sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
+```
+
 ## Features
 
 | Feature | Default | Purpose |
 | --- | --- | --- |
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Currently aliases `alloc` for downstream convenience. |
+| `memory-lock` | no | Enables Linux `LockedSecretBytes<N>` on `x86_64` and `aarch64`. |
 | `unsafe-wipe` | no | Compatibility no-op; volatile wiping is default. |
 
 Default builds are dependency-free and `no_std`.
@@ -217,6 +226,36 @@ bytes.with_secret_mut(|value| value[0] = b'S');
 `SecretVec` and `SecretString` wipe initialized bytes and spare heap capacity
 before freeing their allocations. They expose contents through closures and
 redact `Debug`.
+
+## Memory-Locked Secrets
+
+Enable `memory-lock` on Linux `x86_64` or `aarch64` for fixed-size secrets
+stored in a private anonymous mapping locked with `mlock`.
+
+```rust
+use sanitization::LockedSecretBytes;
+
+let mut key = LockedSecretBytes::<32>::from_array([7; 32]).unwrap();
+
+assert!(key.constant_time_eq(&[7; 32]));
+
+key.with_secret(|bytes| {
+    assert_eq!(bytes.len(), 32);
+});
+
+key.secure_clear();
+assert!(key.constant_time_eq(&[0; 32]));
+```
+
+`LockedSecretBytes<N>` does not use the Rust global allocator for the secret
+bytes. It creates a private Linux mapping with `mmap`, locks that mapping with
+`mlock`, volatile-clears the full mapping on drop, then calls `munlock` and
+`munmap`.
+
+This feature is explicit because OS memory locking has platform limits. It can
+fail due to resource limits or policy, and it does not protect against crash
+dumps, hibernation, debuggers, privileged process reads, DMA, malicious
+firmware, or copies made before data enters the locked container.
 
 ## Custom Structs Without Proc Macros
 
@@ -334,6 +373,7 @@ assert_eq!(secret.with_secret(|bytes| bytes.len()), 4);
 | Use case | Recommended API |
 | --- | --- |
 | Fixed-size key or token | `SecretBytes<N>` |
+| Fixed-size key that should avoid swap on supported Linux | `LockedSecretBytes<N>` with `memory-lock` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |
 | Secret UTF-8 text | `SecretString` with `alloc` |
 | Custom struct, macro-owned drop | `secure_drop_struct!` |
