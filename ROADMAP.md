@@ -138,31 +138,35 @@ Avoid before `1.0.0`:
 
 ### 4. Add Stronger Verification
 
-Status: partially implemented in `1.0.0-rc.5`.
-
-Before stable `1.0.0`, add or evaluate:
-
-- Miri runs for the unsafe boundary where target support allows it.
-- Release LLVM IR inspection for volatile wipe codegen.
-- Feature-matrix checks after removing or changing `unsafe-wipe`.
-- External review focused on unsafe clearing, drop behavior, and API misuse.
+Status: implemented in `1.0.0-rc.5`, with external review still required
+before stable `1.0.0`.
 
 Implemented now:
 
+- `scripts/checks.sh` runs the feature matrix, clippy, release codegen
+  verification, bounded Kani harnesses when available, rustdoc, and package
+  listing.
 - `scripts/verify-codegen.sh` builds release LLVM IR and checks that the wipe
   backend contains volatile byte-zero stores. On x86_64 it also checks release
   assembly for the optional comparison and cache-flush instruction paths.
 - `scripts/verify-kani.sh` runs bounded Kani proof harnesses when `cargo-kani`
   is installed, covering selected fixed-size wipe, equality, and capacity
   arithmetic properties.
-- `scripts/checks.sh` runs the codegen verification as part of the local gate.
 - `scripts/verify-miri.sh` runs default, `alloc`, and all-features tests under
   Miri when a nightly toolchain with Miri is available.
 - `.github/workflows/miri.yml` runs the Miri verification script on pull
   requests, `main` pushes, and manual dispatch.
+- `.github/workflows/kani.yml` runs bounded Kani harnesses on pull requests,
+  `main` pushes, and manual dispatch.
 
-Property-based or timing-distribution tests can live outside the published
-crate if keeping dev dependencies out of the repository remains preferred.
+Before stable `1.0.0`, remaining verification work is:
+
+- external review focused on unsafe clearing, drop behavior, and API misuse;
+- optional property-based or timing-distribution tests if the project accepts
+  dev-only dependencies or keeps them in an unpublished test harness.
+
+Property-based or timing-distribution tests can live outside the published crate
+if keeping dev dependencies out of the repository remains preferred.
 
 ### 5. Evaluate Memory Locking as a High-Assurance Feature
 
@@ -392,13 +396,16 @@ Limits:
 
 ## Priority Order
 
-If resources are limited, the implementation order should be:
+If resources are limited, remaining pre-stable work should be ordered as:
 
-1. Add stronger verification around the unsafe wipe and comparison paths.
-2. Evaluate dependency-free memory locking.
-3. Evaluate assembly-backed comparison on major targets.
-4. Evaluate cache eviction and guard pages as explicit hardening features.
-5. Evaluate secret lifetime enforcement as a `std` policy feature.
+1. Get external review of the volatile wipe, platform memory mappings, inline
+   assembly, drop behavior, and secret lifecycle APIs.
+2. Run downstream integration tests in real consumers before freezing `1.0.0`.
+3. Decide whether optional property-based or timing-distribution tests should
+   live in-tree, outside the published crate, or in a separate audit harness.
+4. Keep non-Linux memory locking, non-x86_64 cache eviction, and tighter
+   runtime page-size handling as post-stable target-specific work unless review
+   finds a release-blocking issue.
 
 ## Stable Release Bar
 
