@@ -195,6 +195,9 @@ assert_eq!(generated.try_constant_time_eq(&[7; 32]), Ok(true));
 key.try_expose_secret(|bytes| {
     assert_eq!(bytes.len(), 32);
 }).unwrap();
+key.try_expose_secret_volatile(|bytes| {
+    assert_eq!(bytes[0], 7);
+}).unwrap();
 
 key.replace_from_fn(|index| index as u8);
 key.try_replace_from_fn(|index| Ok::<u8, &'static str>(index as u8))

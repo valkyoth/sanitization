@@ -2652,6 +2652,18 @@ impl<const N: usize> ExpiringSecretBytes<N> {
         Ok(self.inner.expose_secret(inspect))
     }
 
+    /// Run a closure with a temporary array copy if the secret has not expired.
+    ///
+    /// This is the expiring variant of [`SecretBytes::expose_secret_volatile`].
+    #[inline]
+    pub fn try_expose_secret_volatile<R>(
+        &mut self,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> Result<R, SecretExpiredError> {
+        self.enforce_live()?;
+        Ok(self.inner.expose_secret_volatile(inspect))
+    }
+
     /// Compare against a slice if the secret has not expired.
     ///
     /// Length mismatch remains public metadata and returns `Ok(false)`.
@@ -3618,6 +3630,10 @@ mod tests {
         assert_eq!(out, [1, 2, 3, 4]);
         assert_eq!(
             secret.try_expose_secret(|bytes| bytes[0].wrapping_add(bytes[3])),
+            Ok(5)
+        );
+        assert_eq!(
+            secret.try_expose_secret_volatile(|bytes| bytes[1].wrapping_add(bytes[2])),
             Ok(5)
         );
         assert_eq!(secret.try_constant_time_eq(&[1, 2, 3, 4]), Ok(true));

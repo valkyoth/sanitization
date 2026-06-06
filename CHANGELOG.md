@@ -42,6 +42,8 @@
   ownership-taking constructors for existing heap allocations.
 - Added a dedicated GitHub Actions Miri workflow for nightly interpreter
   verification of default, `alloc`, and all-features builds.
+- Added `ExpiringSecretBytes::try_expose_secret_volatile` for fallible
+  volatile-named temporary exposure with lifetime enforcement.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer
