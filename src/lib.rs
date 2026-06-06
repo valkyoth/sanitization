@@ -52,6 +52,19 @@ pub struct LengthError {
     pub actual: usize,
 }
 
+impl fmt::Display for LengthError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "length mismatch: expected {} bytes, got {} bytes",
+            self.expected, self.actual
+        )
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for LengthError {}
+
 /// Shared trait for values that can clear their own sensitive contents.
 pub trait SecureSanitize {
     /// Clear the sensitive bytes owned by this value.
@@ -330,18 +343,21 @@ mod memory_lock {
     impl fmt::Display for LockedSecretBytesError {
         fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
-                Self::Length(error) => write!(
-                    formatter,
-                    "length mismatch: expected {} bytes, got {} bytes",
-                    error.expected, error.actual
-                ),
+                Self::Length(error) => error.fmt(formatter),
                 Self::Memory(error) => error.fmt(formatter),
             }
         }
     }
 
     #[cfg(feature = "std")]
-    impl std::error::Error for LockedSecretBytesError {}
+    impl std::error::Error for LockedSecretBytesError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::Length(error) => Some(error),
+                Self::Memory(error) => Some(error),
+            }
+        }
+    }
 
     /// Error returned when fallible locked secret byte generation fails.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -363,7 +379,17 @@ mod memory_lock {
     }
 
     #[cfg(feature = "std")]
-    impl<E> std::error::Error for LockedSecretBytesGenerateError<E> where E: std::error::Error + 'static {}
+    impl<E> std::error::Error for LockedSecretBytesGenerateError<E>
+    where
+        E: std::error::Error + 'static,
+    {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::Memory(error) => Some(error),
+                Self::Generate(error) => Some(error),
+            }
+        }
+    }
 
     impl From<crate::LengthError> for LockedSecretBytesError {
         #[inline]
@@ -1264,7 +1290,17 @@ mod guard_pages {
     }
 
     #[cfg(feature = "std")]
-    impl<E> std::error::Error for GuardedSecretVecGenerateError<E> where E: std::error::Error + 'static {}
+    impl<E> std::error::Error for GuardedSecretVecGenerateError<E>
+    where
+        E: std::error::Error + 'static,
+    {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::Guard(error) => Some(error),
+                Self::Generate(error) => Some(error),
+            }
+        }
+    }
 
     impl<E> From<GuardPageError> for GuardedSecretVecGenerateError<E> {
         #[inline]
@@ -2445,17 +2481,20 @@ impl fmt::Display for ExpiringSecretError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Expired(error) => error.fmt(formatter),
-            Self::Length(error) => write!(
-                formatter,
-                "length mismatch: expected {} bytes, got {} bytes",
-                error.expected, error.actual
-            ),
+            Self::Length(error) => error.fmt(formatter),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for ExpiringSecretError {}
+impl std::error::Error for ExpiringSecretError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Expired(error) => Some(error),
+            Self::Length(error) => Some(error),
+        }
+    }
+}
 
 #[cfg(feature = "std")]
 impl From<SecretExpiredError> for ExpiringSecretError {
@@ -3563,6 +3602,30 @@ pub mod unsafe_wipe {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn length_error_formats_clearly() {
+        let error = LengthError {
+            expected: 4,
+            actual: 2,
+        };
+
+        assert_eq!(
+            std::format!("{error}"),
+            "length mismatch: expected 4 bytes, got 2 bytes"
+        );
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn expiring_error_exposes_source() {
+        let error = ExpiringSecretError::Length(LengthError {
+            expected: 4,
+            actual: 2,
+        });
+
+        assert!(std::error::Error::source(&error).is_some());
+    }
 
     #[test]
     fn secret_bytes_round_trip_and_clear() {
