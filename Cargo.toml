@@ -48,5 +48,8 @@ guard-pages = []
 # Volatile wiping is now the default clear path.
 unsafe-wipe = []
 
+[package.metadata.docs.rs]
+all-features = true
+
 [lib]
 path = "src/lib.rs"
