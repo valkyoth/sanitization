@@ -13,6 +13,8 @@
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer
   wiping.
 - Added a release LLVM IR codegen check for volatile byte-zero stores.
+- Expanded release codegen checks to verify x86_64 assembly comparison and
+  cache-flush instruction paths.
 - Added an optional Miri verification script for the wipe boundary and feature
   matrix.
 - Added the optional Linux `memory-lock` feature with `LockedSecretBytes<N>` for

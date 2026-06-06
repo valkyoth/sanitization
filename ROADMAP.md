@@ -116,7 +116,8 @@ Before stable `1.0.0`, add or evaluate:
 Implemented now:
 
 - `scripts/verify-codegen.sh` builds release LLVM IR and checks that the wipe
-  backend contains volatile byte-zero stores.
+  backend contains volatile byte-zero stores. On x86_64 it also checks release
+  assembly for the optional comparison and cache-flush instruction paths.
 - `scripts/checks.sh` runs the codegen verification as part of the local gate.
 - `scripts/verify-miri.sh` runs default, `alloc`, and all-features tests under
   Miri when a nightly toolchain with Miri is available.

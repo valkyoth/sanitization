@@ -1,16 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cargo rustc --lib --release --all-features -- --emit=llvm-ir
+emit_codegen() {
+    rm -f \
+        target/release/deps/sanitization-verify-codegen.d \
+        target/release/deps/sanitization-verify-codegen.ll \
+        target/release/deps/sanitization-verify-codegen.s \
+        target/release/deps/libsanitization-verify-codegen.rlib \
+        target/release/deps/libsanitization-verify-codegen.rmeta
 
-ir_file="$(
-    find target/release/deps -maxdepth 1 -name 'sanitization-*.ll' -print \
-        | sort \
-        | tail -n 1
-)"
+    cargo rustc --lib --release --all-features -- \
+        -C extra-filename=-verify-codegen \
+        --emit=llvm-ir,asm
+}
 
-if [[ -z "${ir_file}" ]]; then
+emit_codegen
+
+ir_file="target/release/deps/sanitization-verify-codegen.ll"
+asm_file="target/release/deps/sanitization-verify-codegen.s"
+
+if [[ ! -f "${ir_file}" ]]; then
     echo "no sanitization LLVM IR file found" >&2
+    exit 1
+fi
+
+if [[ ! -f "${asm_file}" ]]; then
+    echo "no sanitization assembly file found" >&2
     exit 1
 fi
 
@@ -27,6 +42,37 @@ fi
 if ! grep -q 'sanitize_bytes_best_effort' "${ir_file}"; then
     echo "compatibility clear alias missing from LLVM IR" >&2
     exit 1
+fi
+
+host="$(
+    rustc -vV \
+        | awk '/^host:/ { print $2 }'
+)"
+
+if [[ "${host}" == x86_64-* ]]; then
+    if ! grep -q 'compare_asm' "${asm_file}"; then
+        echo "x86_64 assembly comparison symbol missing from assembly" >&2
+        exit 1
+    fi
+
+    if ! grep -Eq '\bmovzbl\b|\bmovzx\b' "${asm_file}"; then
+        echo "x86_64 byte-load comparison instruction missing from assembly" >&2
+        exit 1
+    fi
+
+    if ! grep -q 'clflush' "${asm_file}"; then
+        echo "x86_64 cache flush instruction missing from assembly" >&2
+        exit 1
+    fi
+
+    if ! grep -q 'mfence' "${asm_file}"; then
+        echo "x86_64 cache flush fence missing from assembly" >&2
+        exit 1
+    fi
+
+    echo "verified x86_64 architecture-specific codegen in ${asm_file}"
+else
+    echo "skipped architecture-specific codegen checks for ${host}"
 fi
 
 echo "verified volatile wipe codegen in ${ir_file}"
