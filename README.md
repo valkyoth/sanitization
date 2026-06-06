@@ -269,6 +269,12 @@ assert!(token.constant_time_eq("bearer-token"));
 token.push_str("-v2");
 assert_eq!(token.try_with_secret(|text| text.ends_with("-v2")), Ok(true));
 token.replace_from_secret_str("rotated-token");
+token.replace_from_chars(5, |index| ['t', 'o', 'k', 'e', 'n'][index]);
+token
+    .try_replace_from_chars(5, |index| {
+        Ok::<char, &'static str>(['t', 'o', 'k', 'e', 'n'][index])
+    })
+    .unwrap();
 
 let mut bytes = SecretVec::from_slice(b"session-key");
 assert_eq!(bytes.with_secret(|value| value.len()), 11);
@@ -287,8 +293,10 @@ before freeing their allocations. Use `replace_from_slice` and
 `replace_from_secret_str` when rotating entire dynamic values. Use
 `SecretVec::from_fn`, `try_from_fn`, `replace_from_fn`, or
 `try_replace_from_fn` when dynamic bytes can be generated directly into
-clear-on-drop storage. Fallible generation clears partial output on error. They
-expose contents through closures and redact `Debug`.
+clear-on-drop storage. Use `SecretString::from_chars`, `try_from_chars`,
+`replace_from_chars`, or `try_replace_from_chars` when secret UTF-8 text can be
+generated as `char` values. Fallible generation clears partial output on error.
+They expose contents through closures and redact `Debug`.
 
 ## Memory-Locked Secrets
 

@@ -112,7 +112,11 @@ Implemented dynamic rotation helpers:
 - `GuardedSecretVec::locked_try_from_fn`;
 - `GuardedSecretVec::replace_from_fn`;
 - `GuardedSecretVec::try_replace_from_fn`;
-- `SecretString::replace_from_secret_str`.
+- `SecretString::from_chars`;
+- `SecretString::try_from_chars`;
+- `SecretString::replace_from_secret_str`;
+- `SecretString::replace_from_chars`;
+- `SecretString::try_replace_from_chars`.
 
 Avoid before `1.0.0`:
 

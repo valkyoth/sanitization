@@ -211,6 +211,16 @@ Invariant:
 - Drop ignores `munlock` and `munmap` errors because destructors cannot report
   failure.
 
+## Safe Temporary Buffers
+
+`SecretString::from_chars`, `try_from_chars`, `replace_from_chars`, and
+`try_replace_from_chars` generate valid UTF-8 by accepting `char` values. Each
+character is encoded through a four-byte stack buffer, copied into the secret
+heap allocation, and then the stack buffer is immediately cleared with the same
+volatile wipe backend used elsewhere in the crate. Fallible generation keeps
+partial text inside a clear-on-drop `SecretString` local, so generated heap
+bytes are cleared if the generator returns an error or unwinds.
+
 ## Non-Goals
 
 This unsafe boundary intentionally does not implement stack scanning, cache

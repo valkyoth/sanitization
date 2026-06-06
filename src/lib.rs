@@ -218,6 +218,12 @@ fn next_secret_capacity(current: usize, required: usize) -> usize {
     current.saturating_mul(2).max(required).max(8)
 }
 
+#[cfg(feature = "alloc")]
+#[inline]
+fn max_utf8_capacity(char_count: usize) -> usize {
+    char_count.saturating_mul(4)
+}
+
 #[cfg(all(
     feature = "memory-lock",
     target_os = "linux",
@@ -2899,6 +2905,45 @@ impl SecretString {
         }
     }
 
+    /// Create a secret string by generating UTF-8 scalar values directly.
+    ///
+    /// `char_count` is the number of generated `char` values, not the final
+    /// byte length. Each generated character is encoded into the secret heap
+    /// allocation and the small stack encoding buffer is immediately cleared.
+    #[must_use]
+    #[inline]
+    pub fn from_chars(char_count: usize, mut make_char: impl FnMut(usize) -> char) -> Self {
+        let mut secret = Self::with_capacity(max_utf8_capacity(char_count));
+        let mut index = 0;
+        while index < char_count {
+            secret.push_secret_char(make_char(index));
+            index += 1;
+        }
+        secret
+    }
+
+    /// Create a secret string by fallibly generating UTF-8 scalar values
+    /// directly.
+    ///
+    /// If `make_char` returns an error, any text generated before the error is
+    /// cleared before the error is returned.
+    #[inline]
+    pub fn try_from_chars<E>(
+        char_count: usize,
+        mut make_char: impl FnMut(usize) -> Result<char, E>,
+    ) -> Result<Self, E> {
+        let mut secret = Self::with_capacity(max_utf8_capacity(char_count));
+        let mut index = 0;
+        while index < char_count {
+            match make_char(index) {
+                Ok(character) => secret.push_secret_char(character),
+                Err(error) => return Err(error),
+            }
+            index += 1;
+        }
+        Ok(secret)
+    }
+
     /// Compatibility alias for [`SecretString::from_secret_str`].
     #[must_use]
     #[inline]
@@ -2965,6 +3010,37 @@ impl SecretString {
         self.inner.extend_from_slice(text.as_bytes());
     }
 
+    /// Replace all text with generated UTF-8 scalar values.
+    ///
+    /// The replacement text is generated into a fresh clear-on-drop allocation
+    /// before the old value is cleared and replaced. If `make_char` panics, the
+    /// old value remains unchanged and partial generated text is cleared during
+    /// unwinding.
+    #[inline]
+    pub fn replace_from_chars(&mut self, char_count: usize, make_char: impl FnMut(usize) -> char) {
+        let mut replacement = Self::from_chars(char_count, make_char);
+        self.clear_secret();
+        core::mem::swap(&mut self.inner, &mut replacement.inner);
+    }
+
+    /// Replace all text with fallibly generated UTF-8 scalar values.
+    ///
+    /// The replacement text is generated into a fresh clear-on-drop allocation
+    /// before the old value is cleared and replaced. If `make_char` returns an
+    /// error, the old value remains unchanged and partial generated text is
+    /// cleared before the error is returned.
+    #[inline]
+    pub fn try_replace_from_chars<E>(
+        &mut self,
+        char_count: usize,
+        make_char: impl FnMut(usize) -> Result<char, E>,
+    ) -> Result<(), E> {
+        let mut replacement = Self::try_from_chars(char_count, make_char)?;
+        self.clear_secret();
+        core::mem::swap(&mut self.inner, &mut replacement.inner);
+        Ok(())
+    }
+
     /// Clear this value immediately with volatile writes.
     #[inline(never)]
     pub fn clear_secret(&mut self) {
@@ -3006,6 +3082,13 @@ impl SecretString {
         replacement.extend_from_slice(self.inner.as_slice());
         self.clear_secret();
         self.inner = replacement;
+    }
+
+    fn push_secret_char(&mut self, character: char) {
+        let mut encoded = [0; 4];
+        let text = character.encode_utf8(&mut encoded);
+        self.inner.extend_from_slice(text.as_bytes());
+        sanitize_bytes(&mut encoded);
     }
 }
 
@@ -3673,6 +3756,75 @@ mod tests {
 
         assert_eq!(secret.len(), larger.len());
         assert_eq!(secret.try_with_secret(|text| text == larger), Ok(true));
+
+        secret.clear_secret();
+        assert!(secret.is_empty());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn secret_string_can_initialize_from_chars() {
+        let mut secret = SecretString::from_chars(4, |index| match index {
+            0 => 's',
+            1 => 'e',
+            2 => 'c',
+            _ => '\u{1F512}',
+        });
+
+        assert_eq!(
+            secret.try_with_secret(|text| text == "sec\u{1F512}"),
+            Ok(true)
+        );
+        assert_eq!(secret.len(), "sec\u{1F512}".len());
+
+        assert_eq!(
+            SecretString::try_from_chars(4, |index| {
+                if index == 2 {
+                    Err("generation failed")
+                } else {
+                    Ok('x')
+                }
+            })
+            .err(),
+            Some("generation failed")
+        );
+
+        secret.clear_secret();
+        assert!(secret.is_empty());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn secret_string_can_replace_from_chars() {
+        let mut secret = SecretString::from_secret_str("secret");
+
+        secret.replace_from_chars(3, |index| match index {
+            0 => 'k',
+            1 => 'e',
+            _ => 'y',
+        });
+        assert!(secret.constant_time_eq("key"));
+
+        assert_eq!(
+            secret
+                .try_replace_from_chars(4, |index| {
+                    if index == 2 {
+                        Err("generation failed")
+                    } else {
+                        Ok('z')
+                    }
+                })
+                .err(),
+            Some("generation failed")
+        );
+        assert!(secret.constant_time_eq("key"));
+
+        secret
+            .try_replace_from_chars(2, |index| {
+                Ok::<char, &'static str>(if index == 0 { '\u{00F8}' } else { 'k' })
+            })
+            .unwrap();
+        assert_eq!(secret.try_with_secret(|text| text == "\u{00F8}k"), Ok(true));
 
         secret.clear_secret();
         assert!(secret.is_empty());
