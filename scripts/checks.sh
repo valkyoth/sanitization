@@ -13,5 +13,6 @@ cargo check --examples --features unsafe-wipe
 cargo check --examples --all-features
 cargo clippy --all-targets --no-default-features -- -D warnings
 cargo clippy --all-targets --all-features -- -D warnings
+scripts/verify-codegen.sh
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
 cargo package --allow-dirty --list >/dev/null

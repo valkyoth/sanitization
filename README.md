@@ -363,7 +363,8 @@ bash scripts/checks.sh
 ```
 
 The check script covers formatting, feature-matrix tests, examples, clippy, docs
-with warnings denied, and package listing.
+with warnings denied, release LLVM IR verification for volatile byte-zero
+stores, and package listing.
 
 ## Limits
 

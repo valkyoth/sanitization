@@ -104,12 +104,20 @@ Avoid before `1.0.0`:
 
 ### 4. Add Stronger Verification
 
+Status: partially implemented in `1.0.0-rc.5`.
+
 Before stable `1.0.0`, add or evaluate:
 
 - Miri runs for the unsafe boundary where target support allows it.
-- Assembly or IR inspection notes for the wipe backend.
+- Release LLVM IR inspection for volatile wipe codegen.
 - Feature-matrix checks after removing or changing `unsafe-wipe`.
 - External review focused on unsafe clearing, drop behavior, and API misuse.
+
+Implemented now:
+
+- `scripts/verify-codegen.sh` builds release LLVM IR and checks that the wipe
+  backend contains volatile byte-zero stores.
+- `scripts/checks.sh` runs the codegen verification as part of the local gate.
 
 Property-based or timing-distribution tests can live outside the published
 crate if keeping dev dependencies out of the repository remains preferred.

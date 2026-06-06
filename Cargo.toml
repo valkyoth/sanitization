@@ -28,6 +28,7 @@ include = [
     "examples/**/*.rs",
     "scripts/checks.sh",
     "scripts/ci_install_rust.sh",
+    "scripts/verify-codegen.sh",
 ]
 
 [features]
