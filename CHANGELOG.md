@@ -39,6 +39,8 @@
   `memory-lock` are enabled.
 - Added `GuardedSecretVec::from_fn` and `GuardedSecretVec::locked_from_fn` for
   direct byte generation inside guarded mappings.
+- Added `GuardedSecretVec::replace_from_slice` for whole-value rotation without
+  copying the previous guarded bytes during growth.
 - Added `GuardedSecretVec::clear_secret_and_flush` and `CacheFlushSanitize`
   support when both `guard-pages` and x86_64 `cache-flush` are enabled.
 - Changed Linux mapping length rounding to use a conservative 64 KiB granule on

@@ -1322,6 +1322,30 @@ mod guard_pages {
             Ok(())
         }
 
+        /// Replace all initialized secret bytes with a new slice.
+        ///
+        /// If the current guarded mapping is large enough, the old writable
+        /// region is cleared before the new bytes are copied in. If the new
+        /// value requires a larger mapping, a replacement mapping is allocated
+        /// with the same lock state, populated with the new bytes, and then the
+        /// old mapping is cleared before it is unmapped.
+        pub fn replace_from_slice(&mut self, bytes: &[u8]) -> Result<(), GuardPageError> {
+            if bytes.len() > self.data_capacity {
+                let mut replacement = Self::with_capacity_locked_state(bytes.len(), self.locked)?;
+                replacement.as_mut_capacity_slice()[..bytes.len()].copy_from_slice(bytes);
+                replacement.finish_initialization(bytes.len());
+
+                self.clear_secret();
+                core::mem::swap(self, &mut replacement);
+                return Ok(());
+            }
+
+            self.clear_secret();
+            self.as_mut_capacity_slice()[..bytes.len()].copy_from_slice(bytes);
+            self.finish_initialization(bytes.len());
+            Ok(())
+        }
+
         /// Clear the full writable data region and reset initialized length.
         #[inline(never)]
         pub fn clear_secret(&mut self) {
@@ -3291,6 +3315,36 @@ mod tests {
 
     #[cfg(all(
         feature = "guard-pages",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn guarded_secret_vec_can_replace_secret() {
+        let mut secret = GuardedSecretVec::from_slice(&[1, 2, 3, 4]).unwrap();
+        let original_capacity = secret.capacity();
+
+        secret.replace_from_slice(&[9, 8]).unwrap();
+
+        assert_eq!(secret.len(), 2);
+        assert_eq!(secret.capacity(), original_capacity);
+        assert!(secret.constant_time_eq(&[9, 8]));
+
+        let larger = [7_u8; 70_000];
+        secret.replace_from_slice(&larger).unwrap();
+
+        assert_eq!(secret.len(), larger.len());
+        assert!(secret.capacity() >= larger.len());
+        assert_eq!(
+            secret.with_secret(|bytes| (bytes[0], bytes[69_999])),
+            (7, 7)
+        );
+
+        secret.clear_secret();
+    }
+
+    #[cfg(all(
+        feature = "guard-pages",
         feature = "cache-flush",
         target_os = "linux",
         target_arch = "x86_64",
@@ -3359,6 +3413,13 @@ mod tests {
 
         assert!(secret.is_memory_locked());
         assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[3])), (1, 4));
+
+        let larger = [9_u8; 5000];
+        secret.replace_from_slice(&larger).unwrap();
+
+        assert!(secret.is_memory_locked());
+        assert_eq!(secret.len(), larger.len());
+        assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[4999])), (9, 9));
 
         secret.clear_secret();
         assert!(secret.is_empty());

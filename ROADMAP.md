@@ -329,6 +329,8 @@ Current implementation:
 - `from_fn` and `locked_from_fn` can generate dynamic secret bytes directly
   inside guarded storage, reducing ordinary intermediate copies when callers
   can produce bytes by index.
+- `replace_from_slice` supports whole-value rotation while preserving lock
+  state and avoiding old-byte copying when a larger guarded mapping is needed.
 - The writable data region is volatile-cleared in full before unmapping.
 - Growth moves initialized bytes into a new guarded mapping, then clears and
   unmaps the old one. Locked guarded vectors grow into locked replacement

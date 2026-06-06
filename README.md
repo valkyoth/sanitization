@@ -320,6 +320,7 @@ let mut token = GuardedSecretVec::from_slice(b"session-key").unwrap();
 assert!(token.constant_time_eq(b"session-key"));
 token.extend_from_slice(b"-v2").unwrap();
 assert_eq!(token.with_secret(|bytes| bytes.len()), 14);
+token.replace_from_slice(b"rotated-session-key").unwrap();
 
 token.clear_secret();
 assert!(token.is_empty());
@@ -330,9 +331,10 @@ after the writable data region inaccessible, volatile-clears the full writable
 region on drop, and then unmaps the allocation. It does not use the Rust global
 allocator for the secret bytes. Use `GuardedSecretVec::from_fn` when bytes can
 be generated directly into the guarded mapping; use `from_slice` when loading
-bytes from an existing runtime buffer. Guarded mappings use a 4 KiB page
-granule on `x86_64` and a conservative 64 KiB granule on `aarch64` to support
-4 KiB, 16 KiB, and 64 KiB Linux kernels without a libc dependency.
+bytes from an existing runtime buffer. Use `replace_from_slice` when rotating
+or replacing the entire guarded value. Guarded mappings use a 4 KiB page granule
+on `x86_64` and a conservative 64 KiB granule on `aarch64` to support 4 KiB,
+16 KiB, and 64 KiB Linux kernels without a libc dependency.
 
 When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
 can also mark their writable data pages with `MADV_DONTDUMP` and

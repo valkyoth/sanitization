@@ -173,6 +173,9 @@ Operations:
   writable data pages before copying secret bytes into them.
 - `from_fn` constructors generate bytes directly into the writable data pages
   after mapping setup and optional lock policies have succeeded.
+- `replace_from_slice` either clears the current writable region before
+  in-place replacement, or creates a new guarded mapping with the same lock
+  state and clears the old mapping before it is unmapped.
 - Growth allocates a new guarded mapping, copies initialized bytes into it,
   volatile-clears the old writable region, swaps metadata, and lets the old
   mapping unlock and unmap during drop. Locked mappings grow into locked
