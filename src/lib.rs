@@ -34,12 +34,13 @@ extern crate alloc;
 extern crate std;
 
 #[cfg(feature = "alloc")]
-use alloc::{string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 #[cfg(feature = "alloc")]
 use core::str::Utf8Error;
 use core::{
     fmt,
     hint::black_box,
+    mem,
     sync::atomic::{compiler_fence, Ordering},
 };
 
@@ -66,10 +67,38 @@ impl fmt::Display for LengthError {
 impl std::error::Error for LengthError {}
 
 /// Shared trait for values that can clear their own sensitive contents.
+///
+/// The crate implements this trait for common scalar types, arrays, slices,
+/// `Option<T>`, `Result<T, E>`, and, with `alloc`, `Box<T>`, `Vec<T>`, and
+/// `String`. Opaque third-party types cannot be implemented here without
+/// taking dependencies on them; wrap those values in a local newtype and
+/// implement this trait there.
 pub trait SecureSanitize {
     /// Clear the sensitive bytes owned by this value.
     fn secure_sanitize(&mut self);
 }
+
+#[inline(never)]
+fn sanitize_plain_value<T>(value: &mut T) {
+    wipe::volatile_wipe((value as *mut T).cast::<u8>(), mem::size_of::<T>());
+}
+
+macro_rules! impl_secure_sanitize_scalar {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl SecureSanitize for $ty {
+                #[inline(never)]
+                fn secure_sanitize(&mut self) {
+                    sanitize_plain_value(self);
+                }
+            }
+        )+
+    };
+}
+
+impl_secure_sanitize_scalar!(
+    u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, bool, char, f32, f64,
+);
 
 /// Declare a struct and generate [`SecureSanitize`] for all fields.
 ///
@@ -2015,17 +2044,71 @@ pub use guard_pages::{
     GuardPageError, GuardPageOperation, GuardedSecretVec, GuardedSecretVecGenerateError,
 };
 
-impl SecureSanitize for [u8] {
+impl<T: SecureSanitize> SecureSanitize for [T] {
     #[inline(never)]
     fn secure_sanitize(&mut self) {
-        sanitize_bytes_best_effort(self);
+        for item in self.iter_mut() {
+            item.secure_sanitize();
+        }
+        compiler_fence(Ordering::SeqCst);
     }
 }
 
-impl<const N: usize> SecureSanitize for [u8; N] {
+impl<T: SecureSanitize, const N: usize> SecureSanitize for [T; N] {
     #[inline(never)]
     fn secure_sanitize(&mut self) {
-        sanitize_bytes_best_effort(self);
+        self.as_mut_slice().secure_sanitize();
+    }
+}
+
+impl<T: SecureSanitize> SecureSanitize for Option<T> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        if let Some(value) = self.as_mut() {
+            value.secure_sanitize();
+        }
+        *self = None;
+        compiler_fence(Ordering::SeqCst);
+    }
+}
+
+impl<T: SecureSanitize, E: SecureSanitize> SecureSanitize for Result<T, E> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        match self {
+            Ok(value) => value.secure_sanitize(),
+            Err(error) => error.secure_sanitize(),
+        }
+        compiler_fence(Ordering::SeqCst);
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<T: SecureSanitize + ?Sized> SecureSanitize for Box<T> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.as_mut().secure_sanitize();
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<T: SecureSanitize> SecureSanitize for Vec<T> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        for item in self.iter_mut() {
+            item.secure_sanitize();
+        }
+        self.clear();
+        compiler_fence(Ordering::SeqCst);
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl SecureSanitize for String {
+    #[inline(never)]
+    fn secure_sanitize(&mut self) {
+        wipe::volatile_wipe(self.as_mut_ptr(), self.capacity());
+        self.clear();
     }
 }
 
@@ -3507,6 +3590,10 @@ impl fmt::Debug for SecretString {
 /// the crate. For fixed-size byte secrets, still prefer [`SecretBytes<N>`],
 /// which avoids implementing `Clone`, `Copy`, `Deref`, `AsRef<[u8]>`, or
 /// secret-printing `Debug`.
+///
+/// Scalar values such as `u64`, arrays of sanitizable values, `Option<T>`, and
+/// `Result<T, E>` implement [`SecureSanitize`] directly. With `alloc`, `Box<T>`,
+/// `Vec<T>`, and `String` are supported as well.
 pub struct Secret<T: SecureSanitize> {
     inner: T,
 }
@@ -4060,6 +4147,39 @@ mod tests {
     }
 
     #[test]
+    fn scalar_values_implement_secure_sanitize() {
+        let mut unsigned = Secret::new(0xDEAD_BEEF_u64);
+        let mut signed = Secret::new(-42_i32);
+        let mut flag = Secret::new(true);
+        let mut float = Secret::new(12.5_f64);
+
+        unsigned.with_secret_mut(SecureSanitize::secure_sanitize);
+        signed.with_secret_mut(SecureSanitize::secure_sanitize);
+        flag.with_secret_mut(SecureSanitize::secure_sanitize);
+        float.with_secret_mut(SecureSanitize::secure_sanitize);
+
+        assert_eq!(unsigned.with_secret(|value| *value), 0);
+        assert_eq!(signed.with_secret(|value| *value), 0);
+        assert!(!flag.with_secret(|value| *value));
+        assert_eq!(float.with_secret(|value| value.to_bits()), 0);
+    }
+
+    #[test]
+    fn compound_standard_types_implement_secure_sanitize() {
+        let mut array = [1_u64, 2, 3, 4];
+        let mut optional = Some([9_u8, 8, 7, 6]);
+        let mut result = Ok::<[u8; 2], [u8; 2]>([5, 4]);
+
+        array.secure_sanitize();
+        optional.secure_sanitize();
+        result.secure_sanitize();
+
+        assert_eq!(array, [0; 4]);
+        assert_eq!(optional, None);
+        assert_eq!(result, Ok([0, 0]));
+    }
+
+    #[test]
     fn secure_sanitize_struct_macro_covers_all_fields() {
         crate::secure_sanitize_struct! {
             struct MacroCredentials {
@@ -4435,6 +4555,22 @@ mod tests {
         crate::unsafe_wipe::volatile_sanitize_string(&mut text);
 
         assert!(bytes.is_empty());
+        assert!(text.is_empty());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn alloc_standard_types_implement_secure_sanitize() {
+        let mut boxed = std::boxed::Box::new([1_u64, 2, 3]);
+        let mut values = std::vec![7_u32, 8, 9];
+        let mut text = std::string::String::from("secret");
+
+        boxed.secure_sanitize();
+        values.secure_sanitize();
+        text.secure_sanitize();
+
+        assert_eq!(*boxed, [0; 3]);
+        assert!(values.is_empty());
         assert!(text.is_empty());
     }
 

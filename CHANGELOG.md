@@ -8,6 +8,9 @@
   `[u8; N]` with volatile clearing on drop.
 - Changed `SecretVec`, `SecretString`, `Secret<T>`, byte slices, and byte arrays
   to use volatile clearing by default.
+- Added `SecureSanitize` implementations for scalar primitives, generic arrays
+  and slices, `Option<T>`, `Result<T, E>`, and, with `alloc`, `Box<T>`,
+  `Vec<T>`, and `String`.
 - Added `SecretVec::replace_from_slice` and
   `SecretString::replace_from_secret_str` for whole-value rotation without
   copying previous dynamic secrets during growth.

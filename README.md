@@ -543,6 +543,41 @@ let mut empty_pair = Secret::<Pair>::default();
 empty_pair.with_secret_mut(|value| value.right[0] = 7);
 ```
 
+`SecureSanitize` is also implemented for common scalar and standard-library
+container shapes:
+
+- integer types: `u8` through `u128`, `usize`, signed integer equivalents, and
+  `isize`.
+- `bool`, `char`, `f32`, and `f64`.
+- arrays and slices whose element type implements `SecureSanitize`.
+- `Option<T>` and `Result<T, E>` when their contents implement
+  `SecureSanitize`.
+- with `alloc`: `Box<T>`, `Vec<T>`, and `String`.
+
+```rust
+use sanitization::{Secret, SecureSanitize};
+
+let mut exponent = Secret::new(0xDEAD_BEEF_u64);
+exponent.with_secret_mut(SecureSanitize::secure_sanitize);
+
+let mut scalar_words = Secret::new([1_u64, 2, 3, 4]);
+scalar_words.with_secret_mut(SecureSanitize::secure_sanitize);
+
+let mut maybe_key = Secret::new(Some([7_u8; 32]));
+maybe_key.with_secret_mut(SecureSanitize::secure_sanitize);
+```
+
+For `Vec<T>`, the generic implementation sanitizes initialized elements and
+then clears the vector. It does not wipe arbitrary spare capacity for every
+possible `T`, because spare capacity does not necessarily contain valid `T`
+values. For dynamic byte secrets where full allocation capacity matters, use
+`SecretVec`.
+
+Opaque third-party numeric types such as `BigUint` cannot be implemented by
+this crate without taking a dependency on that type. Wrap them in a local
+newtype and implement `SecureSanitize` for the newtype, or convert the secret
+material into `SecretBytes<N>`/`SecretVec` at the boundary where possible.
+
 ## Explicit Volatile Wiping
 
 If a secret already lives in an ordinary buffer, call the volatile helper
@@ -637,6 +672,8 @@ library when a protocol requires externally audited timing guarantees.
 | Dynamic secret bytes | `SecretVec` with `alloc` |
 | Dynamic bytes with Linux guard pages | `GuardedSecretVec` with `guard-pages` |
 | Secret UTF-8 text | `SecretString` with `alloc` |
+| Secret scalar such as `u64` | `Secret<u64>` |
+| Standard compound value | `Secret<T>` where `T: SecureSanitize` |
 | Custom struct, macro-owned drop | `secure_drop_struct!` |
 | Custom struct, custom drop | `secure_sanitize_struct!` |
 | Existing ordinary buffer | `unsafe_wipe::volatile_sanitize_*` |
