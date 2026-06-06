@@ -129,7 +129,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | --- | --- | --- |
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
-| `memory-lock` | no | Enables Linux `LockedSecretBytes<N>` on `x86_64` and `aarch64`. |
+| `memory-lock` | no | Enables Linux `LockedSecretBytes<N>` and locked guarded mappings on `x86_64` and `aarch64`. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
 | `guard-pages` | no | Enables Linux `GuardedSecretVec` on `x86_64` and `aarch64`. |
@@ -321,6 +321,28 @@ assert!(token.is_empty());
 after the writable data region inaccessible, volatile-clears the full writable
 region on drop, and then unmaps the allocation. It does not use the Rust global
 allocator for the secret bytes.
+
+When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
+can also lock their writable data pages with `mlock`:
+
+```toml
+[dependencies]
+sanitization = { version = "1.0.0-rc.5", features = ["guard-pages", "memory-lock"] }
+```
+
+```rust
+use sanitization::GuardedSecretVec;
+
+let token = GuardedSecretVec::locked_from_slice(b"session-key").unwrap();
+
+assert!(token.is_memory_locked());
+assert!(token.constant_time_eq(b"session-key"));
+```
+
+Locked guarded mappings preserve the lock state when they grow. Guard pages are
+not locked because they never contain secret bytes. Locking can fail due to OS
+resource limits or policy, and it does not change the broader memory-lock
+limits described above.
 
 Guard pages are a fault-detection mechanism for crossing outside the mapped
 data pages. They do not catch logical overreads that stay inside the writable

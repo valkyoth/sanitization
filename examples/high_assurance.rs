@@ -58,4 +58,17 @@ fn main() {
         assert_eq!(token.with_secret(|bytes| bytes.len()), 14);
         token.clear_secret();
     }
+
+    #[cfg(all(
+        feature = "guard-pages",
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    {
+        let token = GuardedSecretVec::locked_from_slice(b"session-key").unwrap();
+        assert!(token.is_memory_locked());
+        assert!(token.constant_time_eq(b"session-key"));
+    }
 }

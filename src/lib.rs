@@ -900,6 +900,10 @@ mod guard_pages {
     const SYS_MPROTECT: usize = 10;
     #[cfg(target_arch = "x86_64")]
     const SYS_MUNMAP: usize = 11;
+    #[cfg(all(feature = "memory-lock", target_arch = "x86_64"))]
+    const SYS_MLOCK: usize = 149;
+    #[cfg(all(feature = "memory-lock", target_arch = "x86_64"))]
+    const SYS_MUNLOCK: usize = 150;
 
     #[cfg(target_arch = "aarch64")]
     const SYS_MMAP: usize = 222;
@@ -907,6 +911,10 @@ mod guard_pages {
     const SYS_MPROTECT: usize = 226;
     #[cfg(target_arch = "aarch64")]
     const SYS_MUNMAP: usize = 215;
+    #[cfg(all(feature = "memory-lock", target_arch = "aarch64"))]
+    const SYS_MLOCK: usize = 228;
+    #[cfg(all(feature = "memory-lock", target_arch = "aarch64"))]
+    const SYS_MUNLOCK: usize = 229;
 
     /// Linux guard-page operation that failed.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -917,6 +925,10 @@ mod guard_pages {
         Map,
         /// Data-page protection update failed.
         Protect,
+        /// Page locking failed.
+        Lock,
+        /// Page unlocking failed.
+        Unlock,
         /// Anonymous mapping release failed.
         Unmap,
     }
@@ -960,12 +972,33 @@ mod guard_pages {
         map_len: usize,
         data_capacity: usize,
         len: usize,
+        locked: bool,
     }
 
     impl GuardedSecretVec {
         /// Create an empty guarded secret buffer with at least `capacity` bytes
         /// of writable data space.
         pub fn with_capacity(capacity: usize) -> Result<Self, GuardPageError> {
+            Self::with_capacity_locked_state(capacity, false)
+        }
+
+        /// Create an empty guarded secret buffer and lock its writable data
+        /// pages with Linux `mlock`.
+        ///
+        /// This constructor is available when both `guard-pages` and
+        /// `memory-lock` are enabled. Locking can fail due to operating-system
+        /// resource limits or policy. On failure, the mapping is unmapped
+        /// before the error is returned. Guard pages are not locked because
+        /// they never contain secret bytes.
+        #[cfg(feature = "memory-lock")]
+        pub fn locked_with_capacity(capacity: usize) -> Result<Self, GuardPageError> {
+            Self::with_capacity_locked_state(capacity, true)
+        }
+
+        fn with_capacity_locked_state(
+            capacity: usize,
+            locked: bool,
+        ) -> Result<Self, GuardPageError> {
             let data_capacity = rounded_data_len(capacity)?;
             let total_len = data_capacity
                 .checked_add(PAGE_SIZE)
@@ -993,18 +1026,41 @@ mod guard_pages {
                 return Err(error);
             }
 
+            #[cfg(feature = "memory-lock")]
+            if locked {
+                if let Err(error) = lock_mapping(data, data_capacity) {
+                    let _ = unmap_guarded(base, total_len);
+                    return Err(error);
+                }
+            }
+
             Ok(Self {
                 base,
                 data,
                 map_len: total_len,
                 data_capacity,
                 len: 0,
+                locked,
             })
         }
 
         /// Create a guarded secret buffer by copying bytes from a slice.
         pub fn from_slice(bytes: &[u8]) -> Result<Self, GuardPageError> {
             let mut secret = Self::with_capacity(bytes.len())?;
+            secret.as_mut_capacity_slice()[..bytes.len()].copy_from_slice(bytes);
+            secret.len = bytes.len();
+            compiler_fence(Ordering::SeqCst);
+            Ok(secret)
+        }
+
+        /// Create a guarded and memory-locked secret buffer by copying bytes
+        /// from a slice.
+        ///
+        /// The writable data pages are locked with Linux `mlock` before bytes
+        /// are copied into them.
+        #[cfg(feature = "memory-lock")]
+        pub fn locked_from_slice(bytes: &[u8]) -> Result<Self, GuardPageError> {
+            let mut secret = Self::locked_with_capacity(bytes.len())?;
             secret.as_mut_capacity_slice()[..bytes.len()].copy_from_slice(bytes);
             secret.len = bytes.len();
             compiler_fence(Ordering::SeqCst);
@@ -1030,6 +1086,13 @@ mod guard_pages {
         #[inline]
         pub const fn capacity(&self) -> usize {
             self.data_capacity
+        }
+
+        /// Returns true when this guarded mapping was locked with `mlock`.
+        #[must_use]
+        #[inline]
+        pub const fn is_memory_locked(&self) -> bool {
+            self.locked
         }
 
         /// Run a closure with read-only access to initialized secret bytes.
@@ -1087,7 +1150,7 @@ mod guard_pages {
                 .saturating_mul(2)
                 .max(required)
                 .max(PAGE_SIZE);
-            let mut replacement = Self::with_capacity(next_capacity)?;
+            let mut replacement = Self::with_capacity_locked_state(next_capacity, self.locked)?;
             replacement.as_mut_capacity_slice()[..self.len].copy_from_slice(self.as_slice());
             replacement.len = self.len;
 
@@ -1122,6 +1185,10 @@ mod guard_pages {
         #[inline]
         fn drop(&mut self) {
             self.clear_secret();
+            #[cfg(feature = "memory-lock")]
+            if self.locked {
+                let _ = unlock_mapping(self.data, self.data_capacity);
+            }
             let _ = unmap_guarded(self.base, self.map_len);
         }
     }
@@ -1139,6 +1206,7 @@ mod guard_pages {
                 .debug_struct("GuardedSecretVec")
                 .field("len", &self.len)
                 .field("capacity", &self.data_capacity)
+                .field("memory_locked", &self.locked)
                 .field("contents", &"<redacted>")
                 .finish()
         }
@@ -1195,6 +1263,26 @@ mod guard_pages {
         );
         if syscall_failed(ret) {
             Err(syscall_error(GuardPageOperation::Protect, ret))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "memory-lock")]
+    fn lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        let ret = raw_syscall2(SYS_MLOCK, ptr.as_ptr() as usize, len);
+        if syscall_failed(ret) {
+            Err(syscall_error(GuardPageOperation::Lock, ret))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "memory-lock")]
+    fn unlock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        let ret = raw_syscall2(SYS_MUNLOCK, ptr.as_ptr() as usize, len);
+        if syscall_failed(ret) {
+            Err(syscall_error(GuardPageOperation::Unlock, ret))
         } else {
             Ok(())
         }
@@ -2875,6 +2963,7 @@ mod tests {
 
         assert_eq!(secret.len(), 3);
         assert!(secret.capacity() >= 3);
+        assert!(!secret.is_memory_locked());
         assert_eq!(secret.with_secret(|bytes| bytes[0]), 1);
         assert!(secret.constant_time_eq(&[1, 2, 3]));
         assert!(!secret.constant_time_eq(&[1, 2]));
@@ -2890,6 +2979,36 @@ mod tests {
             secret.with_secret(|bytes| (bytes[0], bytes[2], bytes[5002])),
             (9, 3, 4)
         );
+
+        secret.clear_secret();
+        assert!(secret.is_empty());
+    }
+
+    #[cfg(all(
+        feature = "guard-pages",
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn guarded_secret_vec_can_be_memory_locked() {
+        let mut secret = match GuardedSecretVec::locked_from_slice(&[1, 2, 3]) {
+            Ok(secret) => secret,
+            Err(GuardPageError {
+                operation: GuardPageOperation::Lock,
+                ..
+            }) => return,
+            Err(error) => panic!("unexpected guarded lock error: {error:?}"),
+        };
+
+        assert!(secret.is_memory_locked());
+        assert!(secret.constant_time_eq(&[1, 2, 3]));
+
+        secret.extend_from_slice(&[4]).unwrap();
+
+        assert!(secret.is_memory_locked());
+        assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[3])), (1, 4));
 
         secret.clear_secret();
         assert!(secret.is_empty());

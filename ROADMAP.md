@@ -316,14 +316,21 @@ Current implementation:
 - Secret bytes live in a private anonymous mapping rather than the Rust global
   allocator.
 - The leading and trailing pages remain inaccessible.
+- When `memory-lock` is also enabled, `locked_with_capacity` and
+  `locked_from_slice` lock the writable data pages with `mlock` before secret
+  bytes are copied into them.
 - The writable data region is volatile-cleared in full before unmapping.
 - Growth moves initialized bytes into a new guarded mapping, then clears and
-  unmaps the old one.
+  unmaps the old one. Locked guarded vectors grow into locked replacement
+  mappings.
 
 Limits:
 
 - guard pages catch crossings outside the mapped data pages, not logical
   overreads that stay inside writable capacity;
+- locked guarded mappings inherit all `mlock` limits: resource caps, OS policy,
+  hibernation, crash dumps, privileged reads, DMA, and external copies remain
+  out of scope;
 - non-Linux support remains future work;
 - exact runtime page-size handling should be reviewed before stable.
 

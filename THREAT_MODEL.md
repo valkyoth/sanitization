@@ -23,6 +23,8 @@ Rust applications.
   `ExpiringSecretBytes<N>`.
 - Optional Linux guard-page storage for dynamic byte secrets with
   `GuardedSecretVec`.
+- Optional Linux memory locking for `GuardedSecretVec` when both `guard-pages`
+  and `memory-lock` are enabled.
 
 ## Out of Scope
 
@@ -82,6 +84,11 @@ stores dynamic secret bytes between inaccessible pages. This can turn linear
 overreads or overwrites beyond the mapped data pages into faults, but it does
 not catch logical overreads inside the writable capacity and does not protect
 copies made before data enters the guarded container.
+
+When both `guard-pages` and `memory-lock` are enabled, `GuardedSecretVec`
+locked constructors also call `mlock` on the writable data pages. This combines
+guard-page fault isolation with swap-reduction for dynamic secrets, but all
+`mlock` limits still apply.
 
 `SecretBytes::expose_secret_volatile` makes the volatile temporary-copy cleanup
 explicit at the call site. It clears on normal return and unwinding paths, but

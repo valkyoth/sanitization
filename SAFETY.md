@@ -160,10 +160,14 @@ Operations:
   pages.
 - Raw pointers from the writable middle region are converted into slices for
   initialized length or full writable capacity.
+- When `memory-lock` is also enabled, locked constructors call `mlock` on the
+  writable data pages before copying secret bytes into them.
 - Growth allocates a new guarded mapping, copies initialized bytes into it,
   volatile-clears the old writable region, swaps metadata, and lets the old
-  mapping unmap during drop.
-- Drop volatile-clears the full writable region before calling `munmap`.
+  mapping unlock and unmap during drop. Locked mappings grow into locked
+  replacement mappings.
+- Drop volatile-clears the full writable region, calls `munlock` for locked
+  mappings, and then calls `munmap`.
 
 Invariant:
 
@@ -175,8 +179,11 @@ Invariant:
 - The writable data pointer is one page after the mapping base.
 - The writable data length is rounded to a whole number of pages.
 - `len <= data_capacity` is preserved before any slice is created.
+- The `locked` flag is set only after `mlock` succeeds.
+- Guard pages are not locked because they never contain secret bytes.
 - `&mut self` is required for mutation and clearing.
-- Drop ignores `munmap` errors because destructors cannot report failure.
+- Drop ignores `munlock` and `munmap` errors because destructors cannot report
+  failure.
 
 ## Non-Goals
 
