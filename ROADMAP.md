@@ -158,6 +158,8 @@ Implemented now:
 - `scripts/checks.sh` runs the codegen verification as part of the local gate.
 - `scripts/verify-miri.sh` runs default, `alloc`, and all-features tests under
   Miri when a nightly toolchain with Miri is available.
+- `.github/workflows/miri.yml` runs the Miri verification script on pull
+  requests, `main` pushes, and manual dispatch.
 
 Property-based or timing-distribution tests can live outside the published
 crate if keeping dev dependencies out of the repository remains preferred.

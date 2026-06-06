@@ -9,6 +9,10 @@ Security-sensitive changes should include:
 
 - tests for default, `alloc`, compatibility `unsafe-wipe`, and all-features
   builds;
+- release-codegen inspection for volatile wipe visibility;
+- bounded Kani harnesses when `cargo-kani` is installed or via the Kani
+  workflow;
+- Miri verification on nightly for default, `alloc`, and all-features builds;
 - `SAFETY.md` updates for unsafe code;
 - `THREAT_MODEL.md` updates for guarantee or scope changes.
 

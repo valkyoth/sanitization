@@ -40,6 +40,8 @@
   copying the new value.
 - Added `SecretVec::from_vec` and `SecretString::from_string` as explicit
   ownership-taking constructors for existing heap allocations.
+- Added a dedicated GitHub Actions Miri workflow for nightly interpreter
+  verification of default, `alloc`, and all-features builds.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer
