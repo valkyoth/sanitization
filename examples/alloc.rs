@@ -9,6 +9,9 @@ fn main() {
 
         token = SecretString::with_capacity(32);
         token.push_str("bearer-token");
+        token
+            .try_with_secret_mut(|text| text.make_ascii_uppercase())
+            .unwrap();
         assert_eq!(token.try_with_secret(str::len), Ok(12));
 
         let mut bytes = SecretVec::from_vec(vec![115, 101, 99, 114, 101, 116]);

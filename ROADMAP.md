@@ -125,6 +125,7 @@ Implemented dynamic rotation helpers:
 - `SecretString::from_string`;
 - `SecretString::from_chars`;
 - `SecretString::try_from_chars`;
+- `SecretString::try_with_secret_mut`;
 - `SecretString::replace_from_string`;
 - `SecretString::replace_from_secret_str`;
 - `SecretString::replace_from_chars`;

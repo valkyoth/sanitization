@@ -243,6 +243,10 @@ volatile wipe backend used elsewhere in the crate. Fallible generation keeps
 partial text inside a clear-on-drop `SecretString` local, so generated heap
 bytes are cleared if the generator returns an error or unwinds.
 
+`SecretString::try_with_secret_mut` exposes mutable text as `&mut str` rather
+than mutable bytes. This keeps UTF-8 validity enforced by safe Rust while still
+allowing in-place text edits through closure-scoped access.
+
 ## Non-Goals
 
 This unsafe boundary intentionally does not implement stack scanning, cache

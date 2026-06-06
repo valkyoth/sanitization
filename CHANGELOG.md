@@ -44,6 +44,8 @@
   verification of default, `alloc`, and all-features builds.
 - Added `ExpiringSecretBytes::try_expose_secret_volatile` for fallible
   volatile-named temporary exposure with lifetime enforcement.
+- Added `SecretString::try_with_secret_mut` for closure-scoped mutable `&mut str`
+  access without exposing mutable raw bytes.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer

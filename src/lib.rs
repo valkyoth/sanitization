@@ -3140,6 +3140,19 @@ impl SecretString {
         core::str::from_utf8(self.inner.as_slice()).map(inspect)
     }
 
+    /// Run a closure with mutable access to the secret text.
+    ///
+    /// The result is fallible because the text is stored internally as bytes to
+    /// keep clearing safe without `String::as_mut_vec`. The closure receives
+    /// `&mut str`, so safe Rust cannot invalidate UTF-8.
+    #[inline]
+    pub fn try_with_secret_mut<R>(
+        &mut self,
+        edit: impl FnOnce(&mut str) -> R,
+    ) -> Result<R, Utf8Error> {
+        core::str::from_utf8_mut(self.inner.as_mut_slice()).map(edit)
+    }
+
     /// Run a closure with read-only access to the secret bytes.
     #[inline]
     pub fn with_secret_bytes<R>(&self, inspect: impl FnOnce(&[u8]) -> R) -> R {
@@ -3949,6 +3962,16 @@ mod tests {
         assert_eq!(
             secret.try_with_secret(|text| text.ends_with("token")),
             Ok(true)
+        );
+        assert_eq!(
+            secret.try_with_secret_mut(|text| text.make_ascii_uppercase()),
+            Ok(())
+        );
+        assert!(secret.constant_time_eq("SECRET-TOKEN"));
+        assert!(!secret.constant_time_eq("secret-token"));
+        assert_eq!(
+            secret.try_with_secret_mut(|text| text.make_ascii_lowercase()),
+            Ok(())
         );
         assert!(secret.constant_time_eq("secret-token"));
         assert!(!secret.constant_time_eq("secret"));

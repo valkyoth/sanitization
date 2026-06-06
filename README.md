@@ -276,6 +276,8 @@ assert!(token.constant_time_eq("bearer-token"));
 
 token.push_str("-v2");
 assert_eq!(token.try_with_secret(|text| text.ends_with("-v2")), Ok(true));
+token.try_with_secret_mut(|text| text.make_ascii_uppercase())
+    .unwrap();
 token.replace_from_secret_str("rotated-token");
 token.replace_from_string(String::from("owned-token"));
 token.replace_from_chars(5, |index| ['t', 'o', 'k', 'e', 'n'][index]);
@@ -310,7 +312,9 @@ data. Use `SecretVec::from_fn`, `try_from_fn`, `replace_from_fn`, or
 clear-on-drop storage. Use `SecretString::from_chars`, `try_from_chars`,
 `replace_from_chars`, or `try_replace_from_chars` when secret UTF-8 text can be
 generated as `char` values. Fallible generation clears partial output on error.
-They expose contents through closures and redact `Debug`.
+`SecretString::try_with_secret_mut` exposes mutable `&mut str` access without
+allowing safe Rust to invalidate UTF-8. They expose contents through closures
+and redact `Debug`.
 
 ## Memory-Locked Secrets
 
