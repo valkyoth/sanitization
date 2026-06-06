@@ -107,6 +107,7 @@ Implemented dynamic rotation helpers:
 - `LockedSecretBytes::replace_from_slice`;
 - `LockedSecretBytes::replace_from_fn`;
 - `LockedSecretBytes::try_replace_from_fn`;
+- `SecretVec::default`;
 - `SecretVec::from_vec`;
 - `SecretVec::from_fn`;
 - `SecretVec::try_from_fn`;
@@ -122,6 +123,7 @@ Implemented dynamic rotation helpers:
 - `GuardedSecretVec::locked_try_from_fn`;
 - `GuardedSecretVec::replace_from_fn`;
 - `GuardedSecretVec::try_replace_from_fn`;
+- `SecretString::default`;
 - `SecretString::from_string`;
 - `SecretString::from_chars`;
 - `SecretString::try_from_chars`;

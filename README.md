@@ -274,6 +274,9 @@ let mut token = SecretString::from_string(String::from("bearer-token"));
 assert_eq!(token.try_with_secret(str::len), Ok(12));
 assert!(token.constant_time_eq("bearer-token"));
 
+let empty_text = SecretString::default();
+assert!(empty_text.is_empty());
+
 token.push_str("-v2");
 assert_eq!(token.try_with_secret(|text| text.ends_with("-v2")), Ok(true));
 token.try_with_secret_mut(|text| text.make_ascii_uppercase())
@@ -291,6 +294,9 @@ let mut bytes = SecretVec::from_vec(vec![115, 101, 115, 115, 105, 111, 110]);
 bytes.extend_from_slice(b"-key");
 assert_eq!(bytes.with_secret(|value| value.len()), 11);
 assert!(bytes.constant_time_eq(b"session-key"));
+
+let empty_bytes = SecretVec::default();
+assert!(empty_bytes.is_empty());
 
 bytes.with_secret_mut(|value| value[0] = b'S');
 bytes.replace_from_slice(b"rotated-session-key");
@@ -314,7 +320,7 @@ clear-on-drop storage. Use `SecretString::from_chars`, `try_from_chars`,
 generated as `char` values. Fallible generation clears partial output on error.
 `SecretString::try_with_secret_mut` exposes mutable `&mut str` access without
 allowing safe Rust to invalidate UTF-8. They expose contents through closures
-and redact `Debug`.
+and redact `Debug`. `Default` creates an empty heap secret container.
 
 ## Memory-Locked Secrets
 

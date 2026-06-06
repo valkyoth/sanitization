@@ -2981,6 +2981,14 @@ impl Drop for SecretVec {
 }
 
 #[cfg(feature = "alloc")]
+impl Default for SecretVec {
+    #[inline]
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+#[cfg(feature = "alloc")]
 impl SecureSanitize for SecretVec {
     #[inline]
     fn secure_sanitize(&mut self) {
@@ -3289,6 +3297,14 @@ impl Drop for SecretString {
     #[inline]
     fn drop(&mut self) {
         self.clear_secret();
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Default for SecretString {
+    #[inline]
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
@@ -3828,6 +3844,16 @@ mod tests {
 
     #[cfg(feature = "alloc")]
     #[test]
+    fn secret_vec_default_is_empty() {
+        let mut secret = SecretVec::default();
+
+        assert!(secret.is_empty());
+        secret.extend_from_slice(&[1, 2, 3]);
+        assert!(secret.constant_time_eq(&[1, 2, 3]));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
     fn secret_vec_can_initialize_from_fn() {
         let mut secret = SecretVec::from_fn(4, |index| (index as u8) + 1);
 
@@ -3982,6 +4008,16 @@ mod tests {
 
         secret.clear_secret();
         assert!(secret.is_empty());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn secret_string_default_is_empty() {
+        let mut secret = SecretString::default();
+
+        assert!(secret.is_empty());
+        secret.push_str("secret");
+        assert!(secret.constant_time_eq("secret"));
     }
 
     #[cfg(feature = "alloc")]
