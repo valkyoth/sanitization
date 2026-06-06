@@ -168,10 +168,11 @@ Before stable `1.0.0`, remaining verification work is:
 Property-based or timing-distribution tests can live outside the published crate
 if keeping dev dependencies out of the repository remains preferred.
 
-### 5. Evaluate Memory Locking as a High-Assurance Feature
+### 5. Memory Locking as a High-Assurance Feature
 
-Status: partially implemented for fixed-size Linux secrets behind the
-`memory-lock` feature.
+Status: implemented for fixed-size Linux secrets behind the `memory-lock`
+feature, and for guarded dynamic Linux secrets when `memory-lock` and
+`guard-pages` are both enabled.
 
 `mlock`, `VirtualLock`, guard pages, and platform-specific memory policies are
 important for high-assurance deployments. Memory locking is the biggest
@@ -189,6 +190,9 @@ Current implementation:
   `munmap`.
 - Moving the Rust value copies only pointer metadata, not the secret byte
   allocation.
+- `GuardedSecretVec` can also lock its writable data pages when both
+  `guard-pages` and `memory-lock` are enabled. Growth and whole-value
+  replacement preserve the lock state.
 
 Remaining stance:
 
@@ -205,8 +209,9 @@ let key = LockedSecretBytes::<32>::zeroed()?;
 ```
 
 This must continue to be reviewed carefully. `VirtualLock`, broader platform
-support, exact runtime page-size handling, guard pages, and allocator-sensitive
-dynamic containers all need platform-specific tests and review.
+support, exact runtime page-size handling, non-Linux guard pages, and any future
+allocator-sensitive dynamic containers all need platform-specific tests and
+review.
 
 ## Candidate Differentiators
 
@@ -239,8 +244,8 @@ Status: partially implemented with bounded Kani harnesses.
 
 Priority: high trust signal.
 
-Evaluate Kani or a similar model-checking workflow for properties regular tests
-cannot prove:
+Kani is used for bounded model-checking of properties regular tests cannot
+prove exhaustively:
 
 - wipe loops visit every byte;
 - comparison loops execute the expected number of iterations for equal-length
