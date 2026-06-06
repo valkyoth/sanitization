@@ -16,16 +16,16 @@
 //! - Process abort prevents destructors and post-closure cleanup from running.
 //! - SIMD stores, broad memory policy, and target-specific hardening need
 //!   target-specific unsafe code and platform policy.
-//! - Linux memory locking is available only through the explicit
-//!   `memory-lock` feature on supported architectures.
+//! - Platform memory locking is available only through the explicit
+//!   `memory-lock` feature on supported Linux, macOS, Windows, and BSD targets.
 //! - x86_64 assembly-backed comparison is available only through the explicit
 //!   `asm-compare` feature.
 //! - x86_64 cache-line eviction is available only through the explicit
 //!   `cache-flush` feature.
 //! - Fixed-size lifetime enforcement is available only through the `std`
 //!   feature and [`ExpiringSecretBytes`].
-//! - Linux guard-page allocation is available only through the explicit
-//!   `guard-pages` feature on supported architectures.
+//! - Guard-page allocation is available only through the explicit
+//!   `guard-pages` feature on supported Linux, macOS, Windows, and BSD targets.
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -279,55 +279,189 @@ fn max_utf8_capacity(char_count: usize) -> usize {
 
 #[cfg(all(
     feature = "memory-lock",
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    )
 ))]
 #[allow(unsafe_code)]
 mod memory_lock {
     use core::{
-        arch::asm,
         fmt,
         ptr::NonNull,
         sync::atomic::{compiler_fence, Ordering},
     };
 
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    use core::arch::asm;
+    #[cfg(not(target_os = "linux"))]
+    use core::ffi::c_void;
+    #[cfg(target_os = "windows")]
+    use core::mem::MaybeUninit;
+
     // Linux exposes page size at runtime rather than through a direct syscall.
     // Use a conservative architecture granule so requested mappings are page
     // multiples on supported kernels without depending on libc.
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const LINUX_PAGE_GRANULE: usize = 4096;
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     const LINUX_PAGE_GRANULE: usize = 65_536;
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    const UNIX_FALLBACK_PAGE_GRANULE: usize = 4096;
+
+    #[cfg(target_os = "windows")]
+    const WINDOWS_FALLBACK_PAGE_GRANULE: usize = 4096;
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
     const PROT_READ: usize = 0x1;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
     const PROT_WRITE: usize = 0x2;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
     const MAP_PRIVATE: usize = 0x02;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    const MAP_ANONYMOUS: usize = 0x1000;
+
+    #[cfg(target_os = "linux")]
+    const PROT_READ: usize = 0x1;
+    #[cfg(target_os = "linux")]
+    const PROT_WRITE: usize = 0x2;
+    #[cfg(target_os = "linux")]
+    const MAP_PRIVATE: usize = 0x02;
+    #[cfg(target_os = "linux")]
     const MAP_ANONYMOUS: usize = 0x20;
+    #[cfg(target_os = "linux")]
     const MADV_DONTFORK: usize = 10;
+    #[cfg(target_os = "linux")]
     const MADV_DONTDUMP: usize = 16;
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(target_os = "windows")]
+    const MEM_COMMIT: u32 = 0x1000;
+    #[cfg(target_os = "windows")]
+    const MEM_RESERVE: u32 = 0x2000;
+    #[cfg(target_os = "windows")]
+    const MEM_RELEASE: u32 = 0x8000;
+    #[cfg(target_os = "windows")]
+    const PAGE_READWRITE: u32 = 0x04;
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const SYS_MMAP: usize = 9;
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const SYS_MUNMAP: usize = 11;
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const SYS_MADVISE: usize = 28;
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const SYS_MLOCK: usize = 149;
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const SYS_MUNLOCK: usize = 150;
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     const SYS_MMAP: usize = 222;
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     const SYS_MUNMAP: usize = 215;
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     const SYS_MADVISE: usize = 233;
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     const SYS_MLOCK: usize = 228;
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     const SYS_MUNLOCK: usize = 229;
 
-    /// Linux memory-locking operation that failed.
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    unsafe extern "C" {
+        fn getpagesize() -> i32;
+        fn mmap(
+            addr: *mut c_void,
+            len: usize,
+            prot: i32,
+            flags: i32,
+            fd: i32,
+            offset: isize,
+        ) -> *mut c_void;
+        fn munmap(addr: *mut c_void, len: usize) -> i32;
+        fn mlock(addr: *const c_void, len: usize) -> i32;
+        fn munlock(addr: *const c_void, len: usize) -> i32;
+    }
+
+    #[cfg(target_os = "windows")]
+    #[repr(C)]
+    struct SystemInfo {
+        processor_architecture: u16,
+        reserved: u16,
+        page_size: u32,
+        minimum_application_address: *mut c_void,
+        maximum_application_address: *mut c_void,
+        active_processor_mask: usize,
+        number_of_processors: u32,
+        processor_type: u32,
+        allocation_granularity: u32,
+        processor_level: u16,
+        processor_revision: u16,
+    }
+
+    #[cfg(target_os = "windows")]
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetLastError() -> u32;
+        fn GetSystemInfo(system_info: *mut SystemInfo);
+        fn VirtualAlloc(
+            address: *mut c_void,
+            size: usize,
+            allocation_type: u32,
+            protect: u32,
+        ) -> *mut c_void;
+        fn VirtualFree(address: *mut c_void, size: usize, free_type: u32) -> i32;
+        fn VirtualLock(address: *mut c_void, size: usize) -> i32;
+        fn VirtualUnlock(address: *mut c_void, size: usize) -> i32;
+    }
+
+    /// Platform memory-locking operation that failed.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub enum MemoryLockOperation {
         /// The requested mapping length overflowed.
@@ -346,12 +480,12 @@ mod memory_lock {
         Unmap,
     }
 
-    /// Error returned by Linux memory-locking operations.
+    /// Error returned by platform memory-locking operations.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub struct MemoryLockError {
         /// Operation that failed.
         pub operation: MemoryLockOperation,
-        /// Positive Linux errno value when the kernel returned one.
+        /// Positive errno or Windows `GetLastError` value when available.
         ///
         /// This is `0` for local arithmetic failures before a syscall.
         pub errno: i32,
@@ -375,8 +509,8 @@ mod memory_lock {
     pub enum LockedSecretBytesError {
         /// The caller provided a slice with the wrong length.
         Length(crate::LengthError),
-        /// Linux mapping, core-dump exclusion, locking, unlocking, or unmapping
-        /// failed.
+        /// Platform mapping, core-dump exclusion, locking, unlocking, or
+        /// unmapping failed.
         Memory(MemoryLockError),
     }
 
@@ -402,8 +536,8 @@ mod memory_lock {
     /// Error returned when fallible locked secret byte generation fails.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub enum LockedSecretBytesGenerateError<E> {
-        /// Linux mapping, core-dump exclusion, locking, unlocking, or unmapping
-        /// failed before generation completed.
+        /// Platform mapping, core-dump exclusion, locking, unlocking, or
+        /// unmapping failed before generation completed.
         Memory(MemoryLockError),
         /// The caller-provided byte generator failed.
         Generate(E),
@@ -452,13 +586,14 @@ mod memory_lock {
         }
     }
 
-    /// Fixed-size secret bytes stored in a private locked Linux mapping.
+    /// Fixed-size secret bytes stored in a private locked platform mapping.
     ///
-    /// This type is available with the `memory-lock` feature on Linux
-    /// `x86_64` and `aarch64`. It allocates a private anonymous mapping with
-    /// `mmap`, marks it with `MADV_DONTDUMP` and `MADV_DONTFORK`, locks it
-    /// with `mlock`, volatile-clears the full mapping on drop, then calls
-    /// `munlock` and `munmap`.
+    /// This type is available with the `memory-lock` feature on supported
+    /// Linux, macOS, Windows, and BSD targets. Linux uses raw syscalls with
+    /// `mmap`, `MADV_DONTDUMP`, `MADV_DONTFORK`, and `mlock`. macOS and BSD
+    /// use system `mmap`/`mlock` entry points. Windows uses
+    /// `VirtualAlloc`/`VirtualLock`. Every backend volatile-clears the full
+    /// mapping before unlocking and releasing it.
     ///
     /// The secret bytes are not stored inline in the Rust value. Moving this
     /// type only moves pointer metadata, so ordinary Rust moves do not copy the
@@ -526,9 +661,10 @@ mod memory_lock {
         ///
         /// This is the preferred constructor when the secret is already held in
         /// a runtime buffer. It creates the private mapping, applies
-        /// `MADV_DONTDUMP` and `MADV_DONTFORK`, and locks it with `mlock`
-        /// before copying bytes into the mapping. The source slice is borrowed
-        /// and cannot be cleared by this function.
+        /// OS-specific dump or fork-exclusion policies are applied where the
+        /// backend supports them, and the mapping is locked before copying
+        /// bytes into it. The source slice is borrowed and cannot be cleared by
+        /// this function.
         #[inline]
         pub fn from_slice(source: &[u8]) -> Result<Self, LockedSecretBytesError> {
             if source.len() != N {
@@ -549,8 +685,7 @@ mod memory_lock {
         ///
         /// This avoids requiring a full temporary `[u8; N]` or input slice at
         /// the call boundary. The private mapping is created, marked with
-        /// `MADV_DONTDUMP` and `MADV_DONTFORK`, and locked with `mlock` before
-        /// `make_byte` is called.
+        /// locked before `make_byte` is called.
         #[inline]
         pub fn from_fn(mut make_byte: impl FnMut(usize) -> u8) -> Result<Self, MemoryLockError> {
             let mut secret = Self::zeroed()?;
@@ -804,18 +939,63 @@ mod memory_lock {
     }
 
     fn rounded_mapping_len(len: usize) -> Result<usize, MemoryLockError> {
-        len.checked_add(LINUX_PAGE_GRANULE - 1)
-            .map(|value| value & !(LINUX_PAGE_GRANULE - 1))
+        let page_granule = platform_page_granule();
+        len.checked_add(page_granule - 1)
+            .map(|value| value & !(page_granule - 1))
             .ok_or(MemoryLockError {
                 operation: MemoryLockOperation::Length,
                 errno: 0,
             })
     }
 
+    #[cfg(target_os = "linux")]
+    #[inline]
+    const fn platform_page_granule() -> usize {
+        LINUX_PAGE_GRANULE
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    #[inline]
+    fn platform_page_granule() -> usize {
+        // SAFETY: `getpagesize` takes no arguments and returns the process page
+        // size according to the platform C ABI.
+        let page_size = unsafe { getpagesize() };
+        if page_size > 0 && (page_size as usize).is_power_of_two() {
+            page_size as usize
+        } else {
+            UNIX_FALLBACK_PAGE_GRANULE
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[inline]
+    fn platform_page_granule() -> usize {
+        let mut info = MaybeUninit::<SystemInfo>::zeroed();
+        // SAFETY: `GetSystemInfo` initializes the provided `SYSTEM_INFO`
+        // structure according to the Windows ABI.
+        unsafe {
+            GetSystemInfo(info.as_mut_ptr());
+            let page_size = info.assume_init().page_size as usize;
+            if page_size != 0 && page_size.is_power_of_two() {
+                page_size
+            } else {
+                WINDOWS_FALLBACK_PAGE_GRANULE
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     fn syscall_failed(ret: isize) -> bool {
         (-4095..=-1).contains(&ret)
     }
 
+    #[cfg(target_os = "linux")]
     fn syscall_error(operation: MemoryLockOperation, ret: isize) -> MemoryLockError {
         MemoryLockError {
             operation,
@@ -823,6 +1003,29 @@ mod memory_lock {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    fn windows_error(operation: MemoryLockOperation) -> MemoryLockError {
+        // SAFETY: `GetLastError` takes no arguments and returns the calling
+        // thread's last-error code.
+        let errno = unsafe { GetLastError() } as i32;
+        MemoryLockError { operation, errno }
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    const fn unix_error(operation: MemoryLockOperation) -> MemoryLockError {
+        MemoryLockError {
+            operation,
+            errno: 0,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     fn map_private(len: usize) -> Result<NonNull<u8>, MemoryLockError> {
         let ret = raw_syscall6(
             SYS_MMAP,
@@ -844,6 +1047,53 @@ mod memory_lock {
         })
     }
 
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    fn map_private(len: usize) -> Result<NonNull<u8>, MemoryLockError> {
+        // SAFETY: Arguments request a new private anonymous read/write mapping.
+        let ptr = unsafe {
+            mmap(
+                core::ptr::null_mut(),
+                len,
+                (PROT_READ | PROT_WRITE) as i32,
+                (MAP_PRIVATE | MAP_ANONYMOUS) as i32,
+                -1,
+                0,
+            )
+        };
+
+        if ptr as isize == -1 {
+            return Err(unix_error(MemoryLockOperation::Map));
+        }
+
+        NonNull::new(ptr.cast::<u8>()).ok_or(MemoryLockError {
+            operation: MemoryLockOperation::Map,
+            errno: 0,
+        })
+    }
+
+    #[cfg(target_os = "windows")]
+    fn map_private(len: usize) -> Result<NonNull<u8>, MemoryLockError> {
+        // SAFETY: Arguments request a new private committed/reserved read/write
+        // region owned by this process.
+        let ptr = unsafe {
+            VirtualAlloc(
+                core::ptr::null_mut(),
+                len,
+                MEM_COMMIT | MEM_RESERVE,
+                PAGE_READWRITE,
+            )
+        };
+
+        NonNull::new(ptr.cast::<u8>()).ok_or_else(|| windows_error(MemoryLockOperation::Map))
+    }
+
+    #[cfg(target_os = "linux")]
     fn lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
         let ret = raw_syscall2(SYS_MLOCK, ptr.as_ptr() as usize, len);
         if syscall_failed(ret) {
@@ -853,6 +1103,35 @@ mod memory_lock {
         }
     }
 
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    fn lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+        // SAFETY: `ptr` and `len` describe a live mapping owned by this value.
+        let ret = unsafe { mlock(ptr.as_ptr().cast::<c_void>(), len) };
+        if ret != 0 {
+            Err(unix_error(MemoryLockOperation::Lock))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+        // SAFETY: `ptr` and `len` describe a live region owned by this value.
+        let ret = unsafe { VirtualLock(ptr.as_ptr().cast::<c_void>(), len) };
+        if ret == 0 {
+            Err(windows_error(MemoryLockOperation::Lock))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     fn mark_dontdump(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
         let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_DONTDUMP);
         if syscall_failed(ret) {
@@ -862,6 +1141,13 @@ mod memory_lock {
         }
     }
 
+    #[cfg(not(target_os = "linux"))]
+    #[inline]
+    fn mark_dontdump(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
     fn mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
         let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_DONTFORK);
         if syscall_failed(ret) {
@@ -871,6 +1157,13 @@ mod memory_lock {
         }
     }
 
+    #[cfg(not(target_os = "linux"))]
+    #[inline]
+    fn mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
     fn unlock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
         let ret = raw_syscall2(SYS_MUNLOCK, ptr.as_ptr() as usize, len);
         if syscall_failed(ret) {
@@ -880,6 +1173,35 @@ mod memory_lock {
         }
     }
 
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    fn unlock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+        // SAFETY: `ptr` and `len` describe a live mapping owned by this value.
+        let ret = unsafe { munlock(ptr.as_ptr().cast::<c_void>(), len) };
+        if ret != 0 {
+            Err(unix_error(MemoryLockOperation::Unlock))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn unlock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+        // SAFETY: `ptr` and `len` describe a live region owned by this value.
+        let ret = unsafe { VirtualUnlock(ptr.as_ptr().cast::<c_void>(), len) };
+        if ret == 0 {
+            Err(windows_error(MemoryLockOperation::Unlock))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     fn unmap_private(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
         let ret = raw_syscall2(SYS_MUNMAP, ptr.as_ptr() as usize, len);
         if syscall_failed(ret) {
@@ -889,17 +1211,45 @@ mod memory_lock {
         }
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    fn unmap_private(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+        // SAFETY: `ptr` and `len` describe a live mapping owned by this value.
+        let ret = unsafe { munmap(ptr.as_ptr().cast::<c_void>(), len) };
+        if ret != 0 {
+            Err(unix_error(MemoryLockOperation::Unmap))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn unmap_private(ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
+        // SAFETY: `ptr` points to a region allocated by `VirtualAlloc`.
+        let ret = unsafe { VirtualFree(ptr.as_ptr().cast::<c_void>(), 0, MEM_RELEASE) };
+        if ret == 0 {
+            Err(windows_error(MemoryLockOperation::Unmap))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn raw_syscall2(number: usize, arg1: usize, arg2: usize) -> isize {
         raw_syscall6(number, arg1, arg2, 0, 0, 0, 0)
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
         raw_syscall6(number, arg1, arg2, arg3, 0, 0, 0)
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn raw_syscall6(
         number: usize,
         arg1: usize,
@@ -932,17 +1282,17 @@ mod memory_lock {
         ret
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     fn raw_syscall2(number: usize, arg1: usize, arg2: usize) -> isize {
         raw_syscall6(number, arg1, arg2, 0, 0, 0, 0)
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
         raw_syscall6(number, arg1, arg2, arg3, 0, 0, 0)
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     fn raw_syscall6(
         number: usize,
         arg1: usize,
@@ -976,8 +1326,18 @@ mod memory_lock {
 
 #[cfg(all(
     feature = "memory-lock",
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    )
 ))]
 pub use memory_lock::{
     LockedSecretBytes, LockedSecretBytesError, LockedSecretBytesGenerateError, MemoryLockError,
@@ -1219,63 +1579,219 @@ pub mod cache_flush {
 
 #[cfg(all(
     feature = "guard-pages",
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64"),
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
     not(miri)
 ))]
 #[allow(unsafe_code)]
 mod guard_pages {
     use core::{
-        arch::asm,
         fmt,
         ptr::NonNull,
         sync::atomic::{compiler_fence, Ordering},
     };
 
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    use core::arch::asm;
+    #[cfg(not(target_os = "linux"))]
+    use core::ffi::c_void;
+    #[cfg(target_os = "windows")]
+    use core::mem::MaybeUninit;
+
     // Guard layout must place the writable region on a kernel page boundary.
     // x86_64 Linux uses 4 KiB base pages; aarch64 Linux commonly supports
     // 4 KiB, 16 KiB, and 64 KiB kernels, so 64 KiB is the conservative granule.
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const LINUX_PAGE_GRANULE: usize = 4096;
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     const LINUX_PAGE_GRANULE: usize = 65_536;
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    const UNIX_FALLBACK_PAGE_GRANULE: usize = 4096;
+
+    #[cfg(target_os = "windows")]
+    const WINDOWS_FALLBACK_PAGE_GRANULE: usize = 4096;
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
     const PROT_NONE: usize = 0x0;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
     const PROT_READ: usize = 0x1;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
     const PROT_WRITE: usize = 0x2;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
     const MAP_PRIVATE: usize = 0x02;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    const MAP_ANONYMOUS: usize = 0x1000;
+
+    #[cfg(target_os = "linux")]
+    const PROT_NONE: usize = 0x0;
+    #[cfg(target_os = "linux")]
+    const PROT_READ: usize = 0x1;
+    #[cfg(target_os = "linux")]
+    const PROT_WRITE: usize = 0x2;
+    #[cfg(target_os = "linux")]
+    const MAP_PRIVATE: usize = 0x02;
+    #[cfg(target_os = "linux")]
     const MAP_ANONYMOUS: usize = 0x20;
     #[cfg(feature = "memory-lock")]
+    #[cfg(target_os = "linux")]
     const MADV_DONTFORK: usize = 10;
     #[cfg(feature = "memory-lock")]
+    #[cfg(target_os = "linux")]
     const MADV_DONTDUMP: usize = 16;
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(target_os = "windows")]
+    const MEM_COMMIT: u32 = 0x1000;
+    #[cfg(target_os = "windows")]
+    const MEM_RESERVE: u32 = 0x2000;
+    #[cfg(target_os = "windows")]
+    const MEM_RELEASE: u32 = 0x8000;
+    #[cfg(target_os = "windows")]
+    const PAGE_NOACCESS: u32 = 0x01;
+    #[cfg(target_os = "windows")]
+    const PAGE_READWRITE: u32 = 0x04;
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const SYS_MMAP: usize = 9;
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const SYS_MPROTECT: usize = 10;
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const SYS_MUNMAP: usize = 11;
-    #[cfg(all(feature = "memory-lock", target_arch = "x86_64"))]
+    #[cfg(all(feature = "memory-lock", target_os = "linux", target_arch = "x86_64"))]
     const SYS_MADVISE: usize = 28;
-    #[cfg(all(feature = "memory-lock", target_arch = "x86_64"))]
+    #[cfg(all(feature = "memory-lock", target_os = "linux", target_arch = "x86_64"))]
     const SYS_MLOCK: usize = 149;
-    #[cfg(all(feature = "memory-lock", target_arch = "x86_64"))]
+    #[cfg(all(feature = "memory-lock", target_os = "linux", target_arch = "x86_64"))]
     const SYS_MUNLOCK: usize = 150;
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     const SYS_MMAP: usize = 222;
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     const SYS_MPROTECT: usize = 226;
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     const SYS_MUNMAP: usize = 215;
-    #[cfg(all(feature = "memory-lock", target_arch = "aarch64"))]
+    #[cfg(all(feature = "memory-lock", target_os = "linux", target_arch = "aarch64"))]
     const SYS_MADVISE: usize = 233;
-    #[cfg(all(feature = "memory-lock", target_arch = "aarch64"))]
+    #[cfg(all(feature = "memory-lock", target_os = "linux", target_arch = "aarch64"))]
     const SYS_MLOCK: usize = 228;
-    #[cfg(all(feature = "memory-lock", target_arch = "aarch64"))]
+    #[cfg(all(feature = "memory-lock", target_os = "linux", target_arch = "aarch64"))]
     const SYS_MUNLOCK: usize = 229;
 
-    /// Linux guard-page operation that failed.
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    unsafe extern "C" {
+        fn getpagesize() -> i32;
+        fn mmap(
+            addr: *mut c_void,
+            len: usize,
+            prot: i32,
+            flags: i32,
+            fd: i32,
+            offset: isize,
+        ) -> *mut c_void;
+        fn mprotect(addr: *mut c_void, len: usize, prot: i32) -> i32;
+        fn munmap(addr: *mut c_void, len: usize) -> i32;
+        #[cfg(feature = "memory-lock")]
+        fn mlock(addr: *const c_void, len: usize) -> i32;
+        #[cfg(feature = "memory-lock")]
+        fn munlock(addr: *const c_void, len: usize) -> i32;
+    }
+
+    #[cfg(target_os = "windows")]
+    #[repr(C)]
+    struct SystemInfo {
+        processor_architecture: u16,
+        reserved: u16,
+        page_size: u32,
+        minimum_application_address: *mut c_void,
+        maximum_application_address: *mut c_void,
+        active_processor_mask: usize,
+        number_of_processors: u32,
+        processor_type: u32,
+        allocation_granularity: u32,
+        processor_level: u16,
+        processor_revision: u16,
+    }
+
+    #[cfg(target_os = "windows")]
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetLastError() -> u32;
+        fn GetSystemInfo(system_info: *mut SystemInfo);
+        fn VirtualAlloc(
+            address: *mut c_void,
+            size: usize,
+            allocation_type: u32,
+            protect: u32,
+        ) -> *mut c_void;
+        fn VirtualFree(address: *mut c_void, size: usize, free_type: u32) -> i32;
+        fn VirtualProtect(
+            address: *mut c_void,
+            size: usize,
+            new_protect: u32,
+            old_protect: *mut u32,
+        ) -> i32;
+        #[cfg(feature = "memory-lock")]
+        fn VirtualLock(address: *mut c_void, size: usize) -> i32;
+        #[cfg(feature = "memory-lock")]
+        fn VirtualUnlock(address: *mut c_void, size: usize) -> i32;
+    }
+
+    /// Platform guard-page operation that failed.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub enum GuardPageOperation {
         /// Requested length arithmetic overflowed.
@@ -1301,7 +1817,7 @@ mod guard_pages {
     pub struct GuardPageError {
         /// Operation that failed.
         pub operation: GuardPageOperation,
-        /// Positive Linux errno value when the kernel returned one.
+        /// Positive errno or Windows `GetLastError` value when available.
         ///
         /// This is `0` for local arithmetic failures before a syscall.
         pub errno: i32,
@@ -1359,13 +1875,13 @@ mod guard_pages {
         }
     }
 
-    /// Dynamic secret bytes stored between inaccessible Linux guard pages.
+    /// Dynamic secret bytes stored between inaccessible platform guard pages.
     ///
-    /// This type is available with the `guard-pages` feature on Linux `x86_64`
-    /// and `aarch64`. Secret bytes live in private anonymous mapped pages. The
-    /// pages immediately before and after the writable data region remain
-    /// `PROT_NONE`, so linear overreads or overwrites past the mapped data
-    /// region fault instead of reaching unrelated memory.
+    /// This type is available with the `guard-pages` feature on supported
+    /// Linux, macOS, Windows, and BSD targets. Secret bytes live in private
+    /// platform mappings. The pages immediately before and after the writable
+    /// data region remain inaccessible, so linear overreads or overwrites past
+    /// the mapped data region fault instead of reaching unrelated memory.
     ///
     /// The secret bytes are not allocated with the Rust global allocator.
     pub struct GuardedSecretVec {
@@ -1391,8 +1907,7 @@ mod guard_pages {
         }
 
         /// Create an empty guarded secret buffer and lock its writable data
-        /// pages with Linux `madvise(MADV_DONTDUMP)`,
-        /// `madvise(MADV_DONTFORK)`, and `mlock`.
+        /// pages with the platform memory-locking backend.
         ///
         /// This constructor is available when both `guard-pages` and
         /// `memory-lock` are enabled. Locking can fail due to operating-system
@@ -1409,17 +1924,18 @@ mod guard_pages {
             capacity: usize,
             locked: bool,
         ) -> Result<Self, GuardPageError> {
+            let page_granule = platform_page_granule();
             let data_capacity = rounded_data_len(capacity)?;
             let total_len = data_capacity
-                .checked_add(LINUX_PAGE_GRANULE)
-                .and_then(|value| value.checked_add(LINUX_PAGE_GRANULE))
+                .checked_add(page_granule)
+                .and_then(|value| value.checked_add(page_granule))
                 .ok_or(GuardPageError {
                     operation: GuardPageOperation::Length,
                     errno: 0,
                 })?;
 
             let base = map_guarded(total_len)?;
-            let data_addr = match (base.as_ptr() as usize).checked_add(LINUX_PAGE_GRANULE) {
+            let data_addr = match (base.as_ptr() as usize).checked_add(page_granule) {
                 Some(address) => address,
                 None => {
                     let _ = unmap_guarded(base, total_len);
@@ -1514,9 +2030,9 @@ mod guard_pages {
         /// Create a guarded and memory-locked secret buffer by copying bytes
         /// from a slice.
         ///
-        /// The writable data pages are marked with `MADV_DONTDUMP` and
-        /// `MADV_DONTFORK`, then locked with Linux `mlock` before bytes are
-        /// copied into them.
+        /// The writable data pages are locked before bytes are copied into
+        /// them. OS-specific dump or fork-exclusion policies are applied where
+        /// the backend supports them.
         #[cfg(feature = "memory-lock")]
         pub fn locked_from_slice(bytes: &[u8]) -> Result<Self, GuardPageError> {
             let mut secret = Self::locked_with_capacity(bytes.len())?;
@@ -1528,9 +2044,9 @@ mod guard_pages {
         /// Create a guarded and memory-locked secret buffer by writing
         /// generated bytes directly into the locked guarded mapping.
         ///
-        /// The writable data pages are marked with `MADV_DONTDUMP` and
-        /// `MADV_DONTFORK`, then locked with Linux `mlock` before bytes are
-        /// generated into them.
+        /// The writable data pages are locked before bytes are generated into
+        /// them. OS-specific dump or fork-exclusion policies are applied where
+        /// the backend supports them.
         #[cfg(feature = "memory-lock")]
         pub fn locked_from_fn(
             len: usize,
@@ -1544,10 +2060,9 @@ mod guard_pages {
         /// Create a guarded and memory-locked secret buffer by fallibly writing
         /// generated bytes directly into the locked guarded mapping.
         ///
-        /// The writable data pages are marked with `MADV_DONTDUMP` and
-        /// `MADV_DONTFORK`, then locked with Linux `mlock` before bytes are
-        /// generated into them. If generation fails, partial bytes are cleared
-        /// before the error is returned.
+        /// OS-specific dump or fork-exclusion policies are applied where the
+        /// backend supports them. If generation fails, partial bytes are
+        /// cleared before the error is returned.
         #[cfg(feature = "memory-lock")]
         pub fn locked_try_from_fn<E>(
             len: usize,
@@ -1723,11 +2238,12 @@ mod guard_pages {
         }
 
         fn grow_to(&mut self, required: usize) -> Result<(), GuardPageError> {
+            let page_granule = platform_page_granule();
             let next_capacity = self
                 .data_capacity
                 .saturating_mul(2)
                 .max(required)
-                .max(LINUX_PAGE_GRANULE);
+                .max(page_granule);
             let mut replacement = Self::with_capacity_locked_state(next_capacity, self.locked)?;
             replacement.as_mut_capacity_slice()[..self.len].copy_from_slice(self.as_slice());
             replacement.len = self.len;
@@ -1845,19 +2361,64 @@ mod guard_pages {
     }
 
     fn rounded_data_len(len: usize) -> Result<usize, GuardPageError> {
+        let page_granule = platform_page_granule();
         len.max(1)
-            .checked_add(LINUX_PAGE_GRANULE - 1)
-            .map(|value| value & !(LINUX_PAGE_GRANULE - 1))
+            .checked_add(page_granule - 1)
+            .map(|value| value & !(page_granule - 1))
             .ok_or(GuardPageError {
                 operation: GuardPageOperation::Length,
                 errno: 0,
             })
     }
 
+    #[cfg(target_os = "linux")]
+    #[inline]
+    const fn platform_page_granule() -> usize {
+        LINUX_PAGE_GRANULE
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    #[inline]
+    fn platform_page_granule() -> usize {
+        // SAFETY: `getpagesize` takes no arguments and returns the process page
+        // size according to the platform C ABI.
+        let page_size = unsafe { getpagesize() };
+        if page_size > 0 && (page_size as usize).is_power_of_two() {
+            page_size as usize
+        } else {
+            UNIX_FALLBACK_PAGE_GRANULE
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[inline]
+    fn platform_page_granule() -> usize {
+        let mut info = MaybeUninit::<SystemInfo>::zeroed();
+        // SAFETY: `GetSystemInfo` initializes the provided `SYSTEM_INFO`
+        // structure according to the Windows ABI.
+        unsafe {
+            GetSystemInfo(info.as_mut_ptr());
+            let page_size = info.assume_init().page_size as usize;
+            if page_size != 0 && page_size.is_power_of_two() {
+                page_size
+            } else {
+                WINDOWS_FALLBACK_PAGE_GRANULE
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     fn syscall_failed(ret: isize) -> bool {
         (-4095..=-1).contains(&ret)
     }
 
+    #[cfg(target_os = "linux")]
     fn syscall_error(operation: GuardPageOperation, ret: isize) -> GuardPageError {
         GuardPageError {
             operation,
@@ -1865,6 +2426,29 @@ mod guard_pages {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    fn windows_error(operation: GuardPageOperation) -> GuardPageError {
+        // SAFETY: `GetLastError` takes no arguments and returns the calling
+        // thread's last-error code.
+        let errno = unsafe { GetLastError() } as i32;
+        GuardPageError { operation, errno }
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    const fn unix_error(operation: GuardPageOperation) -> GuardPageError {
+        GuardPageError {
+            operation,
+            errno: 0,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     fn map_guarded(len: usize) -> Result<NonNull<u8>, GuardPageError> {
         let ret = raw_syscall6(
             SYS_MMAP,
@@ -1886,6 +2470,53 @@ mod guard_pages {
         })
     }
 
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    fn map_guarded(len: usize) -> Result<NonNull<u8>, GuardPageError> {
+        // SAFETY: Arguments request a new private anonymous no-access mapping.
+        let ptr = unsafe {
+            mmap(
+                core::ptr::null_mut(),
+                len,
+                PROT_NONE as i32,
+                (MAP_PRIVATE | MAP_ANONYMOUS) as i32,
+                -1,
+                0,
+            )
+        };
+
+        if ptr as isize == -1 {
+            return Err(unix_error(GuardPageOperation::Map));
+        }
+
+        NonNull::new(ptr.cast::<u8>()).ok_or(GuardPageError {
+            operation: GuardPageOperation::Map,
+            errno: 0,
+        })
+    }
+
+    #[cfg(target_os = "windows")]
+    fn map_guarded(len: usize) -> Result<NonNull<u8>, GuardPageError> {
+        // SAFETY: Arguments request a new private committed/reserved no-access
+        // region owned by this process.
+        let ptr = unsafe {
+            VirtualAlloc(
+                core::ptr::null_mut(),
+                len,
+                MEM_COMMIT | MEM_RESERVE,
+                PAGE_NOACCESS,
+            )
+        };
+
+        NonNull::new(ptr.cast::<u8>()).ok_or_else(|| windows_error(GuardPageOperation::Map))
+    }
+
+    #[cfg(target_os = "linux")]
     fn protect_data(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
         let ret = raw_syscall3(
             SYS_MPROTECT,
@@ -1900,7 +2531,51 @@ mod guard_pages {
         }
     }
 
-    #[cfg(feature = "memory-lock")]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    fn protect_data(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        // SAFETY: `ptr` and `len` describe the data region inside a live
+        // no-access mapping owned by this value.
+        let ret = unsafe {
+            mprotect(
+                ptr.as_ptr().cast::<c_void>(),
+                len,
+                (PROT_READ | PROT_WRITE) as i32,
+            )
+        };
+        if ret != 0 {
+            Err(unix_error(GuardPageOperation::Protect))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn protect_data(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        let mut old_protect = 0_u32;
+        // SAFETY: `ptr` and `len` describe the data region inside a live
+        // no-access mapping owned by this value.
+        let ret = unsafe {
+            VirtualProtect(
+                ptr.as_ptr().cast::<c_void>(),
+                len,
+                PAGE_READWRITE,
+                &mut old_protect,
+            )
+        };
+        if ret == 0 {
+            Err(windows_error(GuardPageOperation::Protect))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(all(feature = "memory-lock", target_os = "linux"))]
     fn lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
         let ret = raw_syscall2(SYS_MLOCK, ptr.as_ptr() as usize, len);
         if syscall_failed(ret) {
@@ -1910,7 +2585,38 @@ mod guard_pages {
         }
     }
 
-    #[cfg(feature = "memory-lock")]
+    #[cfg(all(
+        feature = "memory-lock",
+        any(
+            target_os = "macos",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+        )
+    ))]
+    fn lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        // SAFETY: `ptr` and `len` describe a live mapping owned by this value.
+        let ret = unsafe { mlock(ptr.as_ptr().cast::<c_void>(), len) };
+        if ret != 0 {
+            Err(unix_error(GuardPageOperation::Lock))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(all(feature = "memory-lock", target_os = "windows"))]
+    fn lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        // SAFETY: `ptr` and `len` describe a live region owned by this value.
+        let ret = unsafe { VirtualLock(ptr.as_ptr().cast::<c_void>(), len) };
+        if ret == 0 {
+            Err(windows_error(GuardPageOperation::Lock))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(all(feature = "memory-lock", target_os = "linux"))]
     fn mark_dontdump(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
         let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_DONTDUMP);
         if syscall_failed(ret) {
@@ -1920,7 +2626,13 @@ mod guard_pages {
         }
     }
 
-    #[cfg(feature = "memory-lock")]
+    #[cfg(all(feature = "memory-lock", not(target_os = "linux")))]
+    #[inline]
+    fn mark_dontdump(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
+        Ok(())
+    }
+
+    #[cfg(all(feature = "memory-lock", target_os = "linux"))]
     fn mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
         let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_DONTFORK);
         if syscall_failed(ret) {
@@ -1930,7 +2642,13 @@ mod guard_pages {
         }
     }
 
-    #[cfg(feature = "memory-lock")]
+    #[cfg(all(feature = "memory-lock", not(target_os = "linux")))]
+    #[inline]
+    fn mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
+        Ok(())
+    }
+
+    #[cfg(all(feature = "memory-lock", target_os = "linux"))]
     fn unlock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
         let ret = raw_syscall2(SYS_MUNLOCK, ptr.as_ptr() as usize, len);
         if syscall_failed(ret) {
@@ -1940,6 +2658,38 @@ mod guard_pages {
         }
     }
 
+    #[cfg(all(
+        feature = "memory-lock",
+        any(
+            target_os = "macos",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+        )
+    ))]
+    fn unlock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        // SAFETY: `ptr` and `len` describe a live mapping owned by this value.
+        let ret = unsafe { munlock(ptr.as_ptr().cast::<c_void>(), len) };
+        if ret != 0 {
+            Err(unix_error(GuardPageOperation::Unlock))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(all(feature = "memory-lock", target_os = "windows"))]
+    fn unlock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        // SAFETY: `ptr` and `len` describe a live region owned by this value.
+        let ret = unsafe { VirtualUnlock(ptr.as_ptr().cast::<c_void>(), len) };
+        if ret == 0 {
+            Err(windows_error(GuardPageOperation::Unlock))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     fn unmap_guarded(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
         let ret = raw_syscall2(SYS_MUNMAP, ptr.as_ptr() as usize, len);
         if syscall_failed(ret) {
@@ -1949,17 +2699,45 @@ mod guard_pages {
         }
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    fn unmap_guarded(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        // SAFETY: `ptr` and `len` describe a live mapping owned by this value.
+        let ret = unsafe { munmap(ptr.as_ptr().cast::<c_void>(), len) };
+        if ret != 0 {
+            Err(unix_error(GuardPageOperation::Unmap))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn unmap_guarded(ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
+        // SAFETY: `ptr` points to a region allocated by `VirtualAlloc`.
+        let ret = unsafe { VirtualFree(ptr.as_ptr().cast::<c_void>(), 0, MEM_RELEASE) };
+        if ret == 0 {
+            Err(windows_error(GuardPageOperation::Unmap))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn raw_syscall2(number: usize, arg1: usize, arg2: usize) -> isize {
         raw_syscall6(number, arg1, arg2, 0, 0, 0, 0)
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
         raw_syscall6(number, arg1, arg2, arg3, 0, 0, 0)
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn raw_syscall6(
         number: usize,
         arg1: usize,
@@ -1992,17 +2770,17 @@ mod guard_pages {
         ret
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     fn raw_syscall2(number: usize, arg1: usize, arg2: usize) -> isize {
         raw_syscall6(number, arg1, arg2, 0, 0, 0, 0)
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
         raw_syscall6(number, arg1, arg2, arg3, 0, 0, 0)
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     fn raw_syscall6(
         number: usize,
         arg1: usize,
@@ -2036,8 +2814,18 @@ mod guard_pages {
 
 #[cfg(all(
     feature = "guard-pages",
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64"),
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
     not(miri)
 ))]
 pub use guard_pages::{

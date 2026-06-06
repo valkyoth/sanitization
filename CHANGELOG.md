@@ -22,6 +22,9 @@
 - Added `LockedSecretBytes::try_from_fn`, `GuardedSecretVec::try_from_fn`, and
   `GuardedSecretVec::locked_try_from_fn` for fallible high-assurance direct
   byte generation.
+- Expanded `LockedSecretBytes<N>` and `GuardedSecretVec` platform availability
+  beyond Linux to supported macOS, Windows, FreeBSD, OpenBSD, NetBSD, and
+  DragonFly BSD targets.
 - Added `GuardedSecretVec::replace_from_fn` and
   `GuardedSecretVec::try_replace_from_fn` for generated guarded whole-value
   rotation while preserving lock state.

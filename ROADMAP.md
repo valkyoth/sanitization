@@ -177,9 +177,9 @@ if keeping dev dependencies out of the repository remains preferred.
 
 ### 5. Memory Locking as a High-Assurance Feature
 
-Status: implemented for fixed-size Linux secrets behind the `memory-lock`
-feature, and for guarded dynamic Linux secrets when `memory-lock` and
-`guard-pages` are both enabled.
+Status: implemented for fixed-size secrets behind the `memory-lock` feature on
+supported Linux, macOS, Windows, and BSD targets, and for guarded dynamic
+secrets when `memory-lock` and `guard-pages` are both enabled.
 
 `mlock`, `VirtualLock`, guard pages, and platform-specific memory policies are
 important for high-assurance deployments. Memory locking is the biggest
@@ -188,23 +188,29 @@ pagefiles, or hibernation images.
 
 Current implementation:
 
-- `LockedSecretBytes<N>` is available on Linux `x86_64` and `aarch64` when the
-  `memory-lock` feature is enabled.
-- Secret bytes live in a private anonymous `mmap` allocation rather than the
-  Rust global allocator.
-- The mapping is marked with `MADV_DONTDUMP` and `MADV_DONTFORK`, locked with
-  `mlock`, volatile-cleared in full on drop, then released with `munlock` and
-  `munmap`.
+- `LockedSecretBytes<N>` is available on supported Linux, macOS, Windows, and
+  BSD targets when the `memory-lock` feature is enabled.
+- Secret bytes live in a private platform mapping rather than the Rust global
+  allocator.
+- Linux uses raw `mmap`/`madvise`/`mlock` syscalls on `x86_64` and `aarch64`.
+- macOS and BSD use system `mmap`/`mlock` ABI calls without adding a Rust
+  `libc` crate dependency.
+- Windows uses `VirtualAlloc`/`VirtualLock` without adding Windows binding
+  dependencies.
+- The mapping is volatile-cleared in full on drop, then unlocked and released
+  with the platform backend.
 - Moving the Rust value copies only pointer metadata, not the secret byte
   allocation.
-- `GuardedSecretVec` can also lock its writable data pages when both
-  `guard-pages` and `memory-lock` are enabled. Growth and whole-value
+- `GuardedSecretVec` is available on supported Linux, macOS, Windows, and BSD
+  targets with `guard-pages`. It can also lock its writable data pages when
+  both `guard-pages` and `memory-lock` are enabled. Growth and whole-value
   replacement preserve the lock state.
 
 Remaining stance:
 
 - Keep memory locking out of the default API.
-- Extend only after target-specific review.
+- Continue target-specific review and CI coverage expansion for non-Linux
+  targets.
 - Pair every lock operation with automatic unlock on drop.
 - Document OS limits clearly: resource limits, privileges, page alignment,
   partial failures, dump policy, hibernation policy, and platform differences.
@@ -215,8 +221,10 @@ Implemented API shape:
 let key = LockedSecretBytes::<32>::zeroed()?;
 ```
 
-This must continue to be reviewed carefully. `VirtualLock`, broader platform
-support, exact runtime page-size handling, non-Linux guard pages, and any future
+This must continue to be reviewed carefully. Non-Linux backends currently lock
+resident memory and provide guard pages, but do not apply Linux-equivalent
+crate-level dump or fork exclusion. Exact target CI coverage, richer BSD/macOS
+core-dump policies, SecretPool-style locked arenas, and any future
 allocator-sensitive dynamic containers all need platform-specific tests and
 review.
 

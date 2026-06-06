@@ -50,12 +50,13 @@ Implemented now:
 - `Secret<T>` for custom sanitizable values.
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
 - optional `alloc` support with `SecretVec` and `SecretString`.
-- optional Linux memory locking and core-dump exclusion with
-  `LockedSecretBytes<N>`.
+- optional platform memory locking with `LockedSecretBytes<N>` on supported
+  Linux, macOS, Windows, and BSD targets.
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
 - optional `std` lifetime enforcement with `ExpiringSecretBytes<N>`.
-- optional Linux guard-page dynamic byte storage with `GuardedSecretVec`.
+- optional guard-page dynamic byte storage with `GuardedSecretVec` on supported
+  Linux, macOS, Windows, and BSD targets.
 - explicit volatile helper APIs for existing ordinary buffers.
 - redacted `Debug` for secret-owning wrapper types.
 - clear-on-drop behavior for crate-owned secret containers.
@@ -119,7 +120,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["alloc"] }
 The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
 release-candidate dependency declarations. Volatile clearing is now the default.
 
-For Linux memory-locked fixed-size secrets on supported architectures:
+For memory-locked fixed-size secrets on supported platforms:
 
 ```toml
 [dependencies]
@@ -132,10 +133,10 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | --- | --- | --- |
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
-| `memory-lock` | no | Enables Linux `LockedSecretBytes<N>` and locked guarded mappings on `x86_64` and `aarch64`. |
+| `memory-lock` | no | Enables `LockedSecretBytes<N>` and locked guarded mappings on supported Linux, macOS, Windows, and BSD targets. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
-| `guard-pages` | no | Enables Linux `GuardedSecretVec` on `x86_64` and `aarch64`. |
+| `guard-pages` | no | Enables `GuardedSecretVec` on supported Linux, macOS, Windows, and BSD targets. |
 | `unsafe-wipe` | no | Compatibility no-op; volatile wiping is default. |
 
 Default builds are dependency-free and `no_std`.
@@ -334,9 +335,15 @@ container.
 
 ## Memory-Locked Secrets
 
-Enable `memory-lock` on Linux `x86_64` or `aarch64` for fixed-size secrets
-stored in a private anonymous mapping excluded from ordinary Linux core dumps
-and fork inheritance, then locked with `mlock`.
+Enable `memory-lock` for fixed-size secrets stored in private platform memory
+and locked with the operating system's resident-memory API.
+
+| Platform | Backend | Extra policy |
+| --- | --- | --- |
+| Linux `x86_64`/`aarch64` | raw `mmap`/`mlock` syscalls | `MADV_DONTDUMP` and `MADV_DONTFORK` |
+| macOS | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
+| FreeBSD/OpenBSD/NetBSD/DragonFly BSD | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
+| Windows | `VirtualAlloc`/`VirtualLock` | no crate-level dump/fork exclusion |
 
 ```rust
 use sanitization::LockedSecretBytes;
@@ -364,9 +371,9 @@ key.into_cleared();
 ```
 
 `LockedSecretBytes<N>` does not use the Rust global allocator for the secret
-bytes. It creates a private Linux mapping with `mmap`, marks that mapping with
-`MADV_DONTDUMP` and `MADV_DONTFORK`, locks it with `mlock`, volatile-clears the
-full mapping on drop, then calls `munlock` and `munmap`.
+bytes. It creates a private platform mapping, applies platform hardening policy
+where supported by the backend, locks the mapping, volatile-clears the full
+mapping on drop, then unlocks and releases it.
 Use `from_fn` when bytes can be generated directly into locked storage. Use
 `try_from_fn` for fallible generators such as RNG or KDF APIs. Use `from_slice`
 when loading bytes from an existing runtime buffer. `from_array` is still
@@ -377,16 +384,17 @@ clears its owned input array. Fallible generated replacement keeps the old
 locked value unchanged on generator error.
 
 This feature is explicit because OS memory locking has platform limits. It can
-fail due to resource limits or policy. `MADV_DONTDUMP` reduces ordinary Linux
-core-dump exposure and `MADV_DONTFORK` reduces accidental fork inheritance for
-the mapping, but they do not protect against all crash dump mechanisms,
-hibernation, debuggers, privileged process reads, DMA, malicious firmware, or
-copies made before data enters the locked container.
+fail due to resource limits or policy. Linux `MADV_DONTDUMP` reduces ordinary
+Linux core-dump exposure and `MADV_DONTFORK` reduces accidental fork
+inheritance for the mapping, but non-Linux backends currently only lock the
+pages and release them on drop. None of these APIs protect against all crash
+dump mechanisms, hibernation, debuggers, privileged process reads, DMA,
+malicious firmware, or copies made before data enters the locked container.
 
 ## Guarded Heap Secrets
 
-Enable `guard-pages` on Linux `x86_64` or `aarch64` for dynamic byte secrets
-stored between inaccessible guard pages:
+Enable `guard-pages` for dynamic byte secrets stored between inaccessible guard
+pages on supported Linux, macOS, Windows, and BSD targets:
 
 ```toml
 [dependencies]
@@ -417,21 +425,22 @@ assert!(token.is_empty());
 token.into_cleared();
 ```
 
-`GuardedSecretVec` uses a private Linux mapping, leaves the pages before and
+`GuardedSecretVec` uses a private platform mapping, leaves the pages before and
 after the writable data region inaccessible, volatile-clears the full writable
-region on drop, and then unmaps the allocation. It does not use the Rust global
-allocator for the secret bytes. Use `GuardedSecretVec::from_fn` when bytes can
-be generated directly into the guarded mapping; use `try_from_fn` for fallible
-generators. Use `from_slice` when loading bytes from an existing runtime buffer.
+region on drop, and then releases the allocation. It does not use the Rust
+global allocator for the secret bytes. Use `GuardedSecretVec::from_fn` when
+bytes can be generated directly into the guarded mapping; use `try_from_fn` for
+fallible generators. Use `from_slice` when loading bytes from an existing
+runtime buffer.
 Use `replace_from_slice`, `replace_from_fn`, or `try_replace_from_fn` when
 rotating or replacing the entire guarded value. Fallible generated replacement
-keeps the old value unchanged on generator error. Guarded mappings use a 4 KiB
-page granule on `x86_64` and a conservative 64 KiB granule on `aarch64` to
-support 4 KiB, 16 KiB, and 64 KiB Linux kernels without a libc dependency.
+keeps the old value unchanged on generator error. Linux guarded mappings keep
+the no-libc conservative page granules used by the raw syscall backend: 4 KiB
+on `x86_64` and 64 KiB on `aarch64`. macOS and BSD use `getpagesize`; Windows
+uses `GetSystemInfo`.
 
 When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
-can also mark their writable data pages with `MADV_DONTDUMP` and
-`MADV_DONTFORK`, then lock those pages with `mlock`:
+can also lock their writable data pages:
 
 ```toml
 [dependencies]
@@ -448,13 +457,14 @@ assert!(token.constant_time_eq(b"session-key"));
 ```
 
 Locked guarded mappings preserve the lock state when they grow. Guard pages are
-not dump-excluded or locked because they never contain secret bytes. Core-dump
-exclusion, fork-inheritance exclusion, and locking can fail due to OS resource
-limits or policy, and this does not change the broader memory-lock limits
-described above. `GuardedSecretVec::locked_from_fn` is available for direct byte
-generation after the writable data pages are dump-excluded, fork-excluded, and
-locked. Use `locked_try_from_fn` for fallible generation into locked guarded
-storage.
+not locked because they never contain secret bytes. On Linux, writable data
+pages are also marked with `MADV_DONTDUMP` and `MADV_DONTFORK` before locking;
+non-Linux backends currently lock the writable pages without crate-level dump or
+fork policy. Locking can fail due to OS resource limits or policy, and this
+does not change the broader memory-lock limits described above.
+`GuardedSecretVec::locked_from_fn` is available for direct byte generation after
+the writable data pages have been prepared and locked. Use `locked_try_from_fn`
+for fallible generation into locked guarded storage.
 
 Guard pages are a fault-detection mechanism for crossing outside the mapped
 data pages. They do not catch logical overreads that stay inside the writable
