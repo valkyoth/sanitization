@@ -70,6 +70,9 @@ Implemented now:
 Read [THREAT_MODEL.md](THREAT_MODEL.md) and [SAFETY.md](SAFETY.md) before
 using this crate for high-assurance secret handling.
 
+Read [ROADMAP.md](ROADMAP.md) for the pre-`1.0.0` architecture plan, including
+the planned move toward one audited volatile wipe path by default.
+
 ## Rust Version Support
 
 The minimum supported Rust version is Rust `1.90.0`. New deployments should
