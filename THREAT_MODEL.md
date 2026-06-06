@@ -15,6 +15,8 @@ Rust applications.
 - Explicit volatile helper APIs for existing ordinary buffers.
 - Optional Linux memory locking for `LockedSecretBytes<N>` when the
   `memory-lock` feature is enabled on supported architectures.
+- Optional x86_64 assembly-backed equal-length comparison when the
+  `asm-compare` feature is enabled.
 
 ## Out of Scope
 
@@ -29,7 +31,7 @@ Rust applications.
 - Clearing temporary stack copies after process abort. Closure helpers clear
   their temporaries on normal return and unwinding paths only; `panic = "abort"`
   and other abort paths skip destructors and post-closure cleanup.
-- Guard pages, cache-line flushing, and assembly-level hardening.
+- Guard pages and cache-line flushing.
 
 ## Design Position
 
@@ -49,6 +51,11 @@ building block, not a complete OS secrecy guarantee. Resource limits can make
 locking fail, and locked memory can still be exposed through hibernation, crash
 dumps, debuggers, privileged reads, DMA, malicious firmware, or copies made
 before data enters the locked container.
+
+With the `asm-compare` feature on x86_64, equal-length comparisons use an
+inline-assembly loop. This gives the comparison body a stronger compiler
+boundary, but it does not hide length metadata and does not claim protection
+against all microarchitectural side channels.
 
 `SecretBytes::expose_secret_volatile` makes the volatile temporary-copy cleanup
 explicit at the call site. It clears on normal return and unwinding paths, but

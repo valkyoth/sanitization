@@ -18,6 +18,8 @@
 //!   need target-specific unsafe code and platform policy.
 //! - Linux memory locking is available only through the explicit
 //!   `memory-lock` feature on supported architectures.
+//! - x86_64 assembly-backed comparison is available only through the explicit
+//!   `asm-compare` feature.
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -402,18 +404,7 @@ mod memory_lock {
         #[must_use]
         #[inline]
         pub fn constant_time_eq(&self, other: &[u8]) -> bool {
-            if other.len() != N {
-                return false;
-            }
-
-            let left = self.as_slice();
-            let mut diff = 0usize;
-            let mut index = 0;
-            while index < N {
-                diff = core::hint::black_box(diff | usize::from(left[index] ^ other[index]));
-                index += 1;
-            }
-            core::hint::black_box(diff) == 0
+            crate::constant_time_eq_slices(self.as_slice(), other)
         }
 
         /// Clear the full private mapping with volatile writes.
@@ -625,6 +616,53 @@ mod memory_lock {
 ))]
 pub use memory_lock::{LockedSecretBytes, MemoryLockError, MemoryLockOperation};
 
+#[cfg(all(feature = "asm-compare", target_arch = "x86_64", not(miri)))]
+#[allow(unsafe_code)]
+mod compare_asm {
+    use core::arch::asm;
+
+    #[inline(never)]
+    pub(crate) fn constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
+        debug_assert_eq!(left.len(), right.len());
+
+        let mut left_ptr = left.as_ptr();
+        let mut right_ptr = right.as_ptr();
+        let mut remaining = left.len();
+        let diff: usize;
+        let tmp: usize;
+
+        // SAFETY: The public caller checks that both slices have the same
+        // length. The loop reads exactly `remaining` bytes from each valid
+        // slice, never writes memory, and does not expose the raw pointers.
+        unsafe {
+            asm!(
+                "xor {diff:e}, {diff:e}",
+                "xor {tmp:e}, {tmp:e}",
+                "test {remaining}, {remaining}",
+                "je 3f",
+                "2:",
+                "movzx {tmp:e}, byte ptr [{left_ptr}]",
+                "xor {tmp:l}, byte ptr [{right_ptr}]",
+                "or {diff:l}, {tmp:l}",
+                "inc {left_ptr}",
+                "inc {right_ptr}",
+                "dec {remaining}",
+                "jne 2b",
+                "3:",
+                left_ptr = inout(reg) left_ptr,
+                right_ptr = inout(reg) right_ptr,
+                remaining = inout(reg) remaining,
+                diff = lateout(reg) diff,
+                tmp = lateout(reg) tmp,
+                options(nostack, readonly)
+            );
+        }
+
+        let _ = (left_ptr, right_ptr, remaining, tmp);
+        core::hint::black_box(diff) == 0
+    }
+}
+
 impl SecureSanitize for [u8] {
     #[inline(never)]
     fn secure_sanitize(&mut self) {
@@ -639,12 +677,37 @@ impl<const N: usize> SecureSanitize for [u8; N] {
     }
 }
 
-#[cfg(feature = "alloc")]
 #[inline]
 fn constant_time_eq_slices(left: &[u8], right: &[u8]) -> bool {
     if left.len() != right.len() {
         return false;
     }
+
+    constant_time_eq_equal_len(left, right)
+}
+
+#[inline]
+fn constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
+    debug_assert_eq!(left.len(), right.len());
+
+    #[cfg(all(feature = "asm-compare", target_arch = "x86_64", not(miri)))]
+    {
+        compare_asm::constant_time_eq_equal_len(left, right)
+    }
+
+    #[cfg(not(all(feature = "asm-compare", target_arch = "x86_64", not(miri))))]
+    {
+        portable_constant_time_eq_equal_len(left, right)
+    }
+}
+
+#[inline]
+#[cfg_attr(
+    all(feature = "asm-compare", target_arch = "x86_64", not(miri)),
+    allow(dead_code)
+)]
+fn portable_constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
+    debug_assert_eq!(left.len(), right.len());
 
     let mut diff = 0usize;
     let mut index = 0;
@@ -872,30 +935,14 @@ impl<const N: usize> SecretBytes<N> {
     #[must_use]
     #[inline]
     pub fn constant_time_eq(&self, other: &[u8]) -> bool {
-        if other.len() != N {
-            return false;
-        }
-
-        let mut diff = 0usize;
-        let mut index = 0;
-        while index < N {
-            diff = black_box(diff | usize::from(self.load(index) ^ other[index]));
-            index += 1;
-        }
-        black_box(diff) == 0
+        constant_time_eq_slices(self.bytes.as_slice(), other)
     }
 
     /// Compare against another secret without early exit.
     #[must_use]
     #[inline]
     pub fn constant_time_eq_secret(&self, other: &Self) -> bool {
-        let mut diff = 0usize;
-        let mut index = 0;
-        while index < N {
-            diff = black_box(diff | usize::from(self.load(index) ^ other.load(index)));
-            index += 1;
-        }
-        black_box(diff) == 0
+        constant_time_eq_equal_len(self.bytes.as_slice(), other.bytes.as_slice())
     }
 
     /// Clear all bytes now. This is also called from `Drop`.
@@ -1514,6 +1561,28 @@ mod tests {
         assert!(!left.constant_time_eq(&[0, 8, 7, 6]));
         assert!(left.constant_time_eq_secret(&same));
         assert!(!left.constant_time_eq_secret(&different));
+    }
+
+    #[cfg(all(feature = "asm-compare", target_arch = "x86_64", not(miri)))]
+    #[test]
+    fn assembly_comparison_matches_portable_path() {
+        let left = [1_u8, 2, 3, 4, 5, 6, 7, 8];
+        let same = [1_u8, 2, 3, 4, 5, 6, 7, 8];
+        let different = [1_u8, 2, 3, 4, 5, 6, 7, 0];
+        let empty: [u8; 0] = [];
+
+        assert_eq!(
+            compare_asm::constant_time_eq_equal_len(&left, &same),
+            portable_constant_time_eq_equal_len(&left, &same)
+        );
+        assert_eq!(
+            compare_asm::constant_time_eq_equal_len(&left, &different),
+            portable_constant_time_eq_equal_len(&left, &different)
+        );
+        assert_eq!(
+            compare_asm::constant_time_eq_equal_len(&empty, &empty),
+            portable_constant_time_eq_equal_len(&empty, &empty)
+        );
     }
 
     #[test]

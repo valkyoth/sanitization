@@ -17,6 +17,8 @@
   matrix.
 - Added the optional Linux `memory-lock` feature with `LockedSecretBytes<N>` for
   fixed-size secrets backed by private `mmap` storage and `mlock`.
+- Added the optional x86_64 `asm-compare` feature for assembly-backed
+  equal-length byte comparison with portable fallback elsewhere.
 - Updated README, safety notes, and threat model for the new clearing model.
 
 ## 1.0.0-rc.4

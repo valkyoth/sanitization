@@ -223,19 +223,23 @@ wipe path is stable because:
 
 ### 4. Assembly-Backed Constant-Time Comparison
 
+Status: implemented for x86_64 behind the `asm-compare` feature.
+
 Priority: optional hardening for major targets.
 
-The current Rust comparison path should remain conservative and auditable. A
-target-specific assembly implementation could provide a stronger compiler
-boundary for equal-length comparisons on targets such as x86_64.
+The current Rust comparison path remains the portable fallback. A target-specific
+assembly implementation provides a stronger compiler boundary for equal-length
+comparisons on x86_64 when the `asm-compare` feature is enabled.
 
 Design requirements:
 
-- safe public API;
-- strict fallback to the portable implementation on unsupported targets;
-- independent review of inline assembly constraints;
-- tests that prove fallback and target paths agree;
-- documentation that length remains public metadata.
+- safe public API: implemented with no API change;
+- strict fallback to the portable implementation on unsupported targets:
+  implemented;
+- independent review of inline assembly constraints: still recommended before
+  stable;
+- tests that prove fallback and target paths agree: implemented for x86_64;
+- documentation that length remains public metadata: implemented.
 
 ### 5. Secret Lifetime Enforcement
 

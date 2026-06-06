@@ -49,6 +49,7 @@ Implemented now:
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
 - optional `alloc` support with `SecretVec` and `SecretString`.
 - optional Linux memory locking with `LockedSecretBytes<N>`.
+- optional x86_64 assembly-backed equal-length comparison.
 - explicit volatile helper APIs for existing ordinary buffers.
 - redacted `Debug` for secret-owning wrapper types.
 - clear-on-drop behavior for crate-owned secret containers.
@@ -124,6 +125,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Currently aliases `alloc` for downstream convenience. |
 | `memory-lock` | no | Enables Linux `LockedSecretBytes<N>` on `x86_64` and `aarch64`. |
+| `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `unsafe-wipe` | no | Compatibility no-op; volatile wiping is default. |
 
 Default builds are dependency-free and `no_std`.
@@ -368,6 +370,21 @@ let secret = VolatileOnDrop::new([1_u8, 2, 3, 4]);
 assert_eq!(secret.with_secret(|bytes| bytes.len()), 4);
 ```
 
+## Assembly Comparison
+
+Enable `asm-compare` on x86_64 when you want equal-length secret comparisons to
+cross an explicit compiler boundary:
+
+```toml
+[dependencies]
+sanitization = { version = "1.0.0-rc.5", features = ["asm-compare"] }
+```
+
+The public API does not change. `SecretBytes<N>`, `SecretVec`, `SecretString`,
+and `LockedSecretBytes<N>` still use their normal `constant_time_eq` methods.
+Length mismatch remains public metadata and returns immediately. Unsupported
+targets, Miri, and builds without `asm-compare` use the portable Rust fallback.
+
 ## Choosing the Right API
 
 | Use case | Recommended API |
@@ -380,6 +397,7 @@ assert_eq!(secret.with_secret(|bytes| bytes.len()), 4);
 | Custom struct, custom drop | `secure_sanitize_struct!` |
 | Existing ordinary buffer | `unsafe_wipe::volatile_sanitize_*` |
 | Generic clear-on-drop wrapper | `Secret<T>` |
+| Explicit x86_64 comparison compiler boundary | `asm-compare` feature |
 
 ## Relationship to `zeroize`
 

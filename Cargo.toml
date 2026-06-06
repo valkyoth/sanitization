@@ -37,6 +37,7 @@ default = []
 alloc = []
 std = ["alloc"]
 memory-lock = []
+asm-compare = []
 # Compatibility flag for older release-candidate dependency declarations.
 # Volatile wiping is now the default clear path.
 unsafe-wipe = []

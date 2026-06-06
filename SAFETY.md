@@ -8,6 +8,8 @@ Unsafe code is allowed only inside narrow `src/lib.rs` modules:
 - `wipe`, the default volatile clear backend;
 - `memory_lock`, available only with the `memory-lock` feature on supported
   Linux targets.
+- `compare_asm`, available only with the `asm-compare` feature on x86_64
+  outside Miri.
 
 Public APIs, including `unsafe_wipe`, are safe wrappers around those internal
 backends.
@@ -84,9 +86,36 @@ Invariant:
   `munmap`.
 - Drop ignores unlock/unmap errors because destructors cannot report failure.
 
+### x86_64 inline assembly comparison
+
+Location: `compare_asm`
+
+Purpose: provide an optional compiler boundary for equal-length byte comparison
+on x86_64.
+
+Operation:
+
+- The public comparison helper checks length equality before calling the
+  assembly path.
+- The assembly loop reads one byte from each slice, XORs them, ORs the result
+  into an accumulator, then advances both pointers.
+- The loop count is the already-checked public slice length.
+- Unsupported targets, Miri, and builds without `asm-compare` use the portable
+  Rust fallback.
+
+Invariant:
+
+- Both slices are valid for the same number of readable bytes.
+- The assembly loop does not write memory.
+- The zero-length path does not dereference either pointer.
+- All output registers are initialized on every branch path.
+- Length remains public metadata and mismatched lengths return before the
+  assembly path.
+
 ## Non-Goals
 
 This unsafe boundary intentionally does not implement stack scanning, cache
 flushes, SIMD clearing, guard pages, or broad platform memory policy. Memory
 locking is explicit, Linux-only, feature-gated, and still does not protect
 against crash dumps, hibernation, privileged reads, DMA, or external copies.
+Assembly-backed comparison is x86_64-only and does not make length private.
