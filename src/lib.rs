@@ -302,6 +302,46 @@ mod memory_lock {
     #[cfg(feature = "std")]
     impl std::error::Error for MemoryLockError {}
 
+    /// Error returned when constructing [`LockedSecretBytes`] from a slice.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum LockedSecretBytesError {
+        /// The caller provided a slice with the wrong length.
+        Length(crate::LengthError),
+        /// Linux mapping, core-dump exclusion, locking, unlocking, or unmapping
+        /// failed.
+        Memory(MemoryLockError),
+    }
+
+    impl fmt::Display for LockedSecretBytesError {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::Length(error) => write!(
+                    formatter,
+                    "length mismatch: expected {} bytes, got {} bytes",
+                    error.expected, error.actual
+                ),
+                Self::Memory(error) => error.fmt(formatter),
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for LockedSecretBytesError {}
+
+    impl From<crate::LengthError> for LockedSecretBytesError {
+        #[inline]
+        fn from(error: crate::LengthError) -> Self {
+            Self::Length(error)
+        }
+    }
+
+    impl From<MemoryLockError> for LockedSecretBytesError {
+        #[inline]
+        fn from(error: MemoryLockError) -> Self {
+            Self::Memory(error)
+        }
+    }
+
     /// Fixed-size secret bytes stored in a private locked Linux mapping.
     ///
     /// This type is available with the `memory-lock` feature on Linux
@@ -359,6 +399,29 @@ mod memory_lock {
 
             let _ = secret.copy_from_slice(&bytes);
             crate::sanitize_bytes(&mut bytes);
+            Ok(secret)
+        }
+
+        /// Allocate locked storage and copy bytes from a same-length slice.
+        ///
+        /// This is the preferred constructor when the secret is already held in
+        /// a runtime buffer. It creates the private mapping, applies
+        /// `MADV_DONTDUMP`, and locks it with `mlock` before copying bytes into
+        /// the mapping. The source slice is borrowed and cannot be cleared by
+        /// this function.
+        #[inline]
+        pub fn from_slice(source: &[u8]) -> Result<Self, LockedSecretBytesError> {
+            if source.len() != N {
+                return Err(crate::LengthError {
+                    expected: N,
+                    actual: source.len(),
+                }
+                .into());
+            }
+
+            let mut secret = Self::zeroed()?;
+            secret.as_mut_slice().copy_from_slice(source);
+            compiler_fence(Ordering::SeqCst);
             Ok(secret)
         }
 
@@ -669,7 +732,9 @@ mod memory_lock {
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
-pub use memory_lock::{LockedSecretBytes, MemoryLockError, MemoryLockOperation};
+pub use memory_lock::{
+    LockedSecretBytes, LockedSecretBytesError, MemoryLockError, MemoryLockOperation,
+};
 
 #[cfg(all(feature = "asm-compare", target_arch = "x86_64", not(miri)))]
 #[allow(unsafe_code)]
@@ -2987,6 +3052,32 @@ mod tests {
         secret.secure_clear();
         assert!(secret.copy_to_slice(&mut out).is_ok());
         assert_eq!(out, [0, 0, 0, 0]);
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn locked_secret_bytes_can_load_from_slice() {
+        let mut secret = LockedSecretBytes::<4>::from_slice(&[1, 2, 3, 4]).unwrap();
+        let mut out = [0; 4];
+
+        assert!(secret.copy_to_slice(&mut out).is_ok());
+        assert_eq!(out, [1, 2, 3, 4]);
+        assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+        assert_eq!(
+            LockedSecretBytes::<4>::from_slice(&[1, 2]).err(),
+            Some(LockedSecretBytesError::Length(LengthError {
+                expected: 4,
+                actual: 2,
+            }))
+        );
+
+        secret.secure_clear();
     }
 
     #[cfg(all(

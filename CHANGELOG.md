@@ -23,6 +23,7 @@
 - Added the optional Linux `memory-lock` feature with `LockedSecretBytes<N>` for
   fixed-size secrets backed by private `mmap` storage and `mlock`.
 - Added `MADV_DONTDUMP` setup for Linux memory-locked secret mappings.
+- Added `LockedSecretBytes::from_slice` for direct runtime-buffer loading.
 - Added the optional x86_64 `asm-compare` feature for assembly-backed
   equal-length byte comparison with portable fallback elsewhere.
 - Added the optional x86_64 `cache-flush` feature for explicit volatile-clear
