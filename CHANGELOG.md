@@ -49,6 +49,8 @@
 - Added `Default` for `SecretVec` and `SecretString`, producing empty
   clear-on-drop heap secret containers.
 - Added `Default` for `Secret<T>` when `T: SecureSanitize + Default`.
+- Added `SecretVec::capacity` and `SecretString::capacity` for heap allocation
+  metadata.
 - Added `SecretBytes::into_cleared` for consuming fixed-size secrets after an
   explicit clear.
 - Added `ExpiringSecretBytes::into_cleared` for consuming lifetime-enforced

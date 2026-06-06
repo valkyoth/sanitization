@@ -2920,6 +2920,13 @@ impl SecretVec {
         self.inner.is_empty()
     }
 
+    /// Current allocation capacity in bytes.
+    #[must_use]
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
+
     /// Run a closure with read-only access to the secret bytes.
     #[inline]
     pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8]) -> R) -> R {
@@ -3213,6 +3220,13 @@ impl SecretString {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+
+    /// Current allocation capacity in bytes.
+    #[must_use]
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
     }
 
     /// Run a closure with read-only access to the secret text.
@@ -4063,6 +4077,8 @@ mod tests {
         let mut secret = SecretVec::with_capacity(8);
         secret.extend_from_slice(&[1, 2, 3, 4]);
 
+        assert!(secret.capacity() >= 8);
+
         secret.replace_from_slice(&[9, 8]);
 
         assert_eq!(secret.len(), 2);
@@ -4194,6 +4210,8 @@ mod tests {
     fn secret_string_can_replace_secret() {
         let mut secret = SecretString::with_capacity(8);
         secret.push_str("secret");
+
+        assert!(secret.capacity() >= 8);
 
         secret.replace_from_secret_str("rotated");
 

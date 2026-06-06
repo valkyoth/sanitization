@@ -295,6 +295,7 @@ token
 let mut bytes = SecretVec::from_vec(vec![115, 101, 115, 115, 105, 111, 110]);
 bytes.extend_from_slice(b"-key");
 assert_eq!(bytes.with_secret(|value| value.len()), 11);
+assert!(bytes.capacity() >= bytes.len());
 assert!(bytes.constant_time_eq(b"session-key"));
 
 let empty_bytes = SecretVec::default();
@@ -322,7 +323,9 @@ clear-on-drop storage. Use `SecretString::from_chars`, `try_from_chars`,
 generated as `char` values. Fallible generation clears partial output on error.
 `SecretString::try_with_secret_mut` exposes mutable `&mut str` access without
 allowing safe Rust to invalidate UTF-8. They expose contents through closures
-and redact `Debug`. `Default` creates an empty heap secret container.
+and redact `Debug`. `capacity()` exposes allocation size metadata for callers
+that need to size append-heavy flows. `Default` creates an empty heap secret
+container.
 
 ## Memory-Locked Secrets
 
