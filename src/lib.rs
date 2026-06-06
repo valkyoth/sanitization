@@ -3378,6 +3378,13 @@ impl<T: SecureSanitize> Drop for Secret<T> {
     }
 }
 
+impl<T: SecureSanitize + Default> Default for Secret<T> {
+    #[inline]
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
 impl<T: SecureSanitize> fmt::Debug for Secret<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -3776,6 +3783,15 @@ mod tests {
         assert_eq!(secret.with_secret(|bytes| bytes[0]), 9);
 
         secret.into_cleared();
+    }
+
+    #[test]
+    fn generic_secret_default_wraps_default_value() {
+        let mut secret = Secret::<[u8; 4]>::default();
+
+        assert_eq!(secret.with_secret(|bytes| *bytes), [0; 4]);
+        secret.with_secret_mut(|bytes| bytes[0] = 7);
+        assert_eq!(secret.with_secret(|bytes| bytes[0]), 7);
     }
 
     #[test]

@@ -48,6 +48,7 @@
   access without exposing mutable raw bytes.
 - Added `Default` for `SecretVec` and `SecretString`, producing empty
   clear-on-drop heap secret containers.
+- Added `Default` for `Secret<T>` when `T: SecureSanitize + Default`.
 - Kept the `unsafe-wipe` feature as a no-op compatibility flag for older
   release-candidate dependency declarations.
 - Kept `unsafe_wipe` public helper APIs available for explicit ordinary-buffer

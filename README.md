@@ -504,6 +504,7 @@ and you want clear-on-drop plus redacted `Debug`.
 ```rust
 use sanitization::{Secret, SecureSanitize};
 
+#[derive(Default)]
 struct Pair {
     left: [u8; 16],
     right: [u8; 16],
@@ -522,6 +523,9 @@ let mut pair = Secret::new(Pair {
 });
 
 pair.with_secret_mut(|value| value.left[0] = 9);
+
+let mut empty_pair = Secret::<Pair>::default();
+empty_pair.with_secret_mut(|value| value.right[0] = 7);
 ```
 
 ## Explicit Volatile Wiping

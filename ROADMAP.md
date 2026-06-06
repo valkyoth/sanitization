@@ -91,7 +91,7 @@ Keep and harden:
 - `SecretBytes<N>`;
 - `SecretVec`;
 - `SecretString`;
-- `Secret<T>`;
+- `Secret<T>` including `Default` when `T: SecureSanitize + Default`;
 - closure-based exposure;
 - redacted `Debug`;
 - dependency-free struct macros.
