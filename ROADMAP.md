@@ -118,6 +118,9 @@ Implemented now:
 - `scripts/verify-codegen.sh` builds release LLVM IR and checks that the wipe
   backend contains volatile byte-zero stores. On x86_64 it also checks release
   assembly for the optional comparison and cache-flush instruction paths.
+- `scripts/verify-kani.sh` runs bounded Kani proof harnesses when `cargo-kani`
+  is installed, covering selected fixed-size wipe, equality, and capacity
+  arithmetic properties.
 - `scripts/checks.sh` runs the codegen verification as part of the local gate.
 - `scripts/verify-miri.sh` runs default, `alloc`, and all-features tests under
   Miri when a nightly toolchain with Miri is available.
@@ -191,6 +194,8 @@ Constraints:
 
 ### 2. Formal Verification
 
+Status: partially implemented with bounded Kani harnesses.
+
 Priority: high trust signal.
 
 Evaluate Kani or a similar model-checking workflow for properties regular tests
@@ -202,9 +207,18 @@ cannot prove:
 - length mismatch behavior stays explicit and public;
 - capacity-growth arithmetic does not overflow into unsound behavior.
 
-Kani itself does not need to become a crate dependency. Proof harnesses can live
-behind CI-only tooling or an external verification directory if that preserves
-the published crate's dependency posture.
+Current implementation:
+
+- proof harnesses live behind `#[cfg(kani)]`, so normal builds and published
+  dependency resolution are unaffected;
+- `Cargo.toml` explicitly allows `cfg(kani)` for check-cfg hygiene;
+- `scripts/verify-kani.sh` verifies no-default, `alloc`, and `std` builds when
+  `cargo-kani` is available, and otherwise skips cleanly.
+- `.github/workflows/kani.yml` runs the same bounded harnesses with the official
+  Kani GitHub Action on pull requests and `main` pushes.
+
+Kani itself does not become a crate dependency. These harnesses are bounded
+proofs for selected properties, not a complete formal audit of every feature.
 
 ### 3. Architecture-Specific Cache Eviction
 

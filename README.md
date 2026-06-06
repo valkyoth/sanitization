@@ -56,7 +56,8 @@ Implemented now:
 - explicit volatile helper APIs for existing ordinary buffers.
 - redacted `Debug` for secret-owning wrapper types.
 - clear-on-drop behavior for crate-owned secret containers.
-- local CI/check script and GitHub workflow.
+- local CI/check script and GitHub workflows.
+- optional bounded Kani proof harnesses for core fixed-size properties.
 - threat model and unsafe-boundary documentation.
 
 ## Trust Dashboard
@@ -71,6 +72,7 @@ Implemented now:
 | Clear primitive | volatile writes by default |
 | Heap support | `alloc` feature |
 | Proc macros | none |
+| Formal verification | optional bounded Kani harnesses for core properties |
 | Main guarantee | narrow ownership, redaction, and clear-on-drop hygiene |
 | Out of scope | stack-history wiping, global cache secrecy, crash dumps, privileged reads |
 
@@ -516,9 +518,9 @@ Run the local matrix before changing release-sensitive code:
 bash scripts/checks.sh
 ```
 
-The check script covers formatting, feature-matrix tests, examples, clippy, docs
-with warnings denied, release LLVM IR verification for volatile byte-zero
-stores, and package listing.
+The check script covers formatting, feature-matrix tests, examples, clippy,
+release LLVM IR/assembly verification, optional bounded Kani verification when
+`cargo-kani` is installed, docs with warnings denied, and package listing.
 
 When a nightly toolchain with Miri is available, run the interpreter-based
 unsafe-boundary check separately:
@@ -526,6 +528,16 @@ unsafe-boundary check separately:
 ```bash
 scripts/verify-miri.sh
 ```
+
+To run the bounded formal harnesses directly:
+
+```bash
+scripts/verify-kani.sh
+```
+
+These harnesses prove selected fixed-size properties for the volatile clearing
+path, secret clearing visibility, constant-time equality correctness, and
+capacity arithmetic. They are not a replacement for external review.
 
 ## Limits
 

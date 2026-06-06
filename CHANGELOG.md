@@ -15,6 +15,9 @@
 - Added a release LLVM IR codegen check for volatile byte-zero stores.
 - Expanded release codegen checks to verify x86_64 assembly comparison and
   cache-flush instruction paths.
+- Added optional bounded Kani proof harnesses for selected fixed-size clearing,
+  equality, and capacity properties.
+- Added a dedicated GitHub workflow for the bounded Kani harness matrix.
 - Added an optional Miri verification script for the wipe boundary and feature
   matrix.
 - Added the optional Linux `memory-lock` feature with `LockedSecretBytes<N>` for

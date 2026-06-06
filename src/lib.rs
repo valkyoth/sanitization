@@ -1357,6 +1357,68 @@ fn portable_constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
     black_box(diff) == 0
 }
 
+#[cfg(kani)]
+mod kani_verification {
+    use super::*;
+
+    #[kani::proof]
+    fn prove_sanitize_bytes_clears_fixed_buffer() {
+        let mut bytes: [u8; 4] = kani::any();
+
+        sanitize_bytes(&mut bytes);
+
+        assert_eq!(bytes, [0; 4]);
+    }
+
+    #[kani::proof]
+    fn prove_secret_bytes_clear_erases_visible_contents() {
+        let source: [u8; 4] = kani::any();
+        let mut secret = SecretBytes::<4>::from_array(source);
+        let mut output = [0xA5; 4];
+
+        secret.secure_clear();
+        assert!(secret.copy_to_slice(&mut output).is_ok());
+
+        assert_eq!(output, [0; 4]);
+    }
+
+    #[kani::proof]
+    fn prove_secret_bytes_constant_time_eq_matches_byte_equality() {
+        let left: [u8; 4] = kani::any();
+        let right: [u8; 4] = kani::any();
+        let secret = SecretBytes::<4>::from_array(left);
+
+        let mut expected = true;
+        let mut index = 0;
+        while index < 4 {
+            expected &= left[index] == right[index];
+            index += 1;
+        }
+
+        assert_eq!(secret.constant_time_eq(&right), expected);
+    }
+
+    #[kani::proof]
+    fn prove_constant_time_eq_rejects_length_mismatch() {
+        let left: [u8; 4] = kani::any();
+        let right: [u8; 3] = kani::any();
+
+        assert!(!constant_time_eq_slices(&left, &right));
+    }
+
+    #[kani::proof]
+    #[cfg(feature = "alloc")]
+    fn prove_next_secret_capacity_never_under_allocates() {
+        let current: usize = kani::any();
+        let required: usize = kani::any();
+
+        let capacity = next_secret_capacity(current, required);
+
+        assert!(capacity >= required);
+        assert!(capacity >= 8);
+    }
+}
+
 struct TemporaryBytes<'a, const N: usize> {
     bytes: &'a mut [u8; N],
 }

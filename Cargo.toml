@@ -29,8 +29,12 @@ include = [
     "scripts/checks.sh",
     "scripts/ci_install_rust.sh",
     "scripts/verify-codegen.sh",
+    "scripts/verify-kani.sh",
     "scripts/verify-miri.sh",
 ]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(miri)'] }
 
 [features]
 default = []
