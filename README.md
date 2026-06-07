@@ -51,9 +51,11 @@ Implemented now:
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
 - optional `alloc` support with `SecretVec` and `SecretString`.
 - optional platform memory locking with `LockedSecretBytes<N>` on supported
-  Linux, Android, macOS, iOS, Windows, and BSD targets.
+  Linux, Android, macOS, iOS, Windows, and BSD targets, plus a documented
+  volatile-only WASM compatibility backend.
 - optional pooled locked-memory arenas with `SecretPool<N, SLOTS>` for many
-  same-size fixed secrets under one memory-lock operation.
+  same-size fixed secrets under one memory-lock operation on native backends,
+  plus the same pool API on WASM without host memory locking.
 - optional locked, pooled, and guarded canary integrity checks with
   `canary-check`.
 - optional OS-CSPRNG canary words with `random-canary`.
@@ -128,7 +130,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["alloc"] }
 The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
 release-candidate dependency declarations. Volatile clearing is now the default.
 
-For memory-locked fixed-size secrets on supported platforms:
+For memory-locked fixed-size secrets on supported native platforms:
 
 ```toml
 [dependencies]
@@ -415,7 +417,9 @@ container.
 ## Memory-Locked Secrets
 
 Enable `memory-lock` for fixed-size secrets stored in private platform memory
-and locked with the operating system's resident-memory API.
+and locked with the operating system's resident-memory API on native targets.
+On WASM, the same feature provides API-compatible volatile-only storage without
+host memory locking.
 
 | Platform | Backend | Extra policy |
 | --- | --- | --- |
@@ -461,7 +465,8 @@ module. `LockedSecretBytes<N>` and `SecretPool<N, SLOTS>` therefore compile as
 volatile-only compatibility containers in WASM linear memory. This preserves
 API-level portability for shared code, but it does not prevent host-runtime
 copies, swapping, snapshots, browser memory inspection, or crash dumps.
-Use `from_fn` when bytes can be generated directly into locked storage. Use
+Use `from_fn` when bytes can be generated directly into locked or
+compatibility storage. Use
 `try_from_fn` for fallible generators such as RNG or KDF APIs. Use `from_slice`
 when loading bytes from an existing runtime buffer. `from_array` is still
 available for fixed arrays and clears its owned input array before returning.
@@ -540,10 +545,12 @@ slots, use `SecretPool::try_allocate` when callers need explicit RNG error
 handling; legacy pool allocation helpers panic on RNG failure rather than
 silently falling back to deterministic canaries.
 
-For many same-size locked secrets, use `SecretPool<N, SLOTS>` to amortize
-page-granule memory-locking overhead. This is useful on systems with small
-`RLIMIT_MEMLOCK`/`VirtualLock` quotas because one locked mapping can hold many
-slots.
+For many same-size locked secrets on native targets, use
+`SecretPool<N, SLOTS>` to amortize page-granule memory-locking overhead. This
+is useful on systems with small `RLIMIT_MEMLOCK`/`VirtualLock` quotas because
+one locked mapping can hold many slots. On WASM, `SecretPool` keeps the same
+allocation API but stores slots in WASM linear memory and reports
+`locked_len() == 0`.
 
 ```rust
 use sanitization::SecretPool;
@@ -563,11 +570,13 @@ first.secure_clear();
 drop(first); // clears this slot and returns it to the pool
 ```
 
-`SecretPool<N, SLOTS>` stores all slots inside one private locked mapping and
-tracks live slots with an atomic bitmap. A slot borrows the pool, so the pool
-cannot be dropped while slots are live. Dropping a slot volatile-clears that
-slot before marking it reusable. Dropping the pool volatile-clears the full
-mapping before unlocking and releasing it.
+On native targets, `SecretPool<N, SLOTS>` stores all slots inside one private
+locked mapping and tracks live slots with an atomic bitmap. On WASM, the pool
+uses inline WASM-owned slot storage instead. A slot borrows the pool, so the
+pool cannot be dropped while slots are live. Dropping a slot volatile-clears
+that slot before marking it reusable. Dropping the pool volatile-clears the
+full native mapping before unlocking and releasing it, or clears all WASM-owned
+slots on WASM.
 
 With `canary-check`, each non-empty pool slot has its own prefix and suffix
 canary. Slot exposure, copying, mutation, and comparison verify those canaries
@@ -934,10 +943,11 @@ library when a protocol requires externally audited timing guarantees.
 | Fixed-size key or token | `SecretBytes<N>` |
 | Fixed-size key with no-`std` tick expiry | `MonotonicExpiringSecretBytes<N, C>` |
 | Fixed-size key with access expiry | `ExpiringSecretBytes<N>` with `std` |
-| Fixed-size key that should avoid swap/pagefiles on supported platforms | `LockedSecretBytes<N>` with `memory-lock` |
+| Fixed-size key that should avoid swap/pagefiles on supported native platforms | `LockedSecretBytes<N>` with `memory-lock` |
+| Fixed-size key needing API-compatible WASM storage | `LockedSecretBytes<N>` with `memory-lock` on WASM, with documented reduced guarantees |
 | Fixed-size locked key with prefix/suffix corruption checks | `LockedSecretBytes<N>` with `canary-check` |
 | Fixed-size locked key with OS-random canary words | `LockedSecretBytes<N>` with `random-canary` |
-| Many same-size fixed keys under memory-lock quotas | `SecretPool<N, SLOTS>` with `memory-lock` |
+| Many same-size fixed keys under native memory-lock quotas | `SecretPool<N, SLOTS>` with `memory-lock` |
 | Many same-size fixed keys with pooled canary checks | `SecretPool<N, SLOTS>` with `canary-check` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |
 | Dynamic bytes with platform guard pages | `GuardedSecretVec` with `guard-pages` |

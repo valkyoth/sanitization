@@ -7,8 +7,8 @@ security issues privately to the repository owner.
 
 Security-sensitive changes should include:
 
-- tests for default, `alloc`, compatibility `unsafe-wipe`, and all-features
-  builds;
+- tests for default, feature-matrix, target-matrix, WASM compatibility, and
+  all-features builds through `scripts/checks.sh`;
 - release-codegen inspection for volatile wipe visibility;
 - bounded Kani harnesses when `cargo-kani` is installed or via the Kani
   workflow;
