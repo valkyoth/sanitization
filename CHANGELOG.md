@@ -39,6 +39,9 @@
 - Expanded `LockedSecretBytes<N>` and `GuardedSecretVec` platform availability
   beyond Linux to supported Android, macOS, iOS, Windows, FreeBSD, OpenBSD,
   NetBSD, and DragonFly BSD targets.
+- Added `SecretPool<N, SLOTS>` for pooled same-size fixed secrets inside one
+  locked platform mapping, reducing page-granule memory-lock quota overhead
+  when many secrets are live at once.
 - Added `GuardedSecretVec::replace_from_fn` and
   `GuardedSecretVec::try_replace_from_fn` for generated guarded whole-value
   rotation while preserving lock state.

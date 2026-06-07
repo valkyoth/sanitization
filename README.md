@@ -52,6 +52,8 @@ Implemented now:
 - optional `alloc` support with `SecretVec` and `SecretString`.
 - optional platform memory locking with `LockedSecretBytes<N>` on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets.
+- optional pooled locked-memory arenas with `SecretPool<N, SLOTS>` for many
+  same-size fixed secrets under one memory-lock operation.
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
 - optional explicit multi-pass volatile clear helpers.
@@ -136,7 +138,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | --- | --- | --- |
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
-| `memory-lock` | no | Enables `LockedSecretBytes<N>` and locked guarded mappings on supported Linux, Android, macOS, iOS, Windows, and BSD targets. |
+| `memory-lock` | no | Enables `LockedSecretBytes<N>`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported Linux, Android, macOS, iOS, Windows, and BSD targets. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
 | `guard-pages` | no | Enables `GuardedSecretVec` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. |
@@ -429,6 +431,35 @@ Use `replace_from_array`, `replace_from_slice`, `replace_from_fn`, or
 `try_replace_from_fn` when rotating the whole locked value. Array replacement
 clears its owned input array. Fallible generated replacement keeps the old
 locked value unchanged on generator error.
+
+For many same-size locked secrets, use `SecretPool<N, SLOTS>` to amortize
+page-granule memory-locking overhead. This is useful on systems with small
+`RLIMIT_MEMLOCK`/`VirtualLock` quotas because one locked mapping can hold many
+slots.
+
+```rust
+use sanitization::SecretPool;
+
+let pool = SecretPool::<32, 64>::new().unwrap();
+
+let mut first = pool.allocate_from_array([7; 32]).unwrap();
+let second = pool.allocate_from_fn(|index| index as u8).unwrap();
+
+assert_eq!(pool.capacity_slots(), 64);
+assert!(first.constant_time_eq(&[7; 32]));
+assert_eq!(second.with_secret(|bytes| bytes[0]), 0);
+
+first.replace_from_slice(&[8; 32]).unwrap();
+first.secure_clear();
+
+drop(first); // clears this slot and returns it to the pool
+```
+
+`SecretPool<N, SLOTS>` stores all slots inside one private locked mapping and
+tracks live slots with an atomic bitmap. A slot borrows the pool, so the pool
+cannot be dropped while slots are live. Dropping a slot volatile-clears that
+slot before marking it reusable. Dropping the pool volatile-clears the full
+mapping before unlocking and releasing it.
 
 This feature is explicit because OS memory locking has platform limits. It can
 fail due to resource limits or policy. Linux `MADV_DONTDUMP` reduces ordinary
@@ -781,6 +812,7 @@ library when a protocol requires externally audited timing guarantees.
 | Fixed-size key with no-`std` tick expiry | `MonotonicExpiringSecretBytes<N, C>` |
 | Fixed-size key with access expiry | `ExpiringSecretBytes<N>` with `std` |
 | Fixed-size key that should avoid swap/pagefiles on supported platforms | `LockedSecretBytes<N>` with `memory-lock` |
+| Many same-size fixed keys under memory-lock quotas | `SecretPool<N, SLOTS>` with `memory-lock` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |
 | Dynamic bytes with platform guard pages | `GuardedSecretVec` with `guard-pages` |
 | Secret UTF-8 text | `SecretString` with `alloc` |

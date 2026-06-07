@@ -16,6 +16,9 @@ Rust applications.
 - Optional platform memory locking for `LockedSecretBytes<N>` when the
   `memory-lock` feature is enabled on supported Linux, Android, macOS, iOS,
   Windows, and BSD targets.
+- Optional pooled platform memory locking for many same-size fixed secrets with
+  `SecretPool<N, SLOTS>` when the `memory-lock` feature is enabled on supported
+  targets.
 - Optional Linux `MADV_DONTDUMP` on locked secret mappings to reduce ordinary
   core-dump exposure.
 - Optional Linux `MADV_DONTFORK` on locked secret mappings to reduce accidental
@@ -64,14 +67,18 @@ but they do not solve broader process, OS, hardware, or allocator threats.
 With the `memory-lock` feature on supported Linux, Android, macOS, iOS,
 Windows, and BSD targets, `LockedSecretBytes<N>` uses a private platform
 mapping and memory locking to reduce the chance that the secret's storage
-reaches swap or pagefiles. Linux also applies `MADV_DONTDUMP` and
-`MADV_DONTFORK` to reduce ordinary core-dump exposure and accidental
-inheritance across `fork`. This is a high-assurance building block, not a
-complete OS secrecy guarantee. Resource
+reaches swap or pagefiles. `SecretPool<N, SLOTS>` uses the same backend but
+sub-allocates many fixed-size slots from one locked mapping, reducing
+page-granule quota overhead for applications that keep many same-size secrets.
+Linux also applies `MADV_DONTDUMP` and `MADV_DONTFORK` to reduce ordinary
+core-dump exposure and accidental inheritance across `fork`. This is a
+high-assurance building block, not a complete OS secrecy guarantee. Resource
 limits or policy can make setup fail, and locked memory can still be exposed
 through hibernation, nonstandard crash dump mechanisms, debuggers, privileged
 reads, DMA, malicious firmware, or copies made before data enters the locked
-container.
+container. Leaking a slot with `core::mem::forget` also leaks that slot's
+allocation state and skips its drop-time clearing, just as leaking any
+secret-owning value skips its destructor.
 
 With the `asm-compare` feature on x86_64, equal-length comparisons use an
 inline-assembly loop. This gives the comparison body a stronger compiler

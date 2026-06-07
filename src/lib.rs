@@ -18,7 +18,8 @@
 //!   target-specific unsafe code and platform policy.
 //! - Platform memory locking is available only through the explicit
 //!   `memory-lock` feature on supported Linux, Android, macOS, iOS, Windows,
-//!   and BSD targets.
+//!   and BSD targets. The same feature also enables pooled locked slots with
+//!   [`SecretPool`] on supported targets.
 //! - x86_64 assembly-backed comparison is available only through the explicit
 //!   `asm-compare` feature.
 //! - x86_64 cache-line eviction is available only through the explicit
@@ -348,7 +349,7 @@ mod memory_lock {
     use core::{
         fmt,
         ptr::NonNull,
-        sync::atomic::{compiler_fence, Ordering},
+        sync::atomic::{compiler_fence, AtomicBool, Ordering},
     };
 
     #[cfg(all(
@@ -1027,6 +1028,528 @@ mod memory_lock {
         }
     }
 
+    /// Fixed-slot arena for many same-size secrets inside one locked mapping.
+    ///
+    /// `SecretPool<N, SLOTS>` amortizes platform memory-locking overhead when
+    /// an application needs many fixed-size secrets at once. Instead of using
+    /// one locked page-backed mapping per secret, the pool creates one private
+    /// locked mapping large enough for `SLOTS` slots of `N` bytes and hands out
+    /// lifetime-bound [`SecretPoolSlot`] handles.
+    ///
+    /// Slots borrow the pool, so Rust prevents the pool from being dropped
+    /// while a slot is still live. Dropping a slot volatile-clears exactly that
+    /// slot and returns it to the pool. Dropping the pool volatile-clears the
+    /// full mapping before unlocking and releasing it.
+    pub struct SecretPool<const N: usize, const SLOTS: usize> {
+        base: NonNull<u8>,
+        map_len: usize,
+        used: [AtomicBool; SLOTS],
+    }
+
+    /// A live fixed-size secret slot allocated from a [`SecretPool`].
+    ///
+    /// The slot gives controlled access to one `N`-byte region inside the
+    /// parent pool. Moving the slot moves only pointer metadata; the secret
+    /// bytes stay inside the locked pool mapping.
+    pub struct SecretPoolSlot<'pool, const N: usize, const SLOTS: usize> {
+        ptr: NonNull<u8>,
+        slot_index: usize,
+        pool: &'pool SecretPool<N, SLOTS>,
+    }
+
+    // SAFETY: The pool owns one private mapping. Slot allocation state is
+    // coordinated with atomics, and mutable byte access is possible only
+    // through a uniquely-owned slot handle or `&mut self`.
+    unsafe impl<const N: usize, const SLOTS: usize> Send for SecretPool<N, SLOTS> {}
+    // SAFETY: Shared pool references may allocate different slots concurrently.
+    // The atomic bitmap prevents two live safe handles for the same slot.
+    unsafe impl<const N: usize, const SLOTS: usize> Sync for SecretPool<N, SLOTS> {}
+    // SAFETY: Moving a slot to another thread transfers the unique live handle
+    // for that slot. The borrowed pool remains live for the slot lifetime.
+    unsafe impl<'pool, const N: usize, const SLOTS: usize> Send for SecretPoolSlot<'pool, N, SLOTS> {}
+
+    impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
+        /// Create a locked pool with `SLOTS` fixed-size slots of `N` bytes.
+        ///
+        /// This performs one platform mapping and one platform lock operation
+        /// for the whole arena. The requested mapping length is rounded to the
+        /// platform page granule, so the pool also clears padding bytes on
+        /// drop.
+        #[inline]
+        pub fn new() -> Result<Self, MemoryLockError> {
+            let used = core::array::from_fn(|_| AtomicBool::new(false));
+            let total_bytes = N.checked_mul(SLOTS).ok_or(MemoryLockError {
+                operation: MemoryLockOperation::Length,
+                errno: 0,
+            })?;
+
+            if total_bytes == 0 {
+                return Ok(Self {
+                    base: NonNull::dangling(),
+                    map_len: 0,
+                    used,
+                });
+            }
+
+            let map_len = rounded_mapping_len(total_bytes)?;
+            let base = map_private(map_len)?;
+
+            if let Err(error) = mark_dontdump(base, map_len) {
+                let _ = unmap_private(base, map_len);
+                return Err(error);
+            }
+
+            if let Err(error) = mark_dontfork(base, map_len) {
+                let _ = unmap_private(base, map_len);
+                return Err(error);
+            }
+
+            if let Err(error) = lock_mapping(base, map_len) {
+                let _ = unmap_private(base, map_len);
+                return Err(error);
+            }
+
+            Ok(Self {
+                base,
+                map_len,
+                used,
+            })
+        }
+
+        /// Number of bytes in each slot.
+        #[must_use]
+        #[inline]
+        pub const fn slot_size(&self) -> usize {
+            N
+        }
+
+        /// Number of slots in the pool.
+        #[must_use]
+        #[inline]
+        pub const fn capacity_slots(&self) -> usize {
+            SLOTS
+        }
+
+        /// Returns true when the pool cannot hold any secret bytes.
+        #[must_use]
+        #[inline]
+        pub const fn is_empty(&self) -> bool {
+            N == 0 || SLOTS == 0
+        }
+
+        /// Rounded platform mapping length locked by this pool.
+        #[must_use]
+        #[inline]
+        pub const fn locked_len(&self) -> usize {
+            self.map_len
+        }
+
+        /// Count slots that are currently available.
+        ///
+        /// This is a point-in-time observation. Other threads may allocate or
+        /// release slots immediately after this method returns.
+        #[must_use]
+        #[inline]
+        pub fn available_slots(&self) -> usize {
+            self.used
+                .iter()
+                .filter(|used| !used.load(Ordering::Acquire))
+                .count()
+        }
+
+        /// Allocate one unused slot from the pool.
+        ///
+        /// Returns `None` when every slot is currently allocated. The returned
+        /// slot starts zeroed if it has never been used before, or freshly
+        /// zeroed from the previous slot drop.
+        #[inline]
+        pub fn allocate(&self) -> Option<SecretPoolSlot<'_, N, SLOTS>> {
+            for (slot_index, flag) in self.used.iter().enumerate() {
+                if flag
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    let ptr = self.slot_ptr(slot_index)?;
+                    return Some(SecretPoolSlot {
+                        ptr,
+                        slot_index,
+                        pool: self,
+                    });
+                }
+            }
+
+            None
+        }
+
+        /// Allocate a slot and copy bytes from a same-length slice.
+        ///
+        /// Returns `Ok(None)` when the pool is full. A length mismatch returns
+        /// an error without allocating a slot.
+        #[inline]
+        pub fn allocate_from_slice(
+            &self,
+            source: &[u8],
+        ) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, crate::LengthError> {
+            if source.len() != N {
+                return Err(crate::LengthError {
+                    expected: N,
+                    actual: source.len(),
+                });
+            }
+
+            let Some(mut slot) = self.allocate() else {
+                return Ok(None);
+            };
+
+            let _ = slot.copy_from_slice(source);
+            Ok(Some(slot))
+        }
+
+        /// Allocate a slot, copy an owned array into it, then clear the input
+        /// array with the crate's volatile wipe backend.
+        #[inline]
+        pub fn allocate_from_array(
+            &self,
+            mut bytes: [u8; N],
+        ) -> Option<SecretPoolSlot<'_, N, SLOTS>> {
+            let slot = match self.allocate() {
+                Some(mut slot) => {
+                    let _ = slot.copy_from_slice(&bytes);
+                    Some(slot)
+                }
+                None => None,
+            };
+
+            crate::sanitize_bytes(&mut bytes);
+            slot
+        }
+
+        /// Allocate a slot and generate each byte directly inside it.
+        #[inline]
+        pub fn allocate_from_fn(
+            &self,
+            mut make_byte: impl FnMut(usize) -> u8,
+        ) -> Option<SecretPoolSlot<'_, N, SLOTS>> {
+            let mut slot = self.allocate()?;
+            let mut index = 0;
+            while index < N {
+                slot.as_mut_slice()[index] = make_byte(index);
+                index += 1;
+            }
+            compiler_fence(Ordering::SeqCst);
+            Some(slot)
+        }
+
+        /// Allocate a slot and fallibly generate each byte directly inside it.
+        ///
+        /// If generation fails, the partially initialized slot is
+        /// volatile-cleared and returned to the pool before the error is
+        /// returned.
+        #[inline]
+        pub fn try_allocate_from_fn<E>(
+            &self,
+            mut make_byte: impl FnMut(usize) -> Result<u8, E>,
+        ) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, E> {
+            let Some(mut slot) = self.allocate() else {
+                return Ok(None);
+            };
+
+            let mut index = 0;
+            while index < N {
+                match make_byte(index) {
+                    Ok(byte) => slot.as_mut_slice()[index] = byte,
+                    Err(error) => return Err(error),
+                }
+                index += 1;
+            }
+            compiler_fence(Ordering::SeqCst);
+            Ok(Some(slot))
+        }
+
+        /// Clear the full locked mapping and mark every slot available.
+        ///
+        /// This requires `&mut self`, so Rust prevents it while any live slot
+        /// handle still borrows the pool.
+        #[inline(never)]
+        pub fn secure_clear(&mut self) {
+            if self.map_len != 0 {
+                crate::wipe::volatile_wipe(self.base.as_ptr(), self.map_len);
+            }
+
+            for flag in self.used.iter() {
+                flag.store(false, Ordering::Release);
+            }
+            compiler_fence(Ordering::SeqCst);
+        }
+
+        #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+        #[inline(never)]
+        pub fn secure_clear_and_flush(&mut self) {
+            self.secure_clear();
+            crate::cache_flush::flush_cache_lines(self.as_mapping_slice());
+        }
+
+        #[inline]
+        fn slot_ptr(&self, slot_index: usize) -> Option<NonNull<u8>> {
+            if N == 0 {
+                return Some(NonNull::dangling());
+            }
+
+            let offset = slot_index.checked_mul(N)?;
+            // SAFETY: `slot_index < SLOTS`, construction checked `N * SLOTS`,
+            // and `map_len` is rounded up from that total. Therefore `offset`
+            // is inside the live mapping for all allocated non-zero slots.
+            NonNull::new(unsafe { self.base.as_ptr().add(offset) })
+        }
+
+        #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+        #[inline]
+        fn as_mapping_slice(&self) -> &[u8] {
+            // SAFETY: `base` either points to a live mapping of `map_len` bytes
+            // owned by this pool, or is dangling with `map_len == 0`.
+            unsafe { core::slice::from_raw_parts(self.base.as_ptr(), self.map_len) }
+        }
+    }
+
+    impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> {
+        /// Number of secret bytes stored in this slot.
+        #[must_use]
+        #[inline]
+        pub const fn len(&self) -> usize {
+            N
+        }
+
+        /// Returns true when this slot stores zero bytes.
+        #[must_use]
+        #[inline]
+        pub const fn is_empty(&self) -> bool {
+            N == 0
+        }
+
+        /// Index of this slot inside the parent pool.
+        #[must_use]
+        #[inline]
+        pub const fn slot_index(&self) -> usize {
+            self.slot_index
+        }
+
+        /// Replace all slot bytes from a same-length slice.
+        #[inline]
+        pub fn copy_from_slice(&mut self, source: &[u8]) -> Result<(), crate::LengthError> {
+            if source.len() != N {
+                return Err(crate::LengthError {
+                    expected: N,
+                    actual: source.len(),
+                });
+            }
+
+            self.as_mut_slice().copy_from_slice(source);
+            compiler_fence(Ordering::SeqCst);
+            Ok(())
+        }
+
+        /// Compatibility alias for [`SecretPoolSlot::copy_from_slice`].
+        #[inline]
+        pub fn replace_from_slice(&mut self, source: &[u8]) -> Result<(), crate::LengthError> {
+            self.copy_from_slice(source)
+        }
+
+        /// Replace all slot bytes from an owned array, then volatile-clear the
+        /// input array.
+        #[inline]
+        pub fn replace_from_array(&mut self, mut bytes: [u8; N]) {
+            self.as_mut_slice().copy_from_slice(&bytes);
+            compiler_fence(Ordering::SeqCst);
+            crate::sanitize_bytes(&mut bytes);
+        }
+
+        /// Replace all slot bytes with generated bytes.
+        #[inline]
+        pub fn replace_from_fn(&mut self, mut make_byte: impl FnMut(usize) -> u8) {
+            let mut index = 0;
+            while index < N {
+                self.as_mut_slice()[index] = make_byte(index);
+                index += 1;
+            }
+            compiler_fence(Ordering::SeqCst);
+        }
+
+        /// Replace all slot bytes with fallibly generated bytes.
+        ///
+        /// If generation fails, bytes already written by this call are cleared
+        /// before the error is returned.
+        #[inline]
+        pub fn try_replace_from_fn<E>(
+            &mut self,
+            mut make_byte: impl FnMut(usize) -> Result<u8, E>,
+        ) -> Result<(), E> {
+            let mut index = 0;
+            while index < N {
+                match make_byte(index) {
+                    Ok(byte) => self.as_mut_slice()[index] = byte,
+                    Err(error) => {
+                        self.secure_clear();
+                        return Err(error);
+                    }
+                }
+                index += 1;
+            }
+            compiler_fence(Ordering::SeqCst);
+            Ok(())
+        }
+
+        /// Fill a caller-provided destination with a copy of the slot bytes.
+        #[inline]
+        pub fn copy_to_slice(&self, destination: &mut [u8]) -> Result<(), crate::LengthError> {
+            if destination.len() != N {
+                return Err(crate::LengthError {
+                    expected: N,
+                    actual: destination.len(),
+                });
+            }
+
+            destination.copy_from_slice(self.as_slice());
+            compiler_fence(Ordering::SeqCst);
+            core::hint::black_box(destination);
+            Ok(())
+        }
+
+        /// Run a closure with read-only access to the slot bytes.
+        ///
+        /// The closure can copy the secret elsewhere. Keep usage limited to
+        /// protocol or cryptographic boundaries that genuinely need raw bytes.
+        #[inline]
+        pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+            inspect(self.as_array())
+        }
+
+        /// Run a closure with mutable access to the slot bytes.
+        #[inline]
+        pub fn with_secret_mut<R>(&mut self, inspect: impl FnOnce(&mut [u8; N]) -> R) -> R {
+            inspect(self.as_array_mut())
+        }
+
+        /// Compare against a slice without early exit for equal-length inputs.
+        ///
+        /// Length mismatch returns immediately because the provided slice
+        /// length is treated as public metadata.
+        #[must_use]
+        #[inline]
+        pub fn constant_time_eq(&self, other: &[u8]) -> bool {
+            crate::constant_time_eq_slices(self.as_slice(), other)
+        }
+
+        /// Clear only this slot with volatile writes.
+        #[inline(never)]
+        pub fn secure_clear(&mut self) {
+            if N != 0 {
+                crate::wipe::volatile_wipe(self.ptr.as_ptr(), N);
+            }
+        }
+
+        /// Consume this slot after clearing it, then return it to the pool.
+        #[inline]
+        pub fn into_cleared(mut self) {
+            self.secure_clear();
+        }
+
+        /// Clear this slot with volatile writes, then flush its cache lines.
+        #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+        #[inline(never)]
+        pub fn secure_clear_and_flush(&mut self) {
+            self.secure_clear();
+            crate::cache_flush::flush_cache_lines(self.as_slice());
+        }
+
+        #[inline]
+        fn as_slice(&self) -> &[u8] {
+            // SAFETY: `ptr` points to this live slot's `N` bytes in the parent
+            // pool mapping, or is dangling with `N == 0`.
+            unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), N) }
+        }
+
+        #[inline]
+        fn as_mut_slice(&mut self) -> &mut [u8] {
+            // SAFETY: `&mut self` gives exclusive access to this live slot, and
+            // the pool bitmap prevents another live safe handle for the same
+            // slot until this value drops.
+            unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), N) }
+        }
+
+        #[inline]
+        fn as_array(&self) -> &[u8; N] {
+            // SAFETY: `as_slice` is exactly `N` bytes long, and the pointer is
+            // valid for a `[u8; N]` reference for the duration of `&self`.
+            unsafe { &*(self.ptr.as_ptr() as *const [u8; N]) }
+        }
+
+        #[inline]
+        fn as_array_mut(&mut self) -> &mut [u8; N] {
+            // SAFETY: `as_mut_slice` is exactly `N` bytes long, and `&mut self`
+            // provides exclusive access to this slot for the returned borrow.
+            unsafe { &mut *(self.ptr.as_ptr() as *mut [u8; N]) }
+        }
+    }
+
+    impl<const N: usize, const SLOTS: usize> Drop for SecretPool<N, SLOTS> {
+        #[inline]
+        fn drop(&mut self) {
+            self.secure_clear();
+
+            if self.map_len != 0 {
+                let _ = unlock_mapping(self.base, self.map_len);
+                let _ = unmap_private(self.base, self.map_len);
+            }
+        }
+    }
+
+    impl<'pool, const N: usize, const SLOTS: usize> Drop for SecretPoolSlot<'pool, N, SLOTS> {
+        #[inline]
+        fn drop(&mut self) {
+            self.secure_clear();
+            self.pool.used[self.slot_index].store(false, Ordering::Release);
+        }
+    }
+
+    impl<const N: usize, const SLOTS: usize> crate::SecureSanitize for SecretPool<N, SLOTS> {
+        #[inline]
+        fn secure_sanitize(&mut self) {
+            self.secure_clear();
+        }
+    }
+
+    impl<'pool, const N: usize, const SLOTS: usize> crate::SecureSanitize
+        for SecretPoolSlot<'pool, N, SLOTS>
+    {
+        #[inline]
+        fn secure_sanitize(&mut self) {
+            self.secure_clear();
+        }
+    }
+
+    impl<const N: usize, const SLOTS: usize> fmt::Debug for SecretPool<N, SLOTS> {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter
+                .debug_struct("SecretPool")
+                .field("slot_size", &N)
+                .field("capacity_slots", &SLOTS)
+                .field("locked_len", &self.map_len)
+                .field("contents", &"<redacted>")
+                .finish()
+        }
+    }
+
+    impl<'pool, const N: usize, const SLOTS: usize> fmt::Debug for SecretPoolSlot<'pool, N, SLOTS> {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter
+                .debug_struct("SecretPoolSlot")
+                .field("len", &N)
+                .field("slot_index", &self.slot_index)
+                .field("contents", &"<redacted>")
+                .finish()
+        }
+    }
+
     fn rounded_mapping_len(len: usize) -> Result<usize, MemoryLockError> {
         let page_granule = platform_page_granule();
         len.checked_add(page_granule - 1)
@@ -1471,7 +1994,7 @@ mod memory_lock {
 ))]
 pub use memory_lock::{
     LockedSecretBytes, LockedSecretBytesError, LockedSecretBytesGenerateError, MemoryLockError,
-    MemoryLockOperation,
+    MemoryLockOperation, SecretPool, SecretPoolSlot,
 };
 
 #[cfg(all(feature = "asm-compare", target_arch = "x86_64", not(miri)))]
@@ -5406,8 +5929,11 @@ mod tests {
     #[test]
     fn locked_secret_bytes_is_send() {
         fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
 
         assert_send::<LockedSecretBytes<4>>();
+        assert_send::<SecretPool<4, 2>>();
+        assert_sync::<SecretPool<4, 2>>();
     }
 
     #[cfg(all(
@@ -6591,6 +7117,105 @@ mod tests {
 
         assert!(secret.copy_to_slice(&mut out).is_ok());
         assert_eq!(out, [0, 0, 0, 0]);
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn secret_pool_allocates_reuses_and_clears_slots() {
+        let pool = match SecretPool::<4, 2>::new() {
+            Ok(pool) => pool,
+            Err(_) => return,
+        };
+
+        assert_eq!(pool.slot_size(), 4);
+        assert_eq!(pool.capacity_slots(), 2);
+        assert!(pool.locked_len() >= 8);
+        assert_eq!(pool.available_slots(), 2);
+
+        let mut first = pool.allocate_from_array([1, 2, 3, 4]).unwrap();
+        let mut second = pool.allocate_from_fn(|index| (index as u8) + 5).unwrap();
+        let mut out = [0; 4];
+
+        assert_eq!(pool.available_slots(), 0);
+        assert!(pool.allocate().is_none());
+        assert!(first.constant_time_eq(&[1, 2, 3, 4]));
+        assert!(second.copy_to_slice(&mut out).is_ok());
+        assert_eq!(out, [5, 6, 7, 8]);
+
+        first.with_secret_mut(|bytes| bytes[0] = 9);
+        assert!(first.constant_time_eq(&[9, 2, 3, 4]));
+        first.secure_clear();
+        assert!(first.constant_time_eq(&[0, 0, 0, 0]));
+
+        let freed_index = first.slot_index();
+        drop(first);
+        assert_eq!(pool.available_slots(), 1);
+
+        let reused = pool.allocate_from_slice(&[7, 7, 7, 7]).unwrap().unwrap();
+        assert_eq!(reused.slot_index(), freed_index);
+        assert!(reused.constant_time_eq(&[7, 7, 7, 7]));
+
+        second.replace_from_array([8, 8, 8, 8]);
+        assert!(second.constant_time_eq(&[8, 8, 8, 8]));
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn secret_pool_handles_generation_and_zero_slot_cases() {
+        let pool = match SecretPool::<4, 1>::new() {
+            Ok(pool) => pool,
+            Err(_) => return,
+        };
+
+        let mut slot = match pool
+            .try_allocate_from_fn(|index| Ok::<u8, &'static str>((index as u8).wrapping_add(1)))
+        {
+            Ok(Some(slot)) => slot,
+            Ok(None) => panic!("pool should have one available slot"),
+            Err(error) => panic!("unexpected generator error: {error}"),
+        };
+
+        assert!(slot.constant_time_eq(&[1, 2, 3, 4]));
+        assert_eq!(
+            slot.try_replace_from_fn(|index| {
+                if index == 2 {
+                    Err("generation failed")
+                } else {
+                    Ok(index as u8)
+                }
+            }),
+            Err("generation failed")
+        );
+        assert!(slot.constant_time_eq(&[0, 0, 0, 0]));
+        drop(slot);
+
+        match pool.try_allocate_from_fn(|index| {
+            if index == 1 {
+                Err("generation failed")
+            } else {
+                Ok(index as u8)
+            }
+        }) {
+            Ok(_) => panic!("generation should have failed"),
+            Err(error) => assert_eq!(error, "generation failed"),
+        }
+        assert_eq!(pool.available_slots(), 1);
+
+        let empty = SecretPool::<0, 2>::new().unwrap();
+        assert!(empty.is_empty());
+        assert_eq!(empty.locked_len(), 0);
+        let slot = empty.allocate().unwrap();
+        assert!(slot.is_empty());
     }
 
     #[cfg(all(

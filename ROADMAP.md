@@ -177,9 +177,10 @@ if keeping dev dependencies out of the repository remains preferred.
 
 ### 5. Memory Locking as a High-Assurance Feature
 
-Status: implemented for fixed-size secrets behind the `memory-lock` feature on
-supported Linux, Android, macOS, iOS, Windows, and BSD targets, and for guarded
-dynamic secrets when `memory-lock` and `guard-pages` are both enabled.
+Status: implemented for fixed-size secrets and pooled fixed-size slots behind
+the `memory-lock` feature on supported Linux, Android, macOS, iOS, Windows, and
+BSD targets, and for guarded dynamic secrets when `memory-lock` and
+`guard-pages` are both enabled.
 
 `mlock`, `VirtualLock`, guard pages, and platform-specific memory policies are
 important for high-assurance deployments. Memory locking is the biggest
@@ -190,6 +191,8 @@ Current implementation:
 
 - `LockedSecretBytes<N>` is available on supported Linux, Android, macOS, iOS,
   Windows, and BSD targets when the `memory-lock` feature is enabled.
+- `SecretPool<N, SLOTS>` is available on the same memory-lock targets for
+  applications that need many same-size fixed secrets under one locked mapping.
 - Secret bytes live in a private platform mapping rather than the Rust global
   allocator.
 - Linux uses raw `mmap`/`madvise`/`mlock` syscalls on `x86_64` and `aarch64`.
@@ -201,6 +204,9 @@ Current implementation:
   with the platform backend.
 - Moving the Rust value copies only pointer metadata, not the secret byte
   allocation.
+- `SecretPool<N, SLOTS>` checks `N * SLOTS`, rounds the mapping length to the
+  platform page granule, tracks slot ownership with an atomic bitmap, and
+  volatile-clears slots before reuse.
 - `GuardedSecretVec` is available on supported Linux, Android, macOS, iOS,
   Windows, and BSD targets with `guard-pages`. It can also lock its writable
   data pages when both `guard-pages` and `memory-lock` are enabled. Growth and
@@ -219,14 +225,15 @@ Implemented API shape:
 
 ```rust
 let key = LockedSecretBytes::<32>::zeroed()?;
+let pool = SecretPool::<32, 64>::new()?;
 ```
 
 This must continue to be reviewed carefully. Non-Linux backends currently lock
 resident memory and provide guard pages, but do not apply Linux-equivalent
 crate-level dump or fork exclusion. Exact target CI coverage, richer Android,
-BSD, iOS, and macOS core-dump policies, SecretPool-style locked arenas, and any
-future allocator-sensitive dynamic containers all need platform-specific tests
-and review.
+BSD, iOS, and macOS core-dump policies, pooled locked-arena runtime behavior,
+and any future allocator-sensitive dynamic containers all need
+platform-specific tests and review.
 
 ## Candidate Differentiators
 

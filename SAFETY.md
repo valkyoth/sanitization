@@ -66,9 +66,10 @@ Invariant:
 Location: `memory_lock`
 
 Purpose: provide dependency-free platform memory locking for
-`LockedSecretBytes<N>` without routing secret bytes through the Rust global
-allocator. Linux uses raw syscalls; Android, macOS, iOS, and BSD use system C
-ABI entry points; Windows uses Kernel32 virtual memory APIs.
+`LockedSecretBytes<N>` and pooled `SecretPool<N, SLOTS>` slots without routing
+secret bytes through the Rust global allocator. Linux uses raw syscalls;
+Android, macOS, iOS, and BSD use system C ABI entry points; Windows uses
+Kernel32 virtual memory APIs.
 
 Operations:
 
@@ -116,6 +117,24 @@ Invariant:
 - Drop volatile-clears the full mapping before attempting platform unlock and
   release.
 - Drop ignores unlock/unmap errors because destructors cannot report failure.
+- `SecretPool<N, SLOTS>` owns exactly one locked mapping. `N * SLOTS` is
+  checked for overflow before mapping, then rounded to the platform page
+  granule.
+- The pool tracks live slots with `[AtomicBool; SLOTS]`. Slot allocation uses a
+  compare-exchange from unused to used, preventing two live safe handles for the
+  same slot.
+- Each `SecretPoolSlot` carries a lifetime-bound shared borrow of the pool, so
+  Rust prevents the pool from being dropped or mutably cleared while slots are
+  live.
+- Slot pointer arithmetic is constrained to `slot_index * N`, where
+  `slot_index < SLOTS` and construction already checked the total size.
+- Slot mutation requires `&mut SecretPoolSlot`; read-only exposure uses
+  closure-based access.
+- Dropping a slot volatile-clears exactly that slot before marking it available
+  again with release ordering.
+- Dropping the pool requires no live slots, volatile-clears the full mapping,
+  then unlocks and releases it with the same platform backend as
+  `LockedSecretBytes<N>`.
 
 ### x86_64 inline assembly comparison
 
