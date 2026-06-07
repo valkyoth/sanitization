@@ -20,7 +20,8 @@ Rust applications.
   `SecretPool<N, SLOTS>` when the `memory-lock` feature is enabled on supported
   targets.
 - Optional prefix/suffix canary integrity checks for non-empty
-  `LockedSecretBytes<N>` mappings when the `canary-check` feature is enabled.
+  `LockedSecretBytes<N>` mappings, pooled slots, and guarded dynamic mappings
+  when the `canary-check` feature is enabled.
 - Optional Linux `MADV_DONTDUMP` on locked secret mappings to reduce ordinary
   core-dump exposure.
 - Optional Linux `MADV_DONTFORK` on locked secret mappings to reduce accidental
@@ -84,14 +85,17 @@ container. Leaking a slot with `core::mem::forget` also leaks that slot's
 allocation state and skips its drop-time clearing, just as leaking any
 secret-owning value skips its destructor.
 
-With the `canary-check` feature, non-empty `LockedSecretBytes<N>` mappings place
-an 8-byte canary before and after the secret bytes. Exposure and comparison APIs
-verify both canaries before reading the secret; checked APIs return
-`CanaryCorruptedError`, while legacy APIs clear the mapping and panic. This can
-detect overwrites that stay inside the writable mapping but reach the canary
-words. It does not detect corruption entirely inside the secret bytes and does
-not provide authenticity against an attacker who can read and rewrite the full
-process memory image.
+With the `canary-check` feature, non-empty `LockedSecretBytes<N>` mappings and
+`SecretPool<N, SLOTS>` slots place an 8-byte canary before and after the secret
+bytes. `GuardedSecretVec` places one canary before the payload and one
+immediately after the initialized payload. Exposure, mutation, replacement, and
+comparison APIs verify both canaries before reading or modifying the secret;
+checked APIs return `CanaryCorruptedError`, while legacy APIs clear the mapping
+or slot and panic. This can detect overwrites that stay inside the writable
+mapping but reach the canary words, including some overrun/underrun cases that
+do not reach a guard page. It does not detect corruption entirely inside the
+secret bytes and does not provide authenticity against an attacker who can read
+and rewrite the full process memory image.
 
 With the `asm-compare` feature on x86_64, equal-length comparisons use an
 inline-assembly loop. This gives the comparison body a stronger compiler

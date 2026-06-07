@@ -54,7 +54,8 @@ Implemented now:
   Linux, Android, macOS, iOS, Windows, and BSD targets.
 - optional pooled locked-memory arenas with `SecretPool<N, SLOTS>` for many
   same-size fixed secrets under one memory-lock operation.
-- optional locked-secret canary integrity checks with `canary-check`.
+- optional locked, pooled, and guarded canary integrity checks with
+  `canary-check`.
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
 - optional explicit multi-pass volatile clear helpers.
@@ -140,7 +141,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
 | `memory-lock` | no | Enables `LockedSecretBytes<N>`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported Linux, Android, macOS, iOS, Windows, and BSD targets. |
-| `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty `LockedSecretBytes<N>` mappings. |
+| `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty locked byte mappings, pooled slots, and guarded dynamic mappings. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
 | `guard-pages` | no | Enables `GuardedSecretVec` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. |
@@ -434,9 +435,9 @@ Use `replace_from_array`, `replace_from_slice`, `replace_from_fn`, or
 clears its owned input array. Fallible generated replacement keeps the old
 locked value unchanged on generator error.
 
-Enable `canary-check` when a locked fixed-size secret should detect corruption
+Enable `canary-check` when locked or guarded secrets should detect corruption
 that reaches either side of the secret data while staying inside the writable
-mapping.
+mapping or pooled slot.
 
 ```toml
 [dependencies]
@@ -456,7 +457,8 @@ assert_eq!(first, 7);
 assert_eq!(key.constant_time_eq_checked(&[7; 32]), Ok(true));
 ```
 
-With `canary-check`, non-empty `LockedSecretBytes<N>` mappings use this layout:
+With `canary-check`, non-empty `LockedSecretBytes<N>` mappings and
+`SecretPool<N, SLOTS>` slots use this layout:
 
 ```text
 [ 8-byte canary ][ N-byte secret ][ 8-byte canary ]
@@ -464,17 +466,21 @@ With `canary-check`, non-empty `LockedSecretBytes<N>` mappings use this layout:
 
 Existing exposure APIs such as `with_secret`, `copy_to_slice`, and
 `constant_time_eq` verify the canaries before reading secret bytes. If
-corruption is detected, the full mapping is volatile-cleared and those legacy
-APIs panic with a fixed message. Use `expose_secret_checked`,
-`copy_to_slice_checked`, `constant_time_eq_checked`, or `verify_integrity` when
-callers need explicit error handling with `CanaryCorruptedError`.
+corruption is detected, the full mapping or slot is volatile-cleared and those
+legacy APIs panic with a fixed message. Use `expose_secret_checked`,
+`copy_to_slice_checked`, `constant_time_eq_checked`, or `verify_integrity` on
+`LockedSecretBytes<N>`, and `expose_secret_checked`,
+`constant_time_eq_checked`, or `verify_integrity` on pool slots, when callers
+need explicit error handling with `CanaryCorruptedError`.
 
-Canaries are derived from the mapping address and a fixed mask, so they require
-no RNG or dependency. They detect overwrites that reach the canary words; they
-do not detect corruption entirely inside the secret bytes, historical copies,
-or external copies. `secure_clear` still wipes the full mapping, including the
-canary words, so a canary-checked locked value should be treated as terminal
-after manual clearing.
+Canaries are derived from the mapping or slot address and a fixed mask, so they
+require no RNG or dependency. They detect overwrites that reach the canary
+words; they do not detect corruption entirely inside the secret bytes,
+historical copies, or external copies. `secure_clear` still wipes the full
+mapping or slot, including the canary words, so a canary-checked locked value
+or live pool slot should be treated as terminal after manual clearing. Dropping
+a cleared pool slot returns it to the pool; the next allocation writes fresh
+slot canaries.
 
 For many same-size locked secrets, use `SecretPool<N, SLOTS>` to amortize
 page-granule memory-locking overhead. This is useful on systems with small
@@ -504,6 +510,11 @@ tracks live slots with an atomic bitmap. A slot borrows the pool, so the pool
 cannot be dropped while slots are live. Dropping a slot volatile-clears that
 slot before marking it reusable. Dropping the pool volatile-clears the full
 mapping before unlocking and releasing it.
+
+With `canary-check`, each non-empty pool slot has its own prefix and suffix
+canary. Slot exposure, copying, mutation, and comparison verify those canaries
+before accessing the payload. Checked slot APIs return `CanaryCorruptedError`;
+legacy APIs clear the slot and panic.
 
 This feature is explicit because OS memory locking has platform limits. It can
 fail due to resource limits or policy. Linux `MADV_DONTDUMP` reduces ordinary
@@ -562,6 +573,14 @@ keeps the old value unchanged on generator error. Linux guarded mappings keep
 the no-libc conservative page granules used by the raw syscall backend: 4 KiB
 on `x86_64` and 64 KiB on `aarch64`. Android, macOS, iOS, and BSD use
 `getpagesize`; Windows uses `GetSystemInfo`.
+
+With `canary-check`, `GuardedSecretVec` reserves an 8-byte canary before the
+initialized payload and another immediately after it. This catches in-region
+overwrites that guard pages cannot catch, such as writes that overrun the
+initialized length but stay inside the writable capacity. Exposure, mutation,
+growth, replacement, and comparison verify canaries first. Use
+`expose_secret_checked`, `constant_time_eq_checked`, or `verify_integrity` when
+callers need explicit `CanaryCorruptedError` handling.
 
 When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
 can also lock their writable data pages:
@@ -858,8 +877,10 @@ library when a protocol requires externally audited timing guarantees.
 | Fixed-size key that should avoid swap/pagefiles on supported platforms | `LockedSecretBytes<N>` with `memory-lock` |
 | Fixed-size locked key with prefix/suffix corruption checks | `LockedSecretBytes<N>` with `canary-check` |
 | Many same-size fixed keys under memory-lock quotas | `SecretPool<N, SLOTS>` with `memory-lock` |
+| Many same-size fixed keys with pooled canary checks | `SecretPool<N, SLOTS>` with `canary-check` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |
 | Dynamic bytes with platform guard pages | `GuardedSecretVec` with `guard-pages` |
+| Guarded dynamic bytes with in-region corruption checks | `GuardedSecretVec` with `guard-pages` and `canary-check` |
 | Secret UTF-8 text | `SecretString` with `alloc` |
 | Secret scalar such as `u64` | `Secret<u64>` |
 | Standard compound value | `Secret<T>` where `T: SecureSanitize` |

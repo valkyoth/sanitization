@@ -43,7 +43,8 @@
   locked platform mapping, reducing page-granule memory-lock quota overhead
   when many secrets are live at once.
 - Added the optional `canary-check` feature for non-empty
-  `LockedSecretBytes<N>` mappings, with prefix/suffix canary verification,
+  `LockedSecretBytes<N>` mappings, `SecretPool<N, SLOTS>` slots, and
+  `GuardedSecretVec` writable mappings, with prefix/suffix canary verification,
   checked access APIs, and fail-closed clearing on corruption.
 - Added `GuardedSecretVec::replace_from_fn` and
   `GuardedSecretVec::try_replace_from_fn` for generated guarded whole-value

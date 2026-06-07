@@ -107,9 +107,14 @@ Invariant:
   8-byte prefix canary and 8-byte suffix canary around the `N` secret bytes.
   The checked payload length is `N + 16`, rounded to the platform page
   granule. The public data pointer is offset past the prefix canary.
+- With `canary-check`, non-empty `SecretPool<N, SLOTS>` slots reserve the same
+  8-byte prefix and suffix canaries inside each slot stride. Allocation writes
+  fresh canaries before returning a slot handle, and slot drop clears the full
+  stride before releasing the atomic bitmap flag.
 - `canary-check` derives the expected canary from the mapping base address and
-  a fixed mask. This avoids RNG and dependency requirements while making the
-  canary value mapping-specific under ASLR.
+  a fixed mask, or from the pool slot base address for pooled slots. This avoids
+  RNG and dependency requirements while making the canary value mapping-specific
+  under ASLR.
 - Canary writes happen only after platform mapping setup and locking succeed.
 - Canary verification compares both prefix and suffix with the expected value
   using the crate constant-time slice comparison helper and boolean `&`, so both
@@ -233,6 +238,11 @@ Operations:
   after mapping setup and optional lock policies have succeeded.
 - `try_from_fn` constructors generate bytes directly into the writable data
   pages and clear the full writable region on generator errors.
+- With `canary-check`, guarded mappings reserve an 8-byte prefix canary before
+  the payload and an 8-byte suffix canary immediately after the initialized
+  payload. Public payload pointers are offset past the prefix canary. Exposure,
+  mutation, growth, replacement, and comparison verify both canaries before
+  reading or modifying the secret payload.
 - `replace_from_slice` either clears the current writable region before
   in-place replacement, or creates a new guarded mapping with the same lock
   state and clears the old mapping before it is unmapped.
