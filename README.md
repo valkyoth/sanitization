@@ -54,6 +54,7 @@ Implemented now:
   Linux, macOS, Windows, and BSD targets.
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
+- optional explicit multi-pass volatile clear helpers.
 - optional `std` lifetime enforcement with `ExpiringSecretBytes<N>`.
 - optional guard-page dynamic byte storage with `GuardedSecretVec` on supported
   Linux, macOS, Windows, and BSD targets.
@@ -137,6 +138,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
 | `guard-pages` | no | Enables `GuardedSecretVec` on supported Linux, macOS, Windows, and BSD targets. |
+| `multi-pass-clear` | no | Enables explicit three-pass volatile overwrite helpers for policy or audit compatibility. |
 | `unsafe-wipe` | no | Compatibility no-op; volatile wiping is default. |
 
 Default builds are dependency-free and `no_std`.
@@ -662,6 +664,33 @@ use sanitization::unsafe_wipe::VolatileOnDrop;
 let secret = VolatileOnDrop::new([1_u8, 2, 3, 4]);
 assert_eq!(secret.with_secret(|bytes| bytes.len()), 4);
 ```
+
+## Multi-Pass Clearing
+
+Enable `multi-pass-clear` when a policy requires explicit multi-pass overwrite
+evidence:
+
+```toml
+[dependencies]
+sanitization = { version = "1.0.0-rc.5", features = ["multi-pass-clear"] }
+```
+
+```rust
+use sanitization::{sanitize_bytes_multi_pass, SecretBytes};
+
+let mut bytes = [0xA5; 32];
+sanitize_bytes_multi_pass(&mut bytes);
+assert_eq!(bytes, [0; 32]);
+
+let mut key = SecretBytes::<32>::from_array([7; 32]);
+key.secure_clear_multi_pass();
+assert!(key.constant_time_eq(&[0; 32]));
+```
+
+The pattern is zeros, then `0xFF`, then zeros again, all through volatile
+writes. For ordinary volatile RAM, the default single-pass volatile zeroing is
+the normal security boundary; multi-pass clearing is provided for compliance
+language and audit compatibility, not because modern DRAM needs it.
 
 ## Cache Flush Sanitization
 

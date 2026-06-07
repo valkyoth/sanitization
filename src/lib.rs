@@ -237,6 +237,33 @@ mod wipe {
         // lower-level or platform-specific code.
         fence(Ordering::SeqCst);
     }
+
+    #[cfg(feature = "multi-pass-clear")]
+    #[inline(never)]
+    pub(crate) fn volatile_fill(ptr: *mut u8, len: usize, value: u8) {
+        compiler_fence(Ordering::SeqCst);
+
+        let mut offset = 0;
+        while offset < len {
+            // SAFETY: Same pointer validity contract as `volatile_wipe`; this
+            // helper only changes the byte pattern written.
+            unsafe {
+                ptr::write_volatile(ptr.add(offset), value);
+            }
+            offset += 1;
+        }
+
+        compiler_fence(Ordering::SeqCst);
+        fence(Ordering::SeqCst);
+    }
+
+    #[cfg(feature = "multi-pass-clear")]
+    #[inline(never)]
+    pub(crate) fn volatile_multi_pass_clear(ptr: *mut u8, len: usize) {
+        volatile_wipe(ptr, len);
+        volatile_fill(ptr, len, 0xFF);
+        volatile_wipe(ptr, len);
+    }
 }
 
 /// Clear ordinary mutable bytes with volatile writes.
@@ -258,10 +285,30 @@ pub fn sanitize_bytes_best_effort(bytes: &mut [u8]) {
     sanitize_bytes(bytes);
 }
 
+/// Clear ordinary mutable bytes with an explicit three-pass volatile pattern.
+///
+/// This API is available with the `multi-pass-clear` feature. It writes zeros,
+/// then `0xFF`, then zeros again. For ordinary volatile RAM, the default
+/// single-pass volatile zeroing is the normal security boundary; this helper is
+/// provided for environments that need multi-pass overwrite evidence for policy
+/// or audit compatibility.
+#[cfg(feature = "multi-pass-clear")]
+#[inline(never)]
+pub fn sanitize_bytes_multi_pass(bytes: &mut [u8]) {
+    wipe::volatile_multi_pass_clear(bytes.as_mut_ptr(), bytes.len());
+}
+
 #[cfg(feature = "alloc")]
 #[inline(never)]
 fn sanitize_vec_capacity(bytes: &mut Vec<u8>) {
     wipe::volatile_wipe(bytes.as_mut_ptr(), bytes.capacity());
+    bytes.clear();
+}
+
+#[cfg(all(feature = "alloc", feature = "multi-pass-clear"))]
+#[inline(never)]
+fn sanitize_vec_capacity_multi_pass(bytes: &mut Vec<u8>) {
+    wipe::volatile_multi_pass_clear(bytes.as_mut_ptr(), bytes.capacity());
     bytes.clear();
 }
 
@@ -3382,6 +3429,17 @@ impl<const N: usize> SecretBytes<N> {
         wipe::volatile_wipe(self.bytes.as_mut_ptr(), N);
     }
 
+    /// Clear all bytes now with an explicit three-pass volatile pattern.
+    ///
+    /// Available with the `multi-pass-clear` feature. This is intended for
+    /// policy or audit compatibility; for volatile RAM, the default
+    /// [`SecretBytes::secure_clear`] remains the normal security boundary.
+    #[cfg(feature = "multi-pass-clear")]
+    #[inline(never)]
+    pub fn secure_clear_multi_pass(&mut self) {
+        wipe::volatile_multi_pass_clear(self.bytes.as_mut_ptr(), N);
+    }
+
     /// Consume this value after first clearing the fixed-size storage.
     ///
     /// Drop still runs after this method returns, so the storage is cleared a
@@ -4015,6 +4073,18 @@ impl SecretVec {
         sanitize_vec_capacity(&mut self.inner);
     }
 
+    /// Clear this value immediately with an explicit three-pass volatile
+    /// pattern over the full allocation capacity.
+    ///
+    /// Available with the `multi-pass-clear` feature. This is intended for
+    /// policy or audit compatibility; for volatile RAM, the default
+    /// [`SecretVec::clear_secret`] remains the normal security boundary.
+    #[cfg(feature = "multi-pass-clear")]
+    #[inline(never)]
+    pub fn clear_secret_multi_pass(&mut self) {
+        sanitize_vec_capacity_multi_pass(&mut self.inner);
+    }
+
     /// Clear this value immediately with volatile writes, then flush the cache
     /// lines covering the heap allocation.
     #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
@@ -4341,6 +4411,18 @@ impl SecretString {
         sanitize_vec_capacity(&mut self.inner);
     }
 
+    /// Clear this value immediately with an explicit three-pass volatile
+    /// pattern over the full allocation capacity.
+    ///
+    /// Available with the `multi-pass-clear` feature. This is intended for
+    /// policy or audit compatibility; for volatile RAM, the default
+    /// [`SecretString::clear_secret`] remains the normal security boundary.
+    #[cfg(feature = "multi-pass-clear")]
+    #[inline(never)]
+    pub fn clear_secret_multi_pass(&mut self) {
+        sanitize_vec_capacity_multi_pass(&mut self.inner);
+    }
+
     /// Clear this value immediately with volatile writes, then flush the cache
     /// lines covering the heap allocation.
     #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
@@ -4599,10 +4681,30 @@ pub mod unsafe_wipe {
         crate::wipe::volatile_wipe(bytes.as_mut_ptr(), bytes.len());
     }
 
+    /// Clear a mutable byte slice using an explicit three-pass volatile
+    /// pattern.
+    ///
+    /// Available with the `multi-pass-clear` feature.
+    #[cfg(feature = "multi-pass-clear")]
+    #[inline(never)]
+    pub fn volatile_sanitize_bytes_multi_pass(bytes: &mut [u8]) {
+        crate::wipe::volatile_multi_pass_clear(bytes.as_mut_ptr(), bytes.len());
+    }
+
     /// Clear a fixed-size byte array using volatile writes.
     #[inline(never)]
     pub fn volatile_sanitize_array<const N: usize>(bytes: &mut [u8; N]) {
         volatile_sanitize_bytes(bytes);
+    }
+
+    /// Clear a fixed-size byte array using an explicit three-pass volatile
+    /// pattern.
+    ///
+    /// Available with the `multi-pass-clear` feature.
+    #[cfg(feature = "multi-pass-clear")]
+    #[inline(never)]
+    pub fn volatile_sanitize_array_multi_pass<const N: usize>(bytes: &mut [u8; N]) {
+        volatile_sanitize_bytes_multi_pass(bytes);
     }
 
     /// Clear a `Vec<u8>` using volatile writes, then set its length to zero.
@@ -4610,6 +4712,17 @@ pub mod unsafe_wipe {
     #[inline(never)]
     pub fn volatile_sanitize_vec(bytes: &mut Vec<u8>) {
         crate::wipe::volatile_wipe(bytes.as_mut_ptr(), bytes.capacity());
+        bytes.clear();
+    }
+
+    /// Clear a `Vec<u8>` using an explicit three-pass volatile pattern, then
+    /// set its length to zero.
+    ///
+    /// Available with the `alloc` and `multi-pass-clear` features.
+    #[cfg(all(feature = "alloc", feature = "multi-pass-clear"))]
+    #[inline(never)]
+    pub fn volatile_sanitize_vec_multi_pass(bytes: &mut Vec<u8>) {
+        crate::wipe::volatile_multi_pass_clear(bytes.as_mut_ptr(), bytes.capacity());
         bytes.clear();
     }
 
@@ -4622,6 +4735,18 @@ pub mod unsafe_wipe {
     #[inline(never)]
     pub fn volatile_sanitize_string(text: &mut String) {
         crate::wipe::volatile_wipe(text.as_mut_ptr(), text.capacity());
+        text.clear();
+    }
+
+    /// Clear a `String` using an explicit three-pass volatile pattern, then set
+    /// its length to zero.
+    ///
+    /// Available with the `alloc` and `multi-pass-clear` features. Zero bytes
+    /// are valid UTF-8, so the string remains valid during clearing.
+    #[cfg(all(feature = "alloc", feature = "multi-pass-clear"))]
+    #[inline(never)]
+    pub fn volatile_sanitize_string_multi_pass(text: &mut String) {
+        crate::wipe::volatile_multi_pass_clear(text.as_mut_ptr(), text.capacity());
         text.clear();
     }
 
@@ -4818,6 +4943,16 @@ mod tests {
         assert_eq!(out, [0, 0, 0, 0]);
 
         secret.into_cleared();
+    }
+
+    #[cfg(feature = "multi-pass-clear")]
+    #[test]
+    fn secret_bytes_can_clear_multi_pass() {
+        let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+
+        secret.secure_clear_multi_pass();
+
+        assert!(secret.constant_time_eq(&[0, 0, 0, 0]));
     }
 
     #[test]
@@ -5561,6 +5696,16 @@ mod tests {
         assert_eq!(bytes, [0; 16]);
     }
 
+    #[cfg(feature = "multi-pass-clear")]
+    #[test]
+    fn multi_pass_wipe_clears_slice() {
+        let mut bytes = [0xA5; 16];
+
+        sanitize_bytes_multi_pass(&mut bytes);
+
+        assert_eq!(bytes, [0; 16]);
+    }
+
     #[cfg(feature = "alloc")]
     #[test]
     fn volatile_wipe_clears_alloc_types_when_enabled() {
@@ -5572,6 +5717,25 @@ mod tests {
 
         assert!(bytes.is_empty());
         assert!(text.is_empty());
+    }
+
+    #[cfg(all(feature = "alloc", feature = "multi-pass-clear"))]
+    #[test]
+    fn multi_pass_wipe_clears_alloc_types_when_enabled() {
+        let mut bytes = SecretVec::from_slice(&[1, 2, 3]);
+        let mut text = SecretString::from_secret_str("secret");
+        let mut ordinary = std::vec![0xBB; 8];
+        let mut ordinary_text = std::string::String::from("secret");
+
+        bytes.clear_secret_multi_pass();
+        text.clear_secret_multi_pass();
+        crate::unsafe_wipe::volatile_sanitize_vec_multi_pass(&mut ordinary);
+        crate::unsafe_wipe::volatile_sanitize_string_multi_pass(&mut ordinary_text);
+
+        assert!(bytes.is_empty());
+        assert!(text.is_empty());
+        assert!(ordinary.is_empty());
+        assert!(ordinary_text.is_empty());
     }
 
     #[cfg(feature = "alloc")]

@@ -24,6 +24,8 @@
   `expose_secret` stack copy.
 - Added `ReadOnceSecret<T>` for ownership-enforced one-time access followed by
   immediate clearing.
+- Added the optional `multi-pass-clear` feature with explicit three-pass
+  volatile overwrite helpers for policy or audit compatibility.
 - Added `LockedSecretBytes::try_from_fn`, `GuardedSecretVec::try_from_fn`, and
   `GuardedSecretVec::locked_try_from_fn` for fallible high-assurance direct
   byte generation.

@@ -22,10 +22,12 @@ backends.
 
 ### `ptr::write_volatile`
 
-Location: `wipe::volatile_wipe`
+Location: `wipe::volatile_wipe`, `wipe::volatile_fill`
 
 Purpose: force one byte store per address so clearing ordinary mutable buffers
-is not optimized away as dead memory writes.
+is not optimized away as dead memory writes. With `multi-pass-clear`,
+`volatile_fill` uses the same primitive to write a caller-provided byte pattern
+between zeroing passes.
 
 Invariant:
 
@@ -39,6 +41,8 @@ Invariant:
   cover the full allocation capacity, not only the initialized length. This
   writes zero bytes into allocated but possibly uninitialized spare capacity
   without reading it.
+- With `multi-pass-clear`, the same pointer validity rules apply to all three
+  passes: zero, `0xFF`, zero.
 
 ### `String::as_mut_ptr`
 
