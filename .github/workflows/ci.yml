@@ -101,3 +101,49 @@ jobs:
 
       - name: Check no_std library build
         run: cargo check --no-default-features --lib --target ${{ matrix.target }}
+
+  mapped-backend-build:
+    name: mapped backend build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            features: all
+          - target: aarch64-unknown-linux-gnu
+            features: memory-lock,guard-pages,multi-pass-clear
+          - target: x86_64-apple-darwin
+            features: all
+          - target: aarch64-apple-darwin
+            features: all
+          - target: x86_64-pc-windows-gnu
+            features: all
+          - target: x86_64-unknown-freebsd
+            features: memory-lock,guard-pages,multi-pass-clear
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: scripts/ci_install_rust.sh
+
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Cache Rust build output
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Check mapped backend library build
+        shell: bash
+        run: |
+          if [ "${{ matrix.features }}" = "all" ]; then
+            cargo check --lib --all-features --target ${{ matrix.target }}
+          else
+            cargo check --lib --features "${{ matrix.features }}" --target ${{ matrix.target }}
+          fi

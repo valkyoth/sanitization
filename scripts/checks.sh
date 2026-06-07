@@ -9,6 +9,7 @@ cargo test --features memory-lock
 cargo test --features asm-compare
 cargo test --features cache-flush
 cargo test --features guard-pages
+cargo test --features multi-pass-clear
 cargo test --features unsafe-wipe
 cargo test --features unsafe-wipe,alloc
 cargo test --all-features
@@ -19,10 +20,36 @@ cargo check --examples --features memory-lock
 cargo check --examples --features asm-compare
 cargo check --examples --features cache-flush
 cargo check --examples --features guard-pages
+cargo check --examples --features multi-pass-clear
 cargo check --examples --features unsafe-wipe
 cargo check --examples --all-features
 cargo clippy --all-targets --no-default-features -- -D warnings
 cargo clippy --all-targets --all-features -- -D warnings
+
+target_installed() {
+    rustup target list --installed | grep -Fxq "$1"
+}
+
+check_installed_target() {
+    target="$1"
+    shift
+
+    if target_installed "$target"; then
+        cargo check --target "$target" "$@"
+    else
+        printf 'skipping target check for %s; target is not installed\n' "$target"
+    fi
+}
+
+check_installed_target x86_64-unknown-linux-gnu --all-features --lib
+check_installed_target aarch64-unknown-linux-gnu --features memory-lock,guard-pages,multi-pass-clear --lib
+check_installed_target x86_64-apple-darwin --all-features --lib
+check_installed_target aarch64-apple-darwin --all-features --lib
+check_installed_target x86_64-pc-windows-gnu --all-features --lib
+check_installed_target x86_64-unknown-freebsd --features memory-lock,guard-pages,multi-pass-clear --lib
+check_installed_target wasm32-unknown-unknown --no-default-features --lib
+check_installed_target thumbv7em-none-eabihf --no-default-features --lib
+
 scripts/verify-codegen.sh
 scripts/verify-kani.sh
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features

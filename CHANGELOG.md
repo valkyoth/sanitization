@@ -28,6 +28,8 @@
   volatile overwrite helpers for policy or audit compatibility.
 - Added `MonotonicClock` and `MonotonicExpiringSecretBytes<N, C>` for no-`std`
   fixed-size secret lifetime enforcement with caller-defined ticks.
+- Added CI and local check coverage for mapped memory backends across Linux,
+  macOS, Windows, BSD, WASM, and embedded no-`std` target builds.
 - Added `LockedSecretBytes::try_from_fn`, `GuardedSecretVec::try_from_fn`, and
   `GuardedSecretVec::locked_try_from_fn` for fallible high-assurance direct
   byte generation.
