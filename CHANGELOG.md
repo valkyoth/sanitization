@@ -30,6 +30,9 @@
   fixed-size secret lifetime enforcement with caller-defined ticks.
 - Added CI and local check coverage for mapped memory backends across Linux,
   Android, macOS, iOS, Windows, BSD, WASM, and embedded no-`std` target builds.
+- Added full raw allocation wiping for generic `Vec<T>: SecureSanitize`,
+  dependency-free errno capture for Unix C ABI mapped backends, and FreeBSD
+  `MADV_NOCORE` core-dump exclusion.
 - Added `LockedSecretBytes::try_from_fn`, `GuardedSecretVec::try_from_fn`, and
   `GuardedSecretVec::locked_try_from_fn` for fallible high-assurance direct
   byte generation.

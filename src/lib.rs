@@ -356,6 +356,16 @@ mod memory_lock {
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     use core::arch::asm;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    use core::ffi::c_int;
     #[cfg(not(target_os = "linux"))]
     use core::ffi::c_void;
     #[cfg(target_os = "windows")]
@@ -424,6 +434,8 @@ mod memory_lock {
     const MAP_ANONYMOUS: usize = 0x1000;
     #[cfg(target_os = "android")]
     const MAP_ANONYMOUS: usize = 0x20;
+    #[cfg(target_os = "freebsd")]
+    const MADV_NOCORE: i32 = 8;
 
     #[cfg(target_os = "linux")]
     const PROT_READ: usize = 0x1;
@@ -491,6 +503,19 @@ mod memory_lock {
         fn munmap(addr: *mut c_void, len: usize) -> i32;
         fn mlock(addr: *const c_void, len: usize) -> i32;
         fn munlock(addr: *const c_void, len: usize) -> i32;
+        #[cfg(target_os = "freebsd")]
+        fn madvise(addr: *mut c_void, len: usize, advice: i32) -> i32;
+
+        #[cfg_attr(
+            any(target_os = "macos", target_os = "ios", target_os = "freebsd"),
+            link_name = "__error"
+        )]
+        #[cfg_attr(
+            any(target_os = "android", target_os = "openbsd", target_os = "netbsd"),
+            link_name = "__errno"
+        )]
+        #[cfg_attr(target_os = "dragonfly", link_name = "__errno_location")]
+        fn errno_location() -> *mut c_int;
     }
 
     #[cfg(target_os = "windows")]
@@ -1086,11 +1111,26 @@ mod memory_lock {
         target_os = "netbsd",
         target_os = "dragonfly",
     ))]
-    const fn unix_error(operation: MemoryLockOperation) -> MemoryLockError {
+    fn unix_error(operation: MemoryLockOperation) -> MemoryLockError {
         MemoryLockError {
             operation,
-            errno: 0,
+            errno: unix_errno(),
         }
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    fn unix_errno() -> i32 {
+        // SAFETY: `errno_location` returns a pointer to the calling thread's
+        // errno according to the target C ABI.
+        unsafe { *errno_location() as i32 }
     }
 
     #[cfg(target_os = "linux")]
@@ -1213,10 +1253,22 @@ mod memory_lock {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(not(target_os = "linux"), not(target_os = "freebsd")))]
     #[inline]
     fn mark_dontdump(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
         Ok(())
+    }
+
+    #[cfg(target_os = "freebsd")]
+    fn mark_dontdump(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+        // SAFETY: `ptr` and `len` describe a live private mapping owned by this
+        // value, and `MADV_NOCORE` requests core-dump exclusion for it.
+        let ret = unsafe { madvise(ptr.as_ptr().cast::<c_void>(), len, MADV_NOCORE) };
+        if ret != 0 {
+            Err(unix_error(MemoryLockOperation::DontDump))
+        } else {
+            Ok(())
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -1686,6 +1738,16 @@ mod guard_pages {
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     use core::arch::asm;
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    use core::ffi::c_int;
     #[cfg(not(target_os = "linux"))]
     use core::ffi::c_void;
     #[cfg(target_os = "windows")]
@@ -1764,6 +1826,8 @@ mod guard_pages {
     const MAP_ANONYMOUS: usize = 0x1000;
     #[cfg(target_os = "android")]
     const MAP_ANONYMOUS: usize = 0x20;
+    #[cfg(all(feature = "memory-lock", target_os = "freebsd"))]
+    const MADV_NOCORE: i32 = 8;
 
     #[cfg(target_os = "linux")]
     const PROT_NONE: usize = 0x0;
@@ -1840,10 +1904,23 @@ mod guard_pages {
         ) -> *mut c_void;
         fn mprotect(addr: *mut c_void, len: usize, prot: i32) -> i32;
         fn munmap(addr: *mut c_void, len: usize) -> i32;
+        #[cfg(all(feature = "memory-lock", target_os = "freebsd"))]
+        fn madvise(addr: *mut c_void, len: usize, advice: i32) -> i32;
         #[cfg(feature = "memory-lock")]
         fn mlock(addr: *const c_void, len: usize) -> i32;
         #[cfg(feature = "memory-lock")]
         fn munlock(addr: *const c_void, len: usize) -> i32;
+
+        #[cfg_attr(
+            any(target_os = "macos", target_os = "ios", target_os = "freebsd"),
+            link_name = "__error"
+        )]
+        #[cfg_attr(
+            any(target_os = "android", target_os = "openbsd", target_os = "netbsd"),
+            link_name = "__errno"
+        )]
+        #[cfg_attr(target_os = "dragonfly", link_name = "__errno_location")]
+        fn errno_location() -> *mut c_int;
     }
 
     #[cfg(target_os = "windows")]
@@ -2541,11 +2618,26 @@ mod guard_pages {
         target_os = "netbsd",
         target_os = "dragonfly",
     ))]
-    const fn unix_error(operation: GuardPageOperation) -> GuardPageError {
+    fn unix_error(operation: GuardPageOperation) -> GuardPageError {
         GuardPageError {
             operation,
-            errno: 0,
+            errno: unix_errno(),
         }
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    fn unix_errno() -> i32 {
+        // SAFETY: `errno_location` returns a pointer to the calling thread's
+        // errno according to the target C ABI.
+        unsafe { *errno_location() as i32 }
     }
 
     #[cfg(target_os = "linux")]
@@ -2732,10 +2824,26 @@ mod guard_pages {
         }
     }
 
-    #[cfg(all(feature = "memory-lock", not(target_os = "linux")))]
+    #[cfg(all(
+        feature = "memory-lock",
+        not(target_os = "linux"),
+        not(target_os = "freebsd")
+    ))]
     #[inline]
     fn mark_dontdump(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
         Ok(())
+    }
+
+    #[cfg(all(feature = "memory-lock", target_os = "freebsd"))]
+    fn mark_dontdump(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+        // SAFETY: `ptr` and `len` describe the live writable data region owned
+        // by this value, and `MADV_NOCORE` requests core-dump exclusion for it.
+        let ret = unsafe { madvise(ptr.as_ptr().cast::<c_void>(), len, MADV_NOCORE) };
+        if ret != 0 {
+            Err(unix_error(GuardPageOperation::DontDump))
+        } else {
+            Ok(())
+        }
     }
 
     #[cfg(all(feature = "memory-lock", target_os = "linux"))]
@@ -2999,6 +3107,10 @@ impl<T: SecureSanitize> SecureSanitize for Vec<T> {
             item.secure_sanitize();
         }
         self.clear();
+        wipe::volatile_wipe(
+            self.as_mut_ptr().cast::<u8>(),
+            self.capacity().saturating_mul(core::mem::size_of::<T>()),
+        );
         compiler_fence(Ordering::SeqCst);
     }
 }
@@ -3649,6 +3761,18 @@ impl<C: MonotonicClock + ?Sized> MonotonicClock for &C {
 /// read/exposure/comparison methods clear the wrapped secret before returning
 /// [`SecretExpiredError`].
 ///
+/// `max_age` is measured in caller-defined ticks. A value of `0` means the
+/// secret is immediately expired: access methods clear the value and return
+/// [`SecretExpiredError`]. Use a large policy value, such as `u64::MAX`, when a
+/// deployment needs an expiration window that should not be reached in normal
+/// operation.
+///
+/// The clock must not move backward for a live value. If a caller-provided tick
+/// counter wraps so that `now < created_at`, [`Self::age_ticks`] returns `0`
+/// through saturating arithmetic and the secret appears freshly created.
+/// Callers using short-period hardware counters must extend or normalize their
+/// clock before passing it to this type.
+///
 /// There is no background task. Expiration is checked only when a method is
 /// called.
 pub struct MonotonicExpiringSecretBytes<const N: usize, C: MonotonicClock> {
@@ -3660,6 +3784,11 @@ pub struct MonotonicExpiringSecretBytes<const N: usize, C: MonotonicClock> {
 
 impl<const N: usize, C: MonotonicClock> MonotonicExpiringSecretBytes<N, C> {
     /// Create an all-zero expiring secret.
+    ///
+    /// `max_age == 0` creates a secret that is expired immediately on first
+    /// access. If the caller-provided clock wraps backward, age calculation
+    /// saturates to `0`; wraparound must be handled by the clock
+    /// implementation.
     #[must_use]
     #[inline]
     pub fn zeroed(clock: C, max_age: u64) -> Self {
@@ -3746,6 +3875,8 @@ impl<const N: usize, C: MonotonicClock> MonotonicExpiringSecretBytes<N, C> {
     }
 
     /// Configured maximum age in caller-defined clock ticks.
+    ///
+    /// A value of `0` means immediate expiry.
     #[must_use]
     #[inline]
     pub const fn max_age_ticks(&self) -> u64 {
@@ -3753,6 +3884,9 @@ impl<const N: usize, C: MonotonicClock> MonotonicExpiringSecretBytes<N, C> {
     }
 
     /// Elapsed lifetime in caller-defined clock ticks.
+    ///
+    /// If the caller-provided clock has moved backward or wrapped around, this
+    /// returns `0` through saturating arithmetic.
     #[must_use]
     #[inline]
     pub fn age_ticks(&self) -> u64 {
@@ -4891,6 +5025,12 @@ impl fmt::Debug for SecretString {
 /// Scalar values such as `u64`, arrays of sanitizable values, `Option<T>`, and
 /// `Result<T, E>` implement [`SecureSanitize`] directly. With `alloc`, `Box<T>`,
 /// `Vec<T>`, and `String` are supported as well.
+///
+/// For byte vectors, prefer [`SecretVec`] over `Secret<Vec<u8>>`. `Vec<T>` is
+/// supported for generic sanitizable containers and clears the raw allocation
+/// capacity after dropping live elements, but [`SecretVec`] provides a
+/// byte-focused API with whole-value rotation helpers and fewer generic-type
+/// edge cases.
 pub struct Secret<T: SecureSanitize> {
     inner: T,
 }
@@ -5638,6 +5778,20 @@ mod tests {
             secret.try_copy_to_slice(&mut out),
             Err(ExpiringSecretError::Expired(SecretExpiredError))
         );
+        assert_eq!(
+            secret.try_expose_secret(|bytes| bytes[0]),
+            Err(SecretExpiredError)
+        );
+    }
+
+    #[test]
+    fn monotonic_expiring_secret_zero_max_age_expires_immediately() {
+        let ticks = core::cell::Cell::new(10);
+        let mut secret =
+            MonotonicExpiringSecretBytes::<4, _>::from_array([1, 2, 3, 4], TestClock(&ticks), 0);
+
+        assert_eq!(secret.age_ticks(), 0);
+        assert!(secret.is_expired());
         assert_eq!(
             secret.try_expose_secret(|bytes| bytes[0]),
             Err(SecretExpiredError)

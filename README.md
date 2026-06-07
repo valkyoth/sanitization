@@ -388,7 +388,8 @@ and locked with the operating system's resident-memory API.
 | Linux `x86_64`/`aarch64` | raw `mmap`/`mlock` syscalls | `MADV_DONTDUMP` and `MADV_DONTFORK` |
 | Android | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
 | macOS/iOS | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
-| FreeBSD/OpenBSD/NetBSD/DragonFly BSD | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
+| FreeBSD | system `mmap`/`mlock` ABI | `MADV_NOCORE`, no fork exclusion |
+| OpenBSD/NetBSD/DragonFly BSD | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
 | Windows | `VirtualAlloc`/`VirtualLock` | no crate-level dump/fork exclusion |
 
 ```rust
@@ -432,10 +433,12 @@ locked value unchanged on generator error.
 This feature is explicit because OS memory locking has platform limits. It can
 fail due to resource limits or policy. Linux `MADV_DONTDUMP` reduces ordinary
 Linux core-dump exposure and `MADV_DONTFORK` reduces accidental fork
-inheritance for the mapping, but non-Linux backends currently only lock the
-pages and release them on drop. None of these APIs protect against all crash
-dump mechanisms, hibernation, debuggers, privileged process reads, DMA,
-malicious firmware, or copies made before data enters the locked container.
+inheritance for the mapping. FreeBSD uses `MADV_NOCORE` for core-dump
+exclusion, but still does not provide fork exclusion. Other non-Linux backends
+currently only lock the pages and release them on drop. None of these APIs
+protect against all crash dump mechanisms, hibernation, debuggers, privileged
+process reads, DMA, malicious firmware, or copies made before data enters the
+locked container.
 
 ## Guarded Heap Secrets
 
@@ -505,9 +508,10 @@ assert!(token.constant_time_eq(b"session-key"));
 Locked guarded mappings preserve the lock state when they grow. Guard pages are
 not locked because they never contain secret bytes. On Linux, writable data
 pages are also marked with `MADV_DONTDUMP` and `MADV_DONTFORK` before locking;
-non-Linux backends currently lock the writable pages without crate-level dump or
-fork policy. Locking can fail due to OS resource limits or policy, and this
-does not change the broader memory-lock limits described above.
+FreeBSD writable data pages are marked with `MADV_NOCORE` before locking.
+Other non-Linux backends currently lock the writable pages without crate-level
+dump or fork policy. Locking can fail due to OS resource limits or policy, and
+this does not change the broader memory-lock limits described above.
 `GuardedSecretVec::locked_from_fn` is available for direct byte generation after
 the writable data pages have been prepared and locked. Use `locked_try_from_fn`
 for fallible generation into locked guarded storage.

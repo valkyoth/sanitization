@@ -103,6 +103,15 @@ locked constructors also lock the writable data pages. Linux additionally calls
 with swap/pagefile reduction for dynamic secrets, but all memory-lock limits
 still apply.
 
+On non-Linux Unix targets, locked mappings do not apply fork-inheritance
+exclusion. Secret mappings are inherited by child processes after `fork`.
+Applications using prefork servers or worker pools must clear secrets before
+forking, isolate secret-owning work into processes created before secrets are
+loaded, or use Linux if `MADV_DONTFORK`-style fork isolation is required.
+FreeBSD requests core-dump exclusion with `MADV_NOCORE`; Android, macOS, iOS,
+OpenBSD, NetBSD, and DragonFly BSD currently only lock resident memory and do
+not apply crate-level dump exclusion.
+
 `SecretBytes::expose_secret_volatile` makes the volatile temporary-copy cleanup
 explicit at the call site. It clears on normal return and unwinding paths, but
 it is still not a solution for aborting processes.
