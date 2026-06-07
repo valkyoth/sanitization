@@ -17,7 +17,7 @@ enum DerivedMaterial {
     Symmetric(SecretBytes<4>),
     Pair {
         private: SecretBytes<2>,
-        #[sanitize(skip)]
+        #[sanitization(skip)]
         #[allow(dead_code)]
         public_label: NotSanitizable,
     },
@@ -33,7 +33,7 @@ struct TaggedSecret<T> {
 #[derive(SecureSanitize)]
 struct SkippedTaggedSecret<T> {
     key: SecretBytes<4>,
-    #[sanitize(skip)]
+    #[sanitization(skip)]
     marker: PhantomData<T>,
 }
 

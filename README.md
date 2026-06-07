@@ -771,7 +771,7 @@ enum KeyMaterial {
     Symmetric(SecretBytes<32>),
     Asymmetric {
         private: SecretBytes<64>,
-        #[sanitize(skip)]
+        #[sanitization(skip)]
         public: [u8; 32],
     },
     Empty,
@@ -780,19 +780,22 @@ enum KeyMaterial {
 
 `#[derive(SecureSanitize)]` calls `secure_sanitize` on every non-skipped field.
 Every such field must implement `SecureSanitize`, so adding a new field without
-sanitization support becomes a compiler error. Use `#[sanitize(skip)]` only for
-fields that are intentionally non-secret or sanitized elsewhere.
+sanitization support becomes a compiler error. Use `#[sanitization(skip)]` only
+for fields that are intentionally non-secret or sanitized elsewhere.
 
 The derive crate is a code generator only. It does not duplicate the wipe
 backend or secret containers; generated code calls this crate's
 `SecureSanitize` trait. Default builds do not depend on `sanitization-derive`,
 `syn`, `quote`, or `proc-macro2`.
 
-Supported derive attributes are `#[sanitize(skip)]` on fields,
-`#[sanitize(bound = "...")]` on fields or containers for explicit generated
-`where` predicates, and `#[sanitize(crate = "::path::to::sanitization")]` on
-containers when the main crate is renamed in `Cargo.toml`. Unions are rejected;
-implement them manually only when the active field invariant is documented.
+Supported derive attributes are `#[sanitization(skip)]` on fields,
+`#[sanitization(bound = "...")]` on fields or containers for explicit generated
+`where` predicates, and
+`#[sanitization(crate = "::path::to::sanitization")]` on containers when the
+main crate is renamed in `Cargo.toml`. The helper attribute intentionally avoids
+the name `sanitize`, which collides with Rust's experimental built-in sanitizer
+attribute on nightly/Miri. Unions are rejected; implement them manually only
+when the active field invariant is documented.
 
 ## Generic Secret Wrapper
 

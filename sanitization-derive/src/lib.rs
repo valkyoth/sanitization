@@ -9,7 +9,7 @@ use syn::{
     Fields, GenericParam, Generics, LitStr, Path, Result, WherePredicate,
 };
 
-#[proc_macro_derive(SecureSanitize, attributes(sanitize))]
+#[proc_macro_derive(SecureSanitize, attributes(sanitization))]
 pub fn derive_secure_sanitize(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     expand_secure_sanitize(&input)
@@ -17,7 +17,7 @@ pub fn derive_secure_sanitize(input: TokenStream) -> TokenStream {
         .into()
 }
 
-#[proc_macro_derive(SecureSanitizeOnDrop, attributes(sanitize))]
+#[proc_macro_derive(SecureSanitizeOnDrop, attributes(sanitization))]
 pub fn derive_secure_sanitize_on_drop(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     expand_secure_sanitize_on_drop(&input)
@@ -249,7 +249,10 @@ fn expand_enum_body(data: &DataEnum, crate_path: &Path) -> Result<TokenStream2> 
 fn parse_container_options(attrs: &[Attribute]) -> Result<ContainerOptions> {
     let mut options = ContainerOptions::default();
 
-    for attr in attrs.iter().filter(|attr| attr.path().is_ident("sanitize")) {
+    for attr in attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("sanitization"))
+    {
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("crate") {
                 let value = meta.value()?;
@@ -262,7 +265,7 @@ fn parse_container_options(attrs: &[Attribute]) -> Result<ContainerOptions> {
                 options.bound_override = Some(parse_bounds(&literal)?);
                 Ok(())
             } else {
-                Err(meta.error("unsupported sanitize container attribute"))
+                Err(meta.error("unsupported sanitization container attribute"))
             }
         })?;
     }
@@ -273,7 +276,10 @@ fn parse_container_options(attrs: &[Attribute]) -> Result<ContainerOptions> {
 fn parse_field_options(attrs: &[Attribute]) -> Result<FieldOptions> {
     let mut options = FieldOptions::default();
 
-    for attr in attrs.iter().filter(|attr| attr.path().is_ident("sanitize")) {
+    for attr in attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("sanitization"))
+    {
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("skip") {
                 options.skip = true;
@@ -284,7 +290,7 @@ fn parse_field_options(attrs: &[Attribute]) -> Result<FieldOptions> {
                 options.bound_override = Some(parse_bounds(&literal)?);
                 Ok(())
             } else {
-                Err(meta.error("unsupported sanitize field attribute"))
+                Err(meta.error("unsupported sanitization field attribute"))
             }
         })?;
     }

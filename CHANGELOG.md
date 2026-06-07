@@ -6,7 +6,7 @@
 - Added the `derive` feature to re-export
   `#[derive(SecureSanitize)]` and `#[derive(SecureSanitizeOnDrop)]`.
 - Added derive support for structs, tuple structs, enums, skipped fields, and
-  explicit custom bounds or crate paths through `#[sanitize(...)]`.
+  explicit custom bounds or crate paths through `#[sanitization(...)]`.
 - Added `SecureSanitize` for `core::marker::PhantomData<T>` so generic marker
   fields do not force unnecessary `T: SecureSanitize` bounds.
 - Kept default `sanitization` builds dependency-free; proc-macro dependencies
