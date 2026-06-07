@@ -22,6 +22,8 @@
 //!   [`SecretPool`] on supported targets.
 //! - Locked, pooled, and guarded canary integrity checks are available only
 //!   through the explicit `canary-check` feature on supported targets.
+//! - OS-CSPRNG canary generation is available only through the explicit
+//!   `random-canary` feature.
 //! - x86_64 assembly-backed comparison is available only through the explicit
 //!   `asm-compare` feature.
 //! - x86_64 cache-line eviction is available only through the explicit
@@ -48,6 +50,225 @@ use core::{
     mem,
     sync::atomic::{compiler_fence, Ordering},
 };
+
+#[cfg(feature = "random-canary")]
+#[allow(unsafe_code)]
+mod canary_random {
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+        target_os = "windows",
+    ))]
+    use core::ffi::c_void;
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    use core::arch::asm;
+
+    #[cfg(all(
+        any(target_os = "linux", target_os = "android"),
+        target_arch = "x86_64"
+    ))]
+    const SYS_GETRANDOM: usize = 318;
+    #[cfg(all(
+        any(target_os = "linux", target_os = "android"),
+        target_arch = "aarch64"
+    ))]
+    const SYS_GETRANDOM: usize = 278;
+
+    #[cfg(target_os = "windows")]
+    const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x0000_0002;
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    unsafe extern "C" {
+        fn arc4random_buf(buf: *mut c_void, nbytes: usize);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[link(name = "bcrypt")]
+    unsafe extern "system" {
+        fn BCryptGenRandom(
+            algorithm: *mut c_void,
+            buffer: *mut u8,
+            buffer_len: u32,
+            flags: u32,
+        ) -> i32;
+    }
+
+    pub(crate) fn fill(bytes: &mut [u8]) -> Result<(), i32> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+
+        fill_inner(bytes)
+    }
+
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn fill_inner(bytes: &mut [u8]) -> Result<(), i32> {
+        fill_with_getrandom_syscall(bytes)
+    }
+
+    #[cfg(all(
+        target_os = "android",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn fill_inner(bytes: &mut [u8]) -> Result<(), i32> {
+        fill_with_getrandom_syscall(bytes)
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ))]
+    fn fill_inner(bytes: &mut [u8]) -> Result<(), i32> {
+        // SAFETY: `bytes` is a live mutable byte slice, and `arc4random_buf`
+        // fills exactly the provided byte range without additional
+        // initialization requirements.
+        unsafe { arc4random_buf(bytes.as_mut_ptr().cast::<c_void>(), bytes.len()) };
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    fn fill_inner(bytes: &mut [u8]) -> Result<(), i32> {
+        for chunk in bytes.chunks_mut(u32::MAX as usize) {
+            // SAFETY: `chunk` is a live mutable byte slice. A null algorithm
+            // handle with `BCRYPT_USE_SYSTEM_PREFERRED_RNG` requests the
+            // system-preferred CSPRNG.
+            let status = unsafe {
+                BCryptGenRandom(
+                    core::ptr::null_mut(),
+                    chunk.as_mut_ptr(),
+                    chunk.len() as u32,
+                    BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+                )
+            };
+            if status != 0 {
+                return Err(status);
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(any(
+        all(
+            any(target_os = "linux", target_os = "android"),
+            target_arch = "x86_64"
+        ),
+        all(
+            any(target_os = "linux", target_os = "android"),
+            target_arch = "aarch64"
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+        target_os = "windows",
+    )))]
+    fn fill_inner(_bytes: &mut [u8]) -> Result<(), i32> {
+        Err(0)
+    }
+
+    #[cfg(all(
+        any(target_os = "linux", target_os = "android"),
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn fill_with_getrandom_syscall(bytes: &mut [u8]) -> Result<(), i32> {
+        let mut filled = 0;
+        while filled < bytes.len() {
+            let ptr = bytes[filled..].as_mut_ptr() as usize;
+            let len = bytes.len() - filled;
+            let ret = raw_syscall3(SYS_GETRANDOM, ptr, len, 0);
+            if syscall_failed(ret) {
+                let errno = (-ret) as i32;
+                if errno == 4 {
+                    continue;
+                }
+
+                return Err(errno);
+            }
+
+            if ret == 0 {
+                return Err(0);
+            }
+
+            filled += ret as usize;
+        }
+
+        Ok(())
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn syscall_failed(ret: isize) -> bool {
+        (-4095..=-1).contains(&ret)
+    }
+
+    #[cfg(all(
+        any(target_os = "linux", target_os = "android"),
+        target_arch = "x86_64"
+    ))]
+    fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
+        let ret: isize;
+
+        // SAFETY: Registers follow the Linux x86_64 syscall ABI. The caller
+        // supplies the `getrandom` syscall number and pointer/length args.
+        unsafe {
+            asm!(
+                "syscall",
+                inlateout("rax") number as isize => ret,
+                in("rdi") arg1,
+                in("rsi") arg2,
+                in("rdx") arg3,
+                lateout("rcx") _,
+                lateout("r11") _,
+                options(nostack)
+            );
+        }
+
+        ret
+    }
+
+    #[cfg(all(
+        any(target_os = "linux", target_os = "android"),
+        target_arch = "aarch64"
+    ))]
+    fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
+        let ret: isize;
+
+        // SAFETY: Registers follow the Linux aarch64 syscall ABI. The caller
+        // supplies the `getrandom` syscall number and pointer/length args.
+        unsafe {
+            asm!(
+                "svc 0",
+                inlateout("x0") arg1 as isize => ret,
+                in("x1") arg2,
+                in("x2") arg3,
+                in("x8") number,
+                options(nostack)
+            );
+        }
+
+        ret
+    }
+}
 
 /// Error returned when a caller provides a buffer with the wrong length.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -464,7 +685,7 @@ mod memory_lock {
 
     #[cfg(feature = "canary-check")]
     const CANARY_SIZE: usize = 8;
-    #[cfg(feature = "canary-check")]
+    #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
     const CANARY_MASK: u64 = 0xDEAD_BEEF_CAFE_BABE;
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -575,6 +796,8 @@ mod memory_lock {
         Unlock,
         /// Anonymous mapping release failed.
         Unmap,
+        /// Operating-system random canary generation failed.
+        Random,
     }
 
     /// Error returned by platform memory-locking operations.
@@ -765,6 +988,8 @@ mod memory_lock {
     pub struct LockedSecretBytes<const N: usize> {
         ptr: NonNull<u8>,
         map_len: usize,
+        #[cfg(feature = "random-canary")]
+        canary: [u8; CANARY_SIZE],
     }
 
     // SAFETY: The value exclusively owns a private mapping. Moving ownership to
@@ -780,6 +1005,8 @@ mod memory_lock {
                 return Ok(Self {
                     ptr: NonNull::dangling(),
                     map_len: 0,
+                    #[cfg(feature = "random-canary")]
+                    canary: [0; CANARY_SIZE],
                 });
             }
 
@@ -801,7 +1028,12 @@ mod memory_lock {
                 return Err(error);
             }
 
-            let mut secret = Self { ptr, map_len };
+            let mut secret = Self {
+                ptr,
+                map_len,
+                #[cfg(feature = "random-canary")]
+                canary: random_canary_value()?,
+            };
             secret.write_canaries();
             Ok(secret)
         }
@@ -1142,10 +1374,16 @@ mod memory_lock {
             unsafe { &*(self.data_ptr() as *const [u8; N]) }
         }
 
-        #[cfg(feature = "canary-check")]
+        #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
         #[inline]
         fn canary_value(&self) -> [u8; CANARY_SIZE] {
             ((self.ptr.as_ptr() as u64) ^ CANARY_MASK).to_ne_bytes()
+        }
+
+        #[cfg(feature = "random-canary")]
+        #[inline]
+        fn canary_value(&self) -> [u8; CANARY_SIZE] {
+            self.canary
         }
 
         #[cfg(feature = "canary-check")]
@@ -1274,7 +1512,7 @@ mod memory_lock {
             Ok(N)
         }
 
-        #[cfg(all(test, feature = "canary-check"))]
+        #[cfg(all(test, feature = "canary-check", feature = "std"))]
         #[inline]
         pub(crate) fn corrupt_prefix_canary_for_test(&mut self) {
             if self.map_len == 0 {
@@ -1345,6 +1583,8 @@ mod memory_lock {
         ptr: NonNull<u8>,
         slot_index: usize,
         pool: &'pool SecretPool<N, SLOTS>,
+        #[cfg(feature = "random-canary")]
+        canary: [u8; CANARY_SIZE],
     }
 
     // SAFETY: The pool owns one private mapping. Slot allocation state is
@@ -1455,6 +1695,23 @@ mod memory_lock {
         /// zeroed from the previous slot drop.
         #[inline]
         pub fn allocate(&self) -> Option<SecretPoolSlot<'_, N, SLOTS>> {
+            match self.try_allocate() {
+                Ok(slot) => slot,
+                Err(_) => panic!("random canary generation failed"),
+            }
+        }
+
+        /// Allocate one unused slot from the pool and report random-canary
+        /// setup errors explicitly.
+        ///
+        /// This is equivalent to [`SecretPool::allocate`] unless the
+        /// `random-canary` feature is enabled. With `random-canary`, operating
+        /// system CSPRNG failure is returned as [`MemoryLockError`] instead of
+        /// panicking.
+        #[inline]
+        pub fn try_allocate(
+            &self,
+        ) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, MemoryLockError> {
             for (slot_index, flag) in self.used.iter().enumerate() {
                 if flag
                     .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
@@ -1471,13 +1728,18 @@ mod memory_lock {
                         ptr,
                         slot_index,
                         pool: self,
+                        #[cfg(feature = "random-canary")]
+                        canary: [0; CANARY_SIZE],
                     };
-                    slot.write_canaries();
-                    return Some(slot);
+                    if let Err(error) = slot.initialize_canaries() {
+                        flag.store(false, Ordering::Release);
+                        return Err(error);
+                    }
+                    return Ok(Some(slot));
                 }
             }
 
-            None
+            Ok(None)
         }
 
         /// Allocate a slot and copy bytes from a same-length slice.
@@ -1904,10 +2166,41 @@ mod memory_lock {
             unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.slot_stride()) }
         }
 
-        #[cfg(feature = "canary-check")]
+        #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
         #[inline]
         fn canary_value(&self) -> [u8; CANARY_SIZE] {
             ((self.ptr.as_ptr() as u64) ^ CANARY_MASK).to_ne_bytes()
+        }
+
+        #[cfg(feature = "random-canary")]
+        #[inline]
+        fn canary_value(&self) -> [u8; CANARY_SIZE] {
+            self.canary
+        }
+
+        #[cfg(feature = "random-canary")]
+        #[inline]
+        fn initialize_canaries(&mut self) -> Result<(), MemoryLockError> {
+            if N == 0 {
+                return Ok(());
+            }
+
+            self.canary = random_canary_value()?;
+            self.write_canaries();
+            Ok(())
+        }
+
+        #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+        #[inline]
+        fn initialize_canaries(&mut self) -> Result<(), MemoryLockError> {
+            self.write_canaries();
+            Ok(())
+        }
+
+        #[cfg(not(feature = "canary-check"))]
+        #[inline]
+        fn initialize_canaries(&mut self) -> Result<(), MemoryLockError> {
+            Ok(())
         }
 
         #[cfg(feature = "canary-check")]
@@ -1952,10 +2245,6 @@ mod memory_lock {
             compiler_fence(Ordering::SeqCst);
         }
 
-        #[cfg(not(feature = "canary-check"))]
-        #[inline]
-        fn write_canaries(&mut self) {}
-
         #[cfg(feature = "canary-check")]
         #[inline]
         fn assert_canaries_intact(&self) {
@@ -1976,7 +2265,7 @@ mod memory_lock {
             }
         }
 
-        #[cfg(all(test, feature = "canary-check"))]
+        #[cfg(all(test, feature = "canary-check", feature = "std"))]
         #[inline]
         pub(crate) fn corrupt_prefix_canary_for_test(&mut self) {
             if N == 0 {
@@ -2049,6 +2338,16 @@ mod memory_lock {
                 .field("contents", &"<redacted>")
                 .finish()
         }
+    }
+
+    #[cfg(feature = "random-canary")]
+    fn random_canary_value() -> Result<[u8; CANARY_SIZE], MemoryLockError> {
+        let mut canary = [0; CANARY_SIZE];
+        crate::canary_random::fill(&mut canary).map_err(|errno| MemoryLockError {
+            operation: MemoryLockOperation::Random,
+            errno,
+        })?;
+        Ok(canary)
     }
 
     fn rounded_mapping_len(len: usize) -> Result<usize, MemoryLockError> {
@@ -2902,7 +3201,7 @@ mod guard_pages {
 
     #[cfg(feature = "canary-check")]
     const CANARY_SIZE: usize = 8;
-    #[cfg(feature = "canary-check")]
+    #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
     const CANARY_MASK: u64 = 0xA11C_E5AF_EC0D_EC0D;
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -3030,6 +3329,8 @@ mod guard_pages {
         Unlock,
         /// Anonymous mapping release failed.
         Unmap,
+        /// Operating-system random canary generation failed.
+        Random,
     }
 
     /// Error returned by guarded secret allocation operations.
@@ -3113,6 +3414,8 @@ mod guard_pages {
         data_capacity: usize,
         len: usize,
         locked: bool,
+        #[cfg(feature = "random-canary")]
+        canary: [u8; CANARY_SIZE],
     }
 
     // SAFETY: The value exclusively owns a private guarded mapping. Moving
@@ -3210,6 +3513,8 @@ mod guard_pages {
                 data_capacity,
                 len: 0,
                 locked,
+                #[cfg(feature = "random-canary")]
+                canary: random_canary_value()?,
             };
             secret.write_canaries();
             Ok(secret)
@@ -3607,10 +3912,16 @@ mod guard_pages {
             0
         }
 
-        #[cfg(feature = "canary-check")]
+        #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
         #[inline]
         fn canary_value(&self) -> [u8; CANARY_SIZE] {
             ((self.data.as_ptr() as u64) ^ CANARY_MASK).to_ne_bytes()
+        }
+
+        #[cfg(feature = "random-canary")]
+        #[inline]
+        fn canary_value(&self) -> [u8; CANARY_SIZE] {
+            self.canary
         }
 
         #[cfg(feature = "canary-check")]
@@ -3672,7 +3983,7 @@ mod guard_pages {
             crate::wipe::volatile_wipe(self.data.as_ptr(), self.writable_len);
         }
 
-        #[cfg(all(test, feature = "canary-check"))]
+        #[cfg(all(test, feature = "canary-check", feature = "std"))]
         #[inline]
         pub(crate) fn corrupt_suffix_canary_for_test(&mut self) {
             // SAFETY: canary-checked guarded mappings reserve a suffix canary
@@ -3722,6 +4033,16 @@ mod guard_pages {
                 .field("contents", &"<redacted>")
                 .finish()
         }
+    }
+
+    #[cfg(feature = "random-canary")]
+    fn random_canary_value() -> Result<[u8; CANARY_SIZE], GuardPageError> {
+        let mut canary = [0; CANARY_SIZE];
+        crate::canary_random::fill(&mut canary).map_err(|errno| GuardPageError {
+            operation: GuardPageOperation::Random,
+            errno,
+        })?;
+        Ok(canary)
     }
 
     fn rounded_data_len(len: usize) -> Result<usize, GuardPageError> {
@@ -7923,6 +8244,7 @@ mod tests {
 
         assert_eq!(pool.available_slots(), 0);
         assert!(pool.allocate().is_none());
+        assert!(pool.try_allocate().unwrap().is_none());
         assert!(first.constant_time_eq(&[1, 2, 3, 4]));
         assert!(second.copy_to_slice(&mut out).is_ok());
         assert_eq!(out, [5, 6, 7, 8]);

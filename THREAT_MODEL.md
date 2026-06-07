@@ -97,6 +97,13 @@ do not reach a guard page. It does not detect corruption entirely inside the
 secret bytes and does not provide authenticity against an attacker who can read
 and rewrite the full process memory image.
 
+By default, canary words are derived from mapping or slot addresses and a fixed
+mask. With `random-canary`, they are generated from the operating-system CSPRNG
+using dependency-free platform backends. Random canaries improve blind
+overwrite detection and audit posture, but they still do not authenticate memory
+against an attacker who can read and rewrite both the owner metadata and mapped
+canary bytes.
+
 With the `asm-compare` feature on x86_64, equal-length comparisons use an
 inline-assembly loop. This gives the comparison body a stronger compiler
 boundary, but it does not hide length metadata and does not claim protection

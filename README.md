@@ -56,6 +56,7 @@ Implemented now:
   same-size fixed secrets under one memory-lock operation.
 - optional locked, pooled, and guarded canary integrity checks with
   `canary-check`.
+- optional OS-CSPRNG canary words with `random-canary`.
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
 - optional explicit multi-pass volatile clear helpers.
@@ -142,6 +143,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
 | `memory-lock` | no | Enables `LockedSecretBytes<N>`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported Linux, Android, macOS, iOS, Windows, and BSD targets. |
 | `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty locked byte mappings, pooled slots, and guarded dynamic mappings. |
+| `random-canary` | no | Enables `canary-check` and generates canary words from the OS CSPRNG instead of deriving them from mapping addresses. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
 | `guard-pages` | no | Enables `GuardedSecretVec` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. |
@@ -481,6 +483,22 @@ mapping or slot, including the canary words, so a canary-checked locked value
 or live pool slot should be treated as terminal after manual clearing. Dropping
 a cleared pool slot returns it to the pool; the next allocation writes fresh
 slot canaries.
+
+Enable `random-canary` when the canary word should come from the operating
+system CSPRNG instead of the deterministic address-derived fallback:
+
+```toml
+[dependencies]
+sanitization = { version = "1.0.0-rc.5", features = ["random-canary"] }
+```
+
+`random-canary` uses direct platform backends without additional crates: Linux
+and Android `getrandom`, macOS/iOS/BSD `arc4random_buf`, and Windows
+`BCryptGenRandom`. If OS random generation fails during construction, locked
+and guarded constructors return a `Random` operation error. For pooled slots,
+use `SecretPool::try_allocate` when callers need explicit RNG error handling;
+legacy pool allocation helpers panic on RNG failure rather than silently
+falling back to deterministic canaries.
 
 For many same-size locked secrets, use `SecretPool<N, SLOTS>` to amortize
 page-granule memory-locking overhead. This is useful on systems with small
@@ -876,6 +894,7 @@ library when a protocol requires externally audited timing guarantees.
 | Fixed-size key with access expiry | `ExpiringSecretBytes<N>` with `std` |
 | Fixed-size key that should avoid swap/pagefiles on supported platforms | `LockedSecretBytes<N>` with `memory-lock` |
 | Fixed-size locked key with prefix/suffix corruption checks | `LockedSecretBytes<N>` with `canary-check` |
+| Fixed-size locked key with OS-random canary words | `LockedSecretBytes<N>` with `random-canary` |
 | Many same-size fixed keys under memory-lock quotas | `SecretPool<N, SLOTS>` with `memory-lock` |
 | Many same-size fixed keys with pooled canary checks | `SecretPool<N, SLOTS>` with `canary-check` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |

@@ -115,6 +115,12 @@ Invariant:
   a fixed mask, or from the pool slot base address for pooled slots. This avoids
   RNG and dependency requirements while making the canary value mapping-specific
   under ASLR.
+- With `random-canary`, the expected canary is generated once from the
+  operating-system CSPRNG and stored in the Rust owner or slot metadata. The
+  prefix and suffix copies remain in the locked or guarded mapping beside the
+  secret bytes. Random generation failure is reported as a `Random` platform
+  operation error where the API can return one; `SecretPool` also provides
+  `try_allocate` for explicit slot-allocation error handling.
 - Canary writes happen only after platform mapping setup and locking succeed.
 - Canary verification compares both prefix and suffix with the expected value
   using the crate constant-time slice comparison helper and boolean `&`, so both

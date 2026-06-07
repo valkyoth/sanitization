@@ -46,6 +46,8 @@
   `LockedSecretBytes<N>` mappings, `SecretPool<N, SLOTS>` slots, and
   `GuardedSecretVec` writable mappings, with prefix/suffix canary verification,
   checked access APIs, and fail-closed clearing on corruption.
+- Added the optional `random-canary` feature to generate those canary words
+  from OS CSPRNG backends without adding external dependencies.
 - Added `GuardedSecretVec::replace_from_fn` and
   `GuardedSecretVec::try_replace_from_fn` for generated guarded whole-value
   rotation while preserving lock state.

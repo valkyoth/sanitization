@@ -211,6 +211,8 @@ Current implementation:
   `LockedSecretBytes<N>` mappings, `SecretPool<N, SLOTS>` slots, and
   `GuardedSecretVec` writable mappings, then fails closed before exposing,
   mutating, replacing, or comparing corrupted secrets.
+- `random-canary` optionally backs those integrity words with direct OS CSPRNG
+  calls without adding external dependencies.
 - `GuardedSecretVec` is available on supported Linux, Android, macOS, iOS,
   Windows, and BSD targets with `guard-pages`. It can also lock its writable
   data pages when both `guard-pages` and `memory-lock` are enabled. Growth and
