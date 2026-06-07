@@ -603,6 +603,30 @@ this crate without taking a dependency on that type. Wrap them in a local
 newtype and implement `SecureSanitize` for the newtype, or convert the secret
 material into `SecretBytes<N>`/`SecretVec` at the boundary where possible.
 
+## Read-Once Secrets
+
+Use `ReadOnceSecret<T>` when a value should be accessed once and then cleared.
+The consume methods take ownership of the wrapper, so repeated access is
+rejected by the Rust type system instead of a runtime flag.
+
+```rust
+use sanitization::{ReadOnceSecret, SecretBytes};
+
+let token = ReadOnceSecret::new(SecretBytes::<4>::from_array([1, 2, 3, 4]));
+
+let sum = token.consume(|secret| {
+    let mut out = [0; 4];
+    secret.copy_to_slice(&mut out).unwrap();
+    out.iter().copied().fold(0_u8, u8::wrapping_add)
+});
+
+assert_eq!(sum, 10);
+```
+
+The wrapped value is cleared immediately after the closure returns. If the
+closure unwinds, `Drop` clears during unwinding. Like all destructor-based
+cleanup, this cannot run if the process aborts.
+
 ## Explicit Volatile Wiping
 
 If a secret already lives in an ordinary buffer, call the volatile helper
@@ -699,6 +723,7 @@ library when a protocol requires externally audited timing guarantees.
 | Secret UTF-8 text | `SecretString` with `alloc` |
 | Secret scalar such as `u64` | `Secret<u64>` |
 | Standard compound value | `Secret<T>` where `T: SecureSanitize` |
+| One-time access secret | `ReadOnceSecret<T>` |
 | Custom struct, macro-owned drop | `secure_drop_struct!` |
 | Custom struct, custom drop | `secure_sanitize_struct!` |
 | Existing ordinary buffer | `unsafe_wipe::volatile_sanitize_*` |

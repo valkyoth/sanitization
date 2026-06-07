@@ -4498,6 +4498,86 @@ impl<T: SecureSanitize> fmt::Debug for Secret<T> {
     }
 }
 
+/// Clear-on-drop wrapper that can be consumed exactly once.
+///
+/// Unlike [`Secret<T>`], the primary accessors take ownership of `self`. That
+/// makes repeated reads impossible in safe Rust because the wrapper is moved
+/// into the consume method. The wrapped value is cleared immediately after the
+/// closure returns, and `Drop` still clears during unwinding or if the wrapper
+/// is never consumed.
+pub struct ReadOnceSecret<T: SecureSanitize> {
+    inner: T,
+}
+
+impl<T: SecureSanitize> ReadOnceSecret<T> {
+    /// Wrap a sanitizable value for one-time consumption.
+    #[must_use]
+    #[inline]
+    pub const fn new(inner: T) -> Self {
+        Self { inner }
+    }
+
+    /// Run a closure with read-only access, then clear the wrapped value.
+    ///
+    /// This method consumes the wrapper, so the same `ReadOnceSecret` cannot be
+    /// accessed again. If the closure unwinds, `Drop` still clears the wrapped
+    /// value during unwinding. As with all destructor-based cleanup, process
+    /// abort prevents cleanup from running.
+    #[inline]
+    pub fn consume<R>(mut self, inspect: impl FnOnce(&T) -> R) -> R {
+        let result = inspect(&self.inner);
+        self.inner.secure_sanitize();
+        result
+    }
+
+    /// Run a closure with mutable access, then clear the wrapped value.
+    ///
+    /// This is useful for one-time protocol values that need final in-place
+    /// normalization or decoding at the access boundary.
+    #[inline]
+    pub fn consume_mut<R>(mut self, edit: impl FnOnce(&mut T) -> R) -> R {
+        let result = edit(&mut self.inner);
+        self.inner.secure_sanitize();
+        result
+    }
+
+    /// Consume the wrapper after first clearing the wrapped value.
+    #[inline]
+    pub fn into_cleared(mut self) {
+        self.inner.secure_sanitize();
+    }
+}
+
+impl<T: SecureSanitize> Drop for ReadOnceSecret<T> {
+    #[inline]
+    fn drop(&mut self) {
+        self.inner.secure_sanitize();
+    }
+}
+
+impl<T: SecureSanitize + Default> Default for ReadOnceSecret<T> {
+    #[inline]
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
+impl<T: SecureSanitize> SecureSanitize for ReadOnceSecret<T> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.inner.secure_sanitize();
+    }
+}
+
+impl<T: SecureSanitize> fmt::Debug for ReadOnceSecret<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReadOnceSecret")
+            .field("contents", &"<redacted>")
+            .finish()
+    }
+}
+
 /// Explicit volatile-write backend for ordinary mutable buffers.
 ///
 /// This module is kept as a named integration boundary for callers that need to
@@ -5046,6 +5126,40 @@ mod tests {
         assert_eq!(secret.with_secret(|bytes| *bytes), [0; 4]);
         secret.with_secret_mut(|bytes| bytes[0] = 7);
         assert_eq!(secret.with_secret(|bytes| bytes[0]), 7);
+    }
+
+    #[test]
+    fn read_once_secret_consumes_by_value() {
+        let secret = ReadOnceSecret::new(SecretBytes::<4>::from_array([1, 2, 3, 4]));
+
+        let sum = secret.consume(|bytes| {
+            let mut out = [0; 4];
+            bytes.copy_to_slice(&mut out).unwrap();
+            out.iter().copied().fold(0_u8, u8::wrapping_add)
+        });
+
+        assert_eq!(sum, 10);
+    }
+
+    #[test]
+    fn read_once_secret_allows_mutable_finalization() {
+        let secret = ReadOnceSecret::new([1_u8, 2, 3, 4]);
+
+        let first = secret.consume_mut(|bytes| {
+            bytes[0] = 9;
+            bytes[0]
+        });
+
+        assert_eq!(first, 9);
+    }
+
+    #[test]
+    fn read_once_secret_default_and_debug_are_safe() {
+        let secret = ReadOnceSecret::<[u8; 4]>::default();
+        let rendered = std::format!("{secret:?}");
+
+        assert!(rendered.contains("redacted"));
+        assert!(!rendered.contains("[0, 0, 0, 0]"));
     }
 
     #[test]

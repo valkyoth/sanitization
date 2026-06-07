@@ -22,6 +22,8 @@
 - Added `SecretBytes::transform`, `try_transform`, `derive`, and `try_derive`
   for in-container fixed-size mutation and derivation without an
   `expose_secret` stack copy.
+- Added `ReadOnceSecret<T>` for ownership-enforced one-time access followed by
+  immediate clearing.
 - Added `LockedSecretBytes::try_from_fn`, `GuardedSecretVec::try_from_fn`, and
   `GuardedSecretVec::locked_try_from_fn` for fallible high-assurance direct
   byte generation.
