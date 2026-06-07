@@ -22,14 +22,14 @@ dependencies = [
 
 [[package]]
 name = "sanitization"
-version = "1.0.0-rc.6"
+version = "1.0.0"
 dependencies = [
  "sanitization-derive",
 ]
 
 [[package]]
 name = "sanitization-derive"
-version = "1.0.0-rc.6"
+version = "1.0.0"
 dependencies = [
  "proc-macro2",
  "quote",

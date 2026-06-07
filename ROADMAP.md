@@ -39,11 +39,11 @@ crates.
   security properties.
 - Document limits instead of implying complete process-memory secrecy.
 
-## Pre-1.0 Architecture Direction
+## 1.x Architecture Direction
 
 ### 1. Make Volatile Wiping the Default Clear Path
 
-Status: implemented in `1.0.0-rc.5`.
+Status: implemented in `1.0.0`.
 
 Earlier release candidates had two clearing tiers:
 
@@ -65,7 +65,7 @@ Expected shape:
 
 ### 2. Simplify `SecretBytes<N>` Storage
 
-Status: implemented in `1.0.0-rc.5`.
+Status: implemented in `1.0.0`.
 
 Earlier release candidates used atomic byte storage on targets with 8-bit
 atomics and fell back on non-atomic storage elsewhere. That was defensible, but
@@ -145,8 +145,8 @@ Avoid before `1.0.0`:
 
 ### 4. Add Stronger Verification
 
-Status: implemented in `1.0.0-rc.5`, with external review still required
-before stable `1.0.0`.
+Status: implemented in `1.0.0`, with external review still recommended for
+high-assurance deployments.
 
 Implemented now:
 
@@ -442,16 +442,17 @@ Limits:
 
 ## Priority Order
 
-If resources are limited, remaining pre-stable work should be ordered as:
+If resources are limited, remaining 1.x hardening work should be ordered as:
 
 1. Get external review of the volatile wipe, platform memory mappings, inline
    assembly, drop behavior, and secret lifecycle APIs.
-2. Run downstream integration tests in real consumers before freezing `1.0.0`.
+2. Run downstream integration tests in real consumers before expanding the
+   stable API surface.
 3. Decide whether optional property-based or timing-distribution tests should
    live in-tree, outside the published crate, or in a separate audit harness.
 4. Keep richer non-Linux dump/fork policy hardening, non-x86_64 cache eviction,
-   and further Linux aarch64 page-size detection hardening as post-stable
-   target-specific work unless review finds a release-blocking issue.
+   and further Linux aarch64 page-size detection hardening as target-specific
+   work unless review finds a release-blocking issue.
 
 ## Stable Release Bar
 
