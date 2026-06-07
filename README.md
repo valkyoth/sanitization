@@ -797,6 +797,21 @@ the name `sanitize`, which collides with Rust's experimental built-in sanitizer
 attribute on nightly/Miri. Unions are rejected; implement them manually only
 when the active field invariant is documented.
 
+For `SecureSanitizeOnDrop` on generic structs, put sanitization bounds on the
+struct declaration itself:
+
+```rust
+use sanitization::{SecureSanitize, SecureSanitizeOnDrop};
+
+#[derive(SecureSanitize, SecureSanitizeOnDrop)]
+struct Wrapper<T: SecureSanitize> {
+    inner: T,
+}
+```
+
+This is a Rust `Drop` restriction: the generated `Drop` impl cannot add a
+stricter `T: SecureSanitize` bound than the struct declaration.
+
 ## Generic Secret Wrapper
 
 Use `Secret<T>` when you already have a type that implements `SecureSanitize`

@@ -1,6 +1,7 @@
 #![cfg(feature = "derive")]
 
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, Ordering};
 use sanitization::{SecretBytes, SecureSanitize, SecureSanitizeOnDrop};
 
 #[allow(dead_code)]
@@ -11,6 +12,15 @@ struct DerivedCredentials {
     key: SecretBytes<4>,
     token: [u8; 4],
 }
+
+#[derive(SecureSanitize)]
+#[sanitization(crate = "::sanitization")]
+struct CratePathCredentials {
+    key: SecretBytes<4>,
+}
+
+#[derive(SecureSanitize)]
+struct TupleCredentials(SecretBytes<4>, [u8; 2]);
 
 #[derive(SecureSanitize)]
 enum DerivedMaterial {
@@ -39,7 +49,27 @@ struct SkippedTaggedSecret<T> {
 
 #[derive(SecureSanitize, SecureSanitizeOnDrop)]
 struct DropSecret {
-    key: SecretBytes<4>,
+    key: DropProbe,
+}
+
+static DROP_PROBE_SANITIZED: AtomicBool = AtomicBool::new(false);
+static DROP_PROBE_DROPPED_ZEROED: AtomicBool = AtomicBool::new(false);
+
+struct DropProbe(u8);
+
+impl SecureSanitize for DropProbe {
+    fn secure_sanitize(&mut self) {
+        self.0 = 0;
+        DROP_PROBE_SANITIZED.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Drop for DropProbe {
+    fn drop(&mut self) {
+        if self.0 == 0 {
+            DROP_PROBE_DROPPED_ZEROED.store(true, Ordering::SeqCst);
+        }
+    }
 }
 
 #[test]
@@ -53,6 +83,27 @@ fn derive_secure_sanitize_clears_struct_fields() {
 
     assert!(credentials.key.constant_time_eq(&[0, 0, 0, 0]));
     assert_eq!(credentials.token, [0, 0, 0, 0]);
+}
+
+#[test]
+fn derive_secure_sanitize_supports_tuple_structs() {
+    let mut credentials = TupleCredentials(SecretBytes::from_array([1, 2, 3, 4]), [5, 6]);
+
+    credentials.secure_sanitize();
+
+    assert!(credentials.0.constant_time_eq(&[0, 0, 0, 0]));
+    assert_eq!(credentials.1, [0, 0]);
+}
+
+#[test]
+fn derive_secure_sanitize_supports_crate_path_override() {
+    let mut credentials = CratePathCredentials {
+        key: SecretBytes::from_array([1, 2, 3, 4]),
+    };
+
+    credentials.secure_sanitize();
+
+    assert!(credentials.key.constant_time_eq(&[0, 0, 0, 0]));
 }
 
 #[test]
@@ -97,10 +148,14 @@ fn derive_secure_sanitize_does_not_force_phantom_type_bounds() {
 
 #[test]
 fn derive_secure_sanitize_on_drop_compiles_and_runs() {
+    DROP_PROBE_SANITIZED.store(false, Ordering::SeqCst);
+    DROP_PROBE_DROPPED_ZEROED.store(false, Ordering::SeqCst);
+
     {
-        let secret = DropSecret {
-            key: SecretBytes::from_array([1, 2, 3, 4]),
-        };
-        assert!(secret.key.constant_time_eq(&[1, 2, 3, 4]));
+        let secret = DropSecret { key: DropProbe(7) };
+        assert_eq!(secret.key.0, 7);
     }
+
+    assert!(DROP_PROBE_SANITIZED.load(Ordering::SeqCst));
+    assert!(DROP_PROBE_DROPPED_ZEROED.load(Ordering::SeqCst));
 }

@@ -6,9 +6,14 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
     parse_macro_input, parse_quote, Attribute, Data, DataEnum, DataStruct, DeriveInput, Error,
-    Fields, GenericParam, Generics, LitStr, Path, Result, WherePredicate,
+    Fields, Generics, LitStr, Path, Result, WherePredicate,
 };
 
+/// Derive `sanitization::SecureSanitize` for structs and enums.
+///
+/// Every non-skipped field must implement `SecureSanitize`. Use
+/// `#[sanitization(skip)]` only for fields that are intentionally non-secret or
+/// cleared elsewhere.
 #[proc_macro_derive(SecureSanitize, attributes(sanitization))]
 pub fn derive_secure_sanitize(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -17,6 +22,24 @@ pub fn derive_secure_sanitize(input: TokenStream) -> TokenStream {
         .into()
 }
 
+/// Derive `Drop` by calling `sanitization::SecureSanitize::secure_sanitize`.
+///
+/// # Generics
+///
+/// For structs with type parameters that hold sanitizable data, the parameter
+/// must carry the `SecureSanitize` bound at the type declaration:
+///
+/// ```ignore
+/// use sanitization::SecureSanitize;
+///
+/// #[derive(SecureSanitize, SecureSanitizeOnDrop)]
+/// struct Wrapper<T: SecureSanitize> {
+///     inner: T,
+/// }
+/// ```
+///
+/// This is a Rust `Drop` restriction: the generated `Drop` impl cannot add a
+/// stricter `T: SecureSanitize` bound than the struct declaration itself.
 #[proc_macro_derive(SecureSanitizeOnDrop, attributes(sanitization))]
 pub fn derive_secure_sanitize_on_drop(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -76,9 +99,7 @@ fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
     }
 
     let name = &input.ident;
-    let (_, type_generics, _) = input.generics.split_for_impl();
-    let impl_generics = drop_impl_generics(&input.generics);
-    let where_clause = &input.generics.where_clause;
+    let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
 
     Ok(quote! {
         impl #impl_generics Drop for #name #type_generics #where_clause {
@@ -95,31 +116,6 @@ fn crate_path(options: &ContainerOptions) -> Path {
         .crate_path
         .clone()
         .unwrap_or_else(|| parse_quote!(::sanitization))
-}
-
-fn drop_impl_generics(generics: &Generics) -> TokenStream2 {
-    let params = generics.params.iter().map(|param| match param {
-        GenericParam::Lifetime(param) => quote!(#param),
-        GenericParam::Type(param) => {
-            let ident = &param.ident;
-            let attrs = &param.attrs;
-            let colon = &param.colon_token;
-            let bounds = &param.bounds;
-            quote!(#(#attrs)* #ident #colon #bounds)
-        }
-        GenericParam::Const(param) => {
-            let ident = &param.ident;
-            let attrs = &param.attrs;
-            let ty = &param.ty;
-            quote!(#(#attrs)* const #ident: #ty)
-        }
-    });
-
-    if generics.params.is_empty() {
-        quote!()
-    } else {
-        quote!(<#(#params),*>)
-    }
 }
 
 fn add_sanitize_bounds(
