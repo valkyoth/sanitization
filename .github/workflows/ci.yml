@@ -118,7 +118,15 @@ jobs:
             features: all
           - target: aarch64-apple-darwin
             features: all
+          - target: aarch64-apple-ios
+            features: all
+          - target: x86_64-apple-ios
+            features: all
           - target: x86_64-pc-windows-gnu
+            features: all
+          - target: aarch64-linux-android
+            features: all
+          - target: x86_64-linux-android
             features: all
           - target: x86_64-unknown-freebsd
             features: memory-lock,guard-pages,multi-pass-clear

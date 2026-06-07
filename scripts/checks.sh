@@ -45,7 +45,11 @@ check_installed_target x86_64-unknown-linux-gnu --all-features --lib
 check_installed_target aarch64-unknown-linux-gnu --features memory-lock,guard-pages,multi-pass-clear --lib
 check_installed_target x86_64-apple-darwin --all-features --lib
 check_installed_target aarch64-apple-darwin --all-features --lib
+check_installed_target aarch64-apple-ios --all-features --lib
+check_installed_target x86_64-apple-ios --all-features --lib
 check_installed_target x86_64-pc-windows-gnu --all-features --lib
+check_installed_target aarch64-linux-android --all-features --lib
+check_installed_target x86_64-linux-android --all-features --lib
 check_installed_target x86_64-unknown-freebsd --features memory-lock,guard-pages,multi-pass-clear --lib
 check_installed_target wasm32-unknown-unknown --no-default-features --lib
 check_installed_target thumbv7em-none-eabihf --no-default-features --lib

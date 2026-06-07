@@ -17,7 +17,8 @@
 //! - SIMD stores, broad memory policy, and target-specific hardening need
 //!   target-specific unsafe code and platform policy.
 //! - Platform memory locking is available only through the explicit
-//!   `memory-lock` feature on supported Linux, macOS, Windows, and BSD targets.
+//!   `memory-lock` feature on supported Linux, Android, macOS, iOS, Windows,
+//!   and BSD targets.
 //! - x86_64 assembly-backed comparison is available only through the explicit
 //!   `asm-compare` feature.
 //! - x86_64 cache-line eviction is available only through the explicit
@@ -25,7 +26,8 @@
 //! - Fixed-size lifetime enforcement is available only through the `std`
 //!   feature and [`ExpiringSecretBytes`].
 //! - Guard-page allocation is available only through the explicit
-//!   `guard-pages` feature on supported Linux, macOS, Windows, and BSD targets.
+//!   `guard-pages` feature on supported Linux, Android, macOS, iOS, Windows,
+//!   and BSD targets.
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -332,6 +334,8 @@ fn max_utf8_capacity(char_count: usize) -> usize {
             any(target_arch = "x86_64", target_arch = "aarch64")
         ),
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "windows",
         target_os = "freebsd",
         target_os = "openbsd",
@@ -367,6 +371,8 @@ mod memory_lock {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -379,6 +385,8 @@ mod memory_lock {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -387,6 +395,8 @@ mod memory_lock {
     const PROT_READ: usize = 0x1;
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -395,6 +405,8 @@ mod memory_lock {
     const PROT_WRITE: usize = 0x2;
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -403,12 +415,15 @@ mod memory_lock {
     const MAP_PRIVATE: usize = 0x02;
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
         target_os = "dragonfly",
     ))]
     const MAP_ANONYMOUS: usize = 0x1000;
+    #[cfg(target_os = "android")]
+    const MAP_ANONYMOUS: usize = 0x20;
 
     #[cfg(target_os = "linux")]
     const PROT_READ: usize = 0x1;
@@ -456,6 +471,8 @@ mod memory_lock {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -636,11 +653,11 @@ mod memory_lock {
     /// Fixed-size secret bytes stored in a private locked platform mapping.
     ///
     /// This type is available with the `memory-lock` feature on supported
-    /// Linux, macOS, Windows, and BSD targets. Linux uses raw syscalls with
-    /// `mmap`, `MADV_DONTDUMP`, `MADV_DONTFORK`, and `mlock`. macOS and BSD
-    /// use system `mmap`/`mlock` entry points. Windows uses
-    /// `VirtualAlloc`/`VirtualLock`. Every backend volatile-clears the full
-    /// mapping before unlocking and releasing it.
+    /// Linux, Android, macOS, iOS, Windows, and BSD targets. Linux uses raw
+    /// syscalls with `mmap`, `MADV_DONTDUMP`, `MADV_DONTFORK`, and `mlock`.
+    /// Android, macOS, iOS, and BSD use system `mmap`/`mlock` entry points.
+    /// Windows uses `VirtualAlloc`/`VirtualLock`. Every backend volatile-clears
+    /// the full mapping before unlocking and releasing it.
     ///
     /// The secret bytes are not stored inline in the Rust value. Moving this
     /// type only moves pointer metadata, so ordinary Rust moves do not copy the
@@ -1003,6 +1020,8 @@ mod memory_lock {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1060,6 +1079,8 @@ mod memory_lock {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1096,6 +1117,8 @@ mod memory_lock {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1152,6 +1175,8 @@ mod memory_lock {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1222,6 +1247,8 @@ mod memory_lock {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1260,6 +1287,8 @@ mod memory_lock {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1379,6 +1408,8 @@ mod memory_lock {
             any(target_arch = "x86_64", target_arch = "aarch64")
         ),
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "windows",
         target_os = "freebsd",
         target_os = "openbsd",
@@ -1632,6 +1663,8 @@ pub mod cache_flush {
             any(target_arch = "x86_64", target_arch = "aarch64")
         ),
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "windows",
         target_os = "freebsd",
         target_os = "openbsd",
@@ -1668,6 +1701,8 @@ mod guard_pages {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1680,6 +1715,8 @@ mod guard_pages {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1688,6 +1725,8 @@ mod guard_pages {
     const PROT_NONE: usize = 0x0;
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1696,6 +1735,8 @@ mod guard_pages {
     const PROT_READ: usize = 0x1;
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1704,6 +1745,8 @@ mod guard_pages {
     const PROT_WRITE: usize = 0x2;
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1712,12 +1755,15 @@ mod guard_pages {
     const MAP_PRIVATE: usize = 0x02;
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
         target_os = "dragonfly",
     ))]
     const MAP_ANONYMOUS: usize = 0x1000;
+    #[cfg(target_os = "android")]
+    const MAP_ANONYMOUS: usize = 0x20;
 
     #[cfg(target_os = "linux")]
     const PROT_NONE: usize = 0x0;
@@ -1775,6 +1821,8 @@ mod guard_pages {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -1925,10 +1973,11 @@ mod guard_pages {
     /// Dynamic secret bytes stored between inaccessible platform guard pages.
     ///
     /// This type is available with the `guard-pages` feature on supported
-    /// Linux, macOS, Windows, and BSD targets. Secret bytes live in private
-    /// platform mappings. The pages immediately before and after the writable
-    /// data region remain inaccessible, so linear overreads or overwrites past
-    /// the mapped data region fault instead of reaching unrelated memory.
+    /// Linux, Android, macOS, iOS, Windows, and BSD targets. Secret bytes live
+    /// in private platform mappings. The pages immediately before and after
+    /// the writable data region remain inaccessible, so linear overreads or
+    /// overwrites past the mapped data region fault instead of reaching
+    /// unrelated memory.
     ///
     /// The secret bytes are not allocated with the Rust global allocator.
     pub struct GuardedSecretVec {
@@ -2426,6 +2475,8 @@ mod guard_pages {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -2483,6 +2534,8 @@ mod guard_pages {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -2519,6 +2572,8 @@ mod guard_pages {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -2580,6 +2635,8 @@ mod guard_pages {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -2636,6 +2693,8 @@ mod guard_pages {
         feature = "memory-lock",
         any(
             target_os = "macos",
+            target_os = "ios",
+            target_os = "android",
             target_os = "freebsd",
             target_os = "openbsd",
             target_os = "netbsd",
@@ -2709,6 +2768,8 @@ mod guard_pages {
         feature = "memory-lock",
         any(
             target_os = "macos",
+            target_os = "ios",
+            target_os = "android",
             target_os = "freebsd",
             target_os = "openbsd",
             target_os = "netbsd",
@@ -2748,6 +2809,8 @@ mod guard_pages {
 
     #[cfg(any(
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "freebsd",
         target_os = "openbsd",
         target_os = "netbsd",
@@ -2867,6 +2930,8 @@ mod guard_pages {
             any(target_arch = "x86_64", target_arch = "aarch64")
         ),
         target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
         target_os = "windows",
         target_os = "freebsd",
         target_os = "openbsd",

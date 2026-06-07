@@ -178,8 +178,8 @@ if keeping dev dependencies out of the repository remains preferred.
 ### 5. Memory Locking as a High-Assurance Feature
 
 Status: implemented for fixed-size secrets behind the `memory-lock` feature on
-supported Linux, macOS, Windows, and BSD targets, and for guarded dynamic
-secrets when `memory-lock` and `guard-pages` are both enabled.
+supported Linux, Android, macOS, iOS, Windows, and BSD targets, and for guarded
+dynamic secrets when `memory-lock` and `guard-pages` are both enabled.
 
 `mlock`, `VirtualLock`, guard pages, and platform-specific memory policies are
 important for high-assurance deployments. Memory locking is the biggest
@@ -188,23 +188,23 @@ pagefiles, or hibernation images.
 
 Current implementation:
 
-- `LockedSecretBytes<N>` is available on supported Linux, macOS, Windows, and
-  BSD targets when the `memory-lock` feature is enabled.
+- `LockedSecretBytes<N>` is available on supported Linux, Android, macOS, iOS,
+  Windows, and BSD targets when the `memory-lock` feature is enabled.
 - Secret bytes live in a private platform mapping rather than the Rust global
   allocator.
 - Linux uses raw `mmap`/`madvise`/`mlock` syscalls on `x86_64` and `aarch64`.
-- macOS and BSD use system `mmap`/`mlock` ABI calls without adding a Rust
-  `libc` crate dependency.
+- Android, macOS, iOS, and BSD use system `mmap`/`mlock` ABI calls without
+  adding a Rust `libc` crate dependency.
 - Windows uses `VirtualAlloc`/`VirtualLock` without adding Windows binding
   dependencies.
 - The mapping is volatile-cleared in full on drop, then unlocked and released
   with the platform backend.
 - Moving the Rust value copies only pointer metadata, not the secret byte
   allocation.
-- `GuardedSecretVec` is available on supported Linux, macOS, Windows, and BSD
-  targets with `guard-pages`. It can also lock its writable data pages when
-  both `guard-pages` and `memory-lock` are enabled. Growth and whole-value
-  replacement preserve the lock state.
+- `GuardedSecretVec` is available on supported Linux, Android, macOS, iOS,
+  Windows, and BSD targets with `guard-pages`. It can also lock its writable
+  data pages when both `guard-pages` and `memory-lock` are enabled. Growth and
+  whole-value replacement preserve the lock state.
 
 Remaining stance:
 
@@ -223,10 +223,10 @@ let key = LockedSecretBytes::<32>::zeroed()?;
 
 This must continue to be reviewed carefully. Non-Linux backends currently lock
 resident memory and provide guard pages, but do not apply Linux-equivalent
-crate-level dump or fork exclusion. Exact target CI coverage, richer BSD/macOS
-core-dump policies, SecretPool-style locked arenas, and any future
-allocator-sensitive dynamic containers all need platform-specific tests and
-review.
+crate-level dump or fork exclusion. Exact target CI coverage, richer Android,
+BSD, iOS, and macOS core-dump policies, SecretPool-style locked arenas, and any
+future allocator-sensitive dynamic containers all need platform-specific tests
+and review.
 
 ## Candidate Differentiators
 
@@ -248,7 +248,8 @@ Goal:
 
 Constraints:
 
-- Linux, macOS, Windows, and embedded targets need different implementations;
+- Linux, Android, macOS, iOS, Windows, BSD, and embedded targets need different
+  implementations;
 - direct syscalls avoid a `libc` dependency but increase audit burden;
 - `mlock` does not protect against hibernation, crash dumps, privileged reads,
   DMA, or firmware compromise by itself.
@@ -371,7 +372,7 @@ Design constraints:
 ### 6. Guard-Page Heap Allocations
 
 Status: implemented for dynamic byte secrets behind the `guard-pages` feature
-on supported Linux, macOS, Windows, and BSD targets.
+on supported Linux, Android, macOS, iOS, Windows, and BSD targets.
 
 Priority: complex, post-core.
 
@@ -381,15 +382,16 @@ platform-specific and allocator-sensitive.
 
 Current implementation:
 
-- `GuardedSecretVec` is available on supported Linux, macOS, Windows, and BSD
-  targets when the `guard-pages` feature is enabled.
+- `GuardedSecretVec` is available on supported Linux, Android, macOS, iOS,
+  Windows, and BSD targets when the `guard-pages` feature is enabled.
 - Secret bytes live in a private anonymous mapping rather than the Rust global
   allocator.
 - The leading and trailing pages remain inaccessible.
 - Guard layout uses a dependency-free Linux page granule: 4 KiB on `x86_64`
   and a conservative 64 KiB on `aarch64`, so the protected data region remains
-  page-aligned on 4 KiB, 16 KiB, and 64 KiB aarch64 kernels. macOS, BSD, and
-  Windows use runtime page-size discovery through their platform ABI.
+  page-aligned on 4 KiB, 16 KiB, and 64 KiB aarch64 kernels. Android, macOS,
+  iOS, BSD, and Windows use runtime page-size discovery through their platform
+  ABI.
 - When `memory-lock` is also enabled, `locked_with_capacity` and
   `locked_from_slice` lock the writable data pages before secret bytes are
   copied into them. Linux also applies `MADV_DONTDUMP` and `MADV_DONTFORK`.

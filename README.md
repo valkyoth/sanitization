@@ -51,7 +51,7 @@ Implemented now:
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
 - optional `alloc` support with `SecretVec` and `SecretString`.
 - optional platform memory locking with `LockedSecretBytes<N>` on supported
-  Linux, macOS, Windows, and BSD targets.
+  Linux, Android, macOS, iOS, Windows, and BSD targets.
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
 - optional explicit multi-pass volatile clear helpers.
@@ -59,7 +59,7 @@ Implemented now:
   clocks.
 - optional `std` lifetime enforcement with `ExpiringSecretBytes<N>`.
 - optional guard-page dynamic byte storage with `GuardedSecretVec` on supported
-  Linux, macOS, Windows, and BSD targets.
+  Linux, Android, macOS, iOS, Windows, and BSD targets.
 - explicit volatile helper APIs for existing ordinary buffers.
 - redacted `Debug` for secret-owning wrapper types.
 - clear-on-drop behavior for crate-owned secret containers.
@@ -136,10 +136,10 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | --- | --- | --- |
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
-| `memory-lock` | no | Enables `LockedSecretBytes<N>` and locked guarded mappings on supported Linux, macOS, Windows, and BSD targets. |
+| `memory-lock` | no | Enables `LockedSecretBytes<N>` and locked guarded mappings on supported Linux, Android, macOS, iOS, Windows, and BSD targets. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
-| `guard-pages` | no | Enables `GuardedSecretVec` on supported Linux, macOS, Windows, and BSD targets. |
+| `guard-pages` | no | Enables `GuardedSecretVec` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. |
 | `multi-pass-clear` | no | Enables explicit three-pass volatile overwrite helpers for policy or audit compatibility. |
 | `unsafe-wipe` | no | Compatibility no-op; volatile wiping is default. |
 
@@ -386,7 +386,8 @@ and locked with the operating system's resident-memory API.
 | Platform | Backend | Extra policy |
 | --- | --- | --- |
 | Linux `x86_64`/`aarch64` | raw `mmap`/`mlock` syscalls | `MADV_DONTDUMP` and `MADV_DONTFORK` |
-| macOS | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
+| Android | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
+| macOS/iOS | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
 | FreeBSD/OpenBSD/NetBSD/DragonFly BSD | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
 | Windows | `VirtualAlloc`/`VirtualLock` | no crate-level dump/fork exclusion |
 
@@ -439,7 +440,7 @@ malicious firmware, or copies made before data enters the locked container.
 ## Guarded Heap Secrets
 
 Enable `guard-pages` for dynamic byte secrets stored between inaccessible guard
-pages on supported Linux, macOS, Windows, and BSD targets:
+pages on supported Linux, Android, macOS, iOS, Windows, and BSD targets:
 
 ```toml
 [dependencies]
@@ -481,8 +482,8 @@ Use `replace_from_slice`, `replace_from_fn`, or `try_replace_from_fn` when
 rotating or replacing the entire guarded value. Fallible generated replacement
 keeps the old value unchanged on generator error. Linux guarded mappings keep
 the no-libc conservative page granules used by the raw syscall backend: 4 KiB
-on `x86_64` and 64 KiB on `aarch64`. macOS and BSD use `getpagesize`; Windows
-uses `GetSystemInfo`.
+on `x86_64` and 64 KiB on `aarch64`. Android, macOS, iOS, and BSD use
+`getpagesize`; Windows uses `GetSystemInfo`.
 
 When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
 can also lock their writable data pages:

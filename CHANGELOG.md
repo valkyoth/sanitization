@@ -29,13 +29,13 @@
 - Added `MonotonicClock` and `MonotonicExpiringSecretBytes<N, C>` for no-`std`
   fixed-size secret lifetime enforcement with caller-defined ticks.
 - Added CI and local check coverage for mapped memory backends across Linux,
-  macOS, Windows, BSD, WASM, and embedded no-`std` target builds.
+  Android, macOS, iOS, Windows, BSD, WASM, and embedded no-`std` target builds.
 - Added `LockedSecretBytes::try_from_fn`, `GuardedSecretVec::try_from_fn`, and
   `GuardedSecretVec::locked_try_from_fn` for fallible high-assurance direct
   byte generation.
 - Expanded `LockedSecretBytes<N>` and `GuardedSecretVec` platform availability
-  beyond Linux to supported macOS, Windows, FreeBSD, OpenBSD, NetBSD, and
-  DragonFly BSD targets.
+  beyond Linux to supported Android, macOS, iOS, Windows, FreeBSD, OpenBSD,
+  NetBSD, and DragonFly BSD targets.
 - Added `GuardedSecretVec::replace_from_fn` and
   `GuardedSecretVec::try_replace_from_fn` for generated guarded whole-value
   rotation while preserving lock state.
