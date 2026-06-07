@@ -30,6 +30,8 @@ Rust applications.
   `asm-compare` feature is enabled.
 - Optional x86_64 volatile-clear plus cache-line eviction when the
   `cache-flush` feature is enabled.
+- Optional explicit three-pass volatile overwrite helpers when the
+  `multi-pass-clear` feature is enabled.
 - Optional `std` lifetime enforcement for fixed-size secrets with
   `ExpiringSecretBytes<N>`.
 - Optional platform guard-page storage for dynamic byte secrets with
@@ -68,6 +70,14 @@ copies made before data enters the container.
 
 Volatile byte writes improve clearing resistance against compiler optimization,
 but they do not solve broader process, OS, hardware, or allocator threats.
+
+With the `multi-pass-clear` feature, the crate exposes explicit three-pass
+volatile overwrite helpers using zero, `0xFF`, and zero patterns. For ordinary
+volatile RAM, single-pass volatile zeroing is the normal security boundary and
+is consistent with modern sanitization guidance for DRAM. Multi-pass clearing
+is provided for policy, audit, or legacy compliance language such as
+DoD 5220.22-M-style overwrite procedures; it should not be interpreted as
+meaningfully stronger protection for live process memory.
 
 With the `memory-lock` feature on supported Linux, Android, macOS, iOS,
 Windows, and BSD targets, `LockedSecretBytes<N>` uses a private platform
