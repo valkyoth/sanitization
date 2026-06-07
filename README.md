@@ -85,11 +85,11 @@ Implemented now:
 | License | `MIT OR Apache-2.0` |
 | MSRV | Rust `1.90.0` |
 | Default target | `no_std` |
-| Runtime dependencies | zero external crates |
+| Runtime dependencies | zero external crates by default |
 | Unsafe policy | `#![deny(unsafe_code)]` at crate root, isolated `#[allow(unsafe_code)]` modules documented in `SAFETY.md` |
 | Clear primitive | volatile writes by default |
 | Heap support | `alloc` feature |
-| Proc macros | none |
+| Proc macros | optional `derive` feature via `sanitization-derive` |
 | Formal verification | optional bounded Kani harnesses for core properties |
 | Main guarantee | narrow ownership, redaction, and clear-on-drop hygiene |
 | Out of scope | stack-history wiping, global cache secrecy, crash dumps, privileged reads |
@@ -1092,6 +1092,13 @@ cargo publish
 
 cd ../sanitization
 cargo publish
+```
+
+From the repository root, the equivalent package-specific commands are:
+
+```bash
+cargo publish -p sanitization-derive
+cargo publish -p sanitization
 ```
 
 ## Limits
