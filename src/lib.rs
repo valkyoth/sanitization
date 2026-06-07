@@ -1169,7 +1169,13 @@ mod memory_lock {
                     .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
                     .is_ok()
                 {
-                    let ptr = self.slot_ptr(slot_index)?;
+                    let ptr = match self.slot_ptr(slot_index) {
+                        Some(ptr) => ptr,
+                        None => {
+                            flag.store(false, Ordering::Release);
+                            continue;
+                        }
+                    };
                     return Some(SecretPoolSlot {
                         ptr,
                         slot_index,
@@ -7216,6 +7222,44 @@ mod tests {
         assert_eq!(empty.locked_len(), 0);
         let slot = empty.allocate().unwrap();
         assert!(slot.is_empty());
+    }
+
+    #[cfg(all(
+        feature = "std",
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn secret_pool_concurrent_allocation_gets_distinct_slots() {
+        let pool = match SecretPool::<4, 2>::new() {
+            Ok(pool) => std::sync::Arc::new(pool),
+            Err(_) => return,
+        };
+        let worker_pool = std::sync::Arc::clone(&pool);
+        let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let finish = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let worker_start = std::sync::Arc::clone(&start);
+        let worker_finish = std::sync::Arc::clone(&finish);
+
+        let worker = std::thread::spawn(move || {
+            worker_start.wait();
+            let slot = worker_pool.allocate();
+            let index = slot.as_ref().map(|slot| slot.slot_index());
+            worker_finish.wait();
+            index
+        });
+
+        start.wait();
+        let slot = pool.allocate();
+        let main_index = slot.as_ref().map(|slot| slot.slot_index());
+        finish.wait();
+        let worker_index = worker.join().unwrap();
+
+        if let (Some(left), Some(right)) = (main_index, worker_index) {
+            assert_ne!(left, right);
+        }
     }
 
     #[cfg(all(
