@@ -3882,6 +3882,7 @@ mod guard_pages {
         pub fn clear_secret(&mut self) {
             crate::wipe::volatile_wipe(self.data.as_ptr(), self.writable_len);
             self.len = 0;
+            self.write_canaries();
         }
 
         /// Consume this value after first clearing the full writable data
@@ -8673,6 +8674,10 @@ mod tests {
 
         secret.clear_secret();
         assert!(secret.is_empty());
+        #[cfg(feature = "canary-check")]
+        assert_eq!(secret.verify_integrity(), Ok(()));
+        secret.extend_from_slice(b"world").unwrap();
+        assert!(secret.constant_time_eq(b"world"));
 
         secret.into_cleared();
     }
@@ -8763,7 +8768,7 @@ mod tests {
 
         assert!(secret.is_empty());
         #[cfg(feature = "canary-check")]
-        assert_eq!(secret.verify_integrity(), Err(CanaryCorruptedError));
+        assert_eq!(secret.verify_integrity(), Ok(()));
         #[cfg(not(feature = "canary-check"))]
         assert_eq!(secret.with_secret(|bytes| bytes.len()), 0);
 
