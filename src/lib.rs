@@ -29,6 +29,8 @@
 //!   `asm-compare` feature.
 //! - x86_64 cache-line eviction is available only through the explicit
 //!   `cache-flush` feature.
+//! - Proc-macro derives are available only through the explicit `derive`
+//!   feature. The default build remains dependency-free.
 //! - Fixed-size lifetime enforcement is available only through the `std`
 //!   feature and [`ExpiringSecretBytes`].
 //! - Guard-page allocation is available only through the explicit
@@ -67,9 +69,13 @@ use core::str::Utf8Error;
 use core::{
     fmt,
     hint::black_box,
+    marker::PhantomData,
     mem,
     sync::atomic::{compiler_fence, Ordering},
 };
+
+#[cfg(feature = "derive")]
+pub use sanitization_derive::{SecureSanitize, SecureSanitizeOnDrop};
 
 #[cfg(feature = "random-canary")]
 #[allow(unsafe_code)]
@@ -6095,6 +6101,11 @@ impl<T: SecureSanitize, E: SecureSanitize> SecureSanitize for Result<T, E> {
         }
         compiler_fence(Ordering::SeqCst);
     }
+}
+
+impl<T> SecureSanitize for PhantomData<T> {
+    #[inline]
+    fn secure_sanitize(&mut self) {}
 }
 
 #[cfg(feature = "alloc")]

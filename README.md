@@ -1,6 +1,6 @@
 <p align="center">
   <b>Dependency-free, no_std-first secret memory sanitization for Rust.</b><br>
-  Redacted secret containers, safe defaults, explicit volatile wiping, and no proc-macro dependency.
+  Redacted secret containers, safe defaults, explicit volatile wiping, and optional derive ergonomics.
 </p>
 
 <div align="center">
@@ -43,12 +43,16 @@ Implemented now:
 
 - `no_std` default build.
 - zero runtime dependencies.
+- zero external dependencies by default; the optional `derive` feature pulls in
+  the `sanitization-derive` proc-macro sister crate.
 - one audited internal unsafe boundary for default volatile clearing.
 - explicit feature-gated unsafe modules for platform hardening, documented in
   `SAFETY.md`.
 - `SecretBytes<N>` for fixed-size secrets.
 - `Secret<T>` for custom sanitizable values.
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
+- optional `SecureSanitize` and `SecureSanitizeOnDrop` derives through the
+  `derive` feature.
 - optional `alloc` support with `SecretVec` and `SecretString`.
 - optional platform memory locking with `LockedSecretBytes<N>` on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets, plus a documented
@@ -117,14 +121,14 @@ Compatibility evidence:
 
 ```toml
 [dependencies]
-sanitization = "1.0.0-rc.5"
+sanitization = "1.0.0-rc.6"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.5", features = ["alloc"] }
+sanitization = { version = "1.0.0-rc.6", features = ["alloc"] }
 ```
 
 The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
@@ -134,7 +138,14 @@ For memory-locked fixed-size secrets on supported native platforms:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
+sanitization = { version = "1.0.0-rc.6", features = ["memory-lock"] }
+```
+
+For derive macros:
+
+```toml
+[dependencies]
+sanitization = { version = "1.0.0-rc.6", features = ["derive"] }
 ```
 
 ## Features
@@ -143,6 +154,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | --- | --- | --- |
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
+| `derive` | no | Re-exports `sanitization-derive` proc macros for `#[derive(SecureSanitize)]` and `#[derive(SecureSanitizeOnDrop)]`. Pulls in proc-macro dependencies only when explicitly enabled. |
 | `memory-lock` | no | Enables `LockedSecretBytes<N>`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported native targets. On WASM this exposes a volatile-only compatibility backend with no actual memory locking. |
 | `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty locked byte mappings, pooled slots, and guarded dynamic mappings. On WASM this must be paired with `random-canary`. |
 | `random-canary` | no | Enables `canary-check` and generates canary words from the OS CSPRNG instead of deriving them from mapping addresses. WASI preview1 uses `random_get`; other bare WASM targets report random generation failure. |
@@ -268,7 +280,7 @@ Enable `std` when you want the convenience wrapper backed by
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.5", features = ["std"] }
+sanitization = { version = "1.0.0-rc.6", features = ["std"] }
 ```
 
 ```rust
@@ -486,7 +498,7 @@ mapping or pooled slot.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.5", features = ["canary-check"] }
+sanitization = { version = "1.0.0-rc.6", features = ["canary-check"] }
 ```
 
 ```rust
@@ -536,7 +548,7 @@ system CSPRNG instead of the deterministic address-derived fallback:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.5", features = ["random-canary"] }
+sanitization = { version = "1.0.0-rc.6", features = ["random-canary"] }
 ```
 
 `random-canary` uses direct platform backends without additional crates: Linux
@@ -606,7 +618,7 @@ pages on supported Linux, Android, macOS, iOS, Windows, and BSD targets:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.5", features = ["guard-pages"] }
+sanitization = { version = "1.0.0-rc.6", features = ["guard-pages"] }
 ```
 
 ```rust
@@ -661,7 +673,7 @@ can also lock their writable data pages:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.5", features = ["guard-pages", "memory-lock"] }
+sanitization = { version = "1.0.0-rc.6", features = ["guard-pages", "memory-lock"] }
 ```
 
 ```rust
@@ -735,9 +747,52 @@ credentials.secure_sanitize();
 
 These macros are declarative `macro_rules!` macros. They do not require `syn`,
 `quote`, `proc-macro2`, or any compile-time code-generation dependency. They
-currently support named-field structs without generics or `where` clauses; for
-generic structs, write the `SecureSanitize` and `Drop` impls manually so bounds
-stay explicit.
+currently support named-field structs without generics or `where` clauses.
+
+Enable `derive` when you want full struct and enum derive support and accept
+the explicit proc-macro dependency tradeoff:
+
+```toml
+[dependencies]
+sanitization = { version = "1.0.0-rc.6", features = ["derive"] }
+```
+
+```rust
+use sanitization::{SecretBytes, SecureSanitize, SecureSanitizeOnDrop};
+
+#[derive(SecureSanitize, SecureSanitizeOnDrop)]
+struct LoginCredentials {
+    password: SecretBytes<32>,
+    session_token: [u8; 32],
+}
+
+#[derive(SecureSanitize)]
+enum KeyMaterial {
+    Symmetric(SecretBytes<32>),
+    Asymmetric {
+        private: SecretBytes<64>,
+        #[sanitize(skip)]
+        public: [u8; 32],
+    },
+    Empty,
+}
+```
+
+`#[derive(SecureSanitize)]` calls `secure_sanitize` on every non-skipped field.
+Every such field must implement `SecureSanitize`, so adding a new field without
+sanitization support becomes a compiler error. Use `#[sanitize(skip)]` only for
+fields that are intentionally non-secret or sanitized elsewhere.
+
+The derive crate is a code generator only. It does not duplicate the wipe
+backend or secret containers; generated code calls this crate's
+`SecureSanitize` trait. Default builds do not depend on `sanitization-derive`,
+`syn`, `quote`, or `proc-macro2`.
+
+Supported derive attributes are `#[sanitize(skip)]` on fields,
+`#[sanitize(bound = "...")]` on fields or containers for explicit generated
+`where` predicates, and `#[sanitize(crate = "::path::to::sanitization")]` on
+containers when the main crate is renamed in `Cargo.toml`. Unions are rejected;
+implement them manually only when the active field invariant is documented.
 
 ## Generic Secret Wrapper
 
@@ -874,7 +929,7 @@ evidence:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.5", features = ["multi-pass-clear"] }
+sanitization = { version = "1.0.0-rc.6", features = ["multi-pass-clear"] }
 ```
 
 ```rust
@@ -901,7 +956,7 @@ clearing followed by `clflush`/`mfence` over the affected cache lines:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.5", features = ["cache-flush"] }
+sanitization = { version = "1.0.0-rc.6", features = ["cache-flush"] }
 ```
 
 ```rust
@@ -930,7 +985,7 @@ cross an explicit compiler boundary:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0-rc.5", features = ["asm-compare"] }
+sanitization = { version = "1.0.0-rc.6", features = ["asm-compare"] }
 ```
 
 The public API does not change. `SecretBytes<N>`, `SecretVec`, `SecretString`,
@@ -962,6 +1017,8 @@ library when a protocol requires externally audited timing guarantees.
 | Secret scalar such as `u64` | `Secret<u64>` |
 | Standard compound value | `Secret<T>` where `T: SecureSanitize` |
 | One-time access secret | `ReadOnceSecret<T>` |
+| Custom struct or enum with compiler-generated sanitization | `#[derive(SecureSanitize)]` with `derive` |
+| Custom struct or enum with compiler-generated drop clearing | `#[derive(SecureSanitize, SecureSanitizeOnDrop)]` with `derive` |
 | Custom struct, macro-owned drop | `secure_drop_struct!` |
 | Custom struct, custom drop | `secure_sanitize_struct!` |
 | Existing ordinary buffer | `unsafe_wipe::volatile_sanitize_*` |
@@ -972,14 +1029,18 @@ library when a protocol requires externally audited timing guarantees.
 ## Relationship to `zeroize`
 
 `zeroize` is broader and more ergonomic for retrofitting existing types,
-especially with `#[derive(Zeroize, ZeroizeOnDrop)]`. This crate deliberately
-does not ship a proc-macro derive in the core crate because that would add
-compile-time dependencies and supply-chain surface.
+especially with `#[derive(Zeroize, ZeroizeOnDrop)]`. This crate keeps the core
+crate dependency-free by default, but now offers an optional
+`sanitization-derive` sister crate behind the `derive` feature for users who
+want similar compiler-generated struct and enum coverage.
 
 The intended trade-off:
 
 - use wrapper types from the start for stronger ownership discipline;
-- use dependency-free declarative macros for custom structs;
+- keep default builds free of proc-macro dependencies;
+- use dependency-free declarative macros for simple custom structs;
+- enable `derive` when compiler-enforced field coverage is worth the explicit
+  proc-macro dependency surface;
 - use explicit volatile APIs only where ordinary memory must be wiped.
 
 ## Local Checks

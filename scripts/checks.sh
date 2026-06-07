@@ -2,10 +2,12 @@
 set -euo pipefail
 
 cargo fmt --check
+cargo test -p sanitization-derive
 cargo test
 cargo test --features alloc
 cargo test --features std
 cargo test --features memory-lock
+cargo test --features derive
 cargo test --features asm-compare
 cargo test --features cache-flush
 cargo test --features guard-pages
@@ -17,6 +19,7 @@ cargo check --examples
 cargo check --examples --features alloc
 cargo check --examples --features std
 cargo check --examples --features memory-lock
+cargo check --examples --features derive
 cargo check --examples --features asm-compare
 cargo check --examples --features cache-flush
 cargo check --examples --features guard-pages
@@ -25,6 +28,7 @@ cargo check --examples --features unsafe-wipe
 cargo check --examples --all-features
 cargo clippy --all-targets --no-default-features -- -D warnings
 cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy -p sanitization-derive --all-targets -- -D warnings
 
 target_installed() {
     rustup target list --installed | grep -Fxq "$1"
@@ -73,4 +77,6 @@ fi
 scripts/verify-codegen.sh
 scripts/verify-kani.sh
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
-cargo package --allow-dirty --list >/dev/null
+RUSTDOCFLAGS="-D warnings" cargo doc -p sanitization-derive --no-deps
+cargo package -p sanitization-derive --allow-dirty --list >/dev/null
+cargo package -p sanitization --allow-dirty --list >/dev/null

@@ -1,6 +1,6 @@
 [package]
 name = "sanitization"
-version = "1.0.0-rc.5"
+version = "1.0.0-rc.6"
 edition = "2021"
 rust-version = "1.90"
 description = "Dependency-free no_std secret memory sanitization with safe defaults and an explicit volatile wipe backend."
@@ -25,6 +25,7 @@ include = [
     "LICENSE-MIT",
     "rust-toolchain.toml",
     "src/**/*.rs",
+    "tests/**/*.rs",
     "examples/**/*.rs",
     "scripts/checks.sh",
     "scripts/ci_install_rust.sh",
@@ -33,13 +34,21 @@ include = [
     "scripts/verify-miri.sh",
 ]
 
+[workspace]
+members = ["sanitization-derive"]
+resolver = "2"
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(miri)'] }
+
+[dependencies]
+sanitization-derive = { version = "1.0.0-rc.6", path = "sanitization-derive", optional = true }
 
 [features]
 default = []
 alloc = []
 std = ["alloc"]
+derive = ["dep:sanitization-derive"]
 memory-lock = []
 canary-check = ["memory-lock"]
 random-canary = ["canary-check"]
