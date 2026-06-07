@@ -401,10 +401,9 @@ Current implementation:
   allocator.
 - The leading and trailing pages remain inaccessible.
 - Guard layout uses a dependency-free Linux page granule: 4 KiB on `x86_64`
-  and a conservative 64 KiB on `aarch64`, so the protected data region remains
-  page-aligned on 4 KiB, 16 KiB, and 64 KiB aarch64 kernels. Android, macOS,
-  iOS, BSD, and Windows use runtime page-size discovery through their platform
-  ABI.
+  and runtime `AT_PAGESZ` detection from `/proc/self/auxv` on `aarch64`, with
+  a conservative 64 KiB fallback. Android, macOS, iOS, BSD, and Windows use
+  runtime page-size discovery through their platform ABI.
 - When `memory-lock` is also enabled, `locked_with_capacity` and
   `locked_from_slice` lock the writable data pages before secret bytes are
   copied into them. Linux also applies `MADV_DONTDUMP` and `MADV_DONTFORK`.
@@ -430,8 +429,8 @@ Limits:
 - locked guarded mappings inherit all memory-lock limits: resource caps, OS
   policy, hibernation, nonstandard dump paths, privileged reads, DMA, and
   external copies remain out of scope;
-- Linux aarch64 still uses the conservative 64 KiB granule; tighter runtime
-  page-size handling remains post-stable work unless review requires it.
+- Linux aarch64 page-size detection depends on `/proc/self/auxv`; if auxv is
+  unavailable or malformed, the implementation falls back to 64 KiB.
 
 ## Priority Order
 
@@ -443,8 +442,8 @@ If resources are limited, remaining pre-stable work should be ordered as:
 3. Decide whether optional property-based or timing-distribution tests should
    live in-tree, outside the published crate, or in a separate audit harness.
 4. Keep richer non-Linux dump/fork policy hardening, non-x86_64 cache eviction,
-   and tighter Linux aarch64 page-size handling as post-stable target-specific
-   work unless review finds a release-blocking issue.
+   and further Linux aarch64 page-size detection hardening as post-stable
+   target-specific work unless review finds a release-blocking issue.
 
 ## Stable Release Bar
 

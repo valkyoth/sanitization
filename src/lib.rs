@@ -270,6 +270,139 @@ mod canary_random {
     }
 }
 
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#[allow(unsafe_code)]
+mod linux_aarch64_page_size {
+    use core::{
+        arch::asm,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    const AT_NULL: usize = 0;
+    const AT_PAGESZ: usize = 6;
+    const AUXV_ENTRY_SIZE: usize = core::mem::size_of::<usize>() * 2;
+    const CONSERVATIVE_PAGE_GRANULE: usize = 65_536;
+    const MIN_PAGE_GRANULE: usize = 4096;
+
+    const AT_FDCWD: usize = usize::MAX - 99;
+    const O_RDONLY: usize = 0;
+    const SYS_OPENAT: usize = 56;
+    const SYS_CLOSE: usize = 57;
+    const SYS_READ: usize = 63;
+
+    static DETECTED_PAGE_GRANULE: AtomicUsize = AtomicUsize::new(0);
+
+    pub(crate) fn detect_page_granule() -> usize {
+        let cached = DETECTED_PAGE_GRANULE.load(Ordering::Acquire);
+        if cached != 0 {
+            return cached;
+        }
+
+        let detected = read_auxv_page_size().unwrap_or(CONSERVATIVE_PAGE_GRANULE);
+        DETECTED_PAGE_GRANULE.store(detected, Ordering::Release);
+        detected
+    }
+
+    fn read_auxv_page_size() -> Option<usize> {
+        let path = b"/proc/self/auxv\0";
+        let fd = raw_syscall4(SYS_OPENAT, AT_FDCWD, path.as_ptr() as usize, O_RDONLY, 0);
+        if syscall_failed(fd) {
+            return None;
+        }
+
+        let fd = fd as usize;
+        let mut pending = [0_u8; AUXV_ENTRY_SIZE];
+        let mut pending_len = 0;
+        let mut buffer = [0_u8; 256];
+
+        loop {
+            let read = raw_syscall3(SYS_READ, fd, buffer.as_mut_ptr() as usize, buffer.len());
+            if syscall_failed(read) || read == 0 {
+                let _ = raw_syscall1(SYS_CLOSE, fd);
+                return None;
+            }
+
+            for byte in buffer[..read as usize].iter().copied() {
+                pending[pending_len] = byte;
+                pending_len += 1;
+
+                if pending_len == AUXV_ENTRY_SIZE {
+                    let (key, value) = parse_auxv_entry(&pending);
+                    pending_len = 0;
+
+                    if key == AT_PAGESZ {
+                        let _ = raw_syscall1(SYS_CLOSE, fd);
+                        return valid_page_granule(value).then_some(value);
+                    }
+
+                    if key == AT_NULL {
+                        let _ = raw_syscall1(SYS_CLOSE, fd);
+                        return None;
+                    }
+                }
+            }
+        }
+    }
+
+    fn parse_auxv_entry(entry: &[u8; AUXV_ENTRY_SIZE]) -> (usize, usize) {
+        let mut key = [0_u8; core::mem::size_of::<usize>()];
+        let mut value = [0_u8; core::mem::size_of::<usize>()];
+        key.copy_from_slice(&entry[..core::mem::size_of::<usize>()]);
+        value.copy_from_slice(&entry[core::mem::size_of::<usize>()..]);
+        (usize::from_ne_bytes(key), usize::from_ne_bytes(value))
+    }
+
+    fn valid_page_granule(value: usize) -> bool {
+        (MIN_PAGE_GRANULE..=CONSERVATIVE_PAGE_GRANULE).contains(&value) && value.is_power_of_two()
+    }
+
+    fn syscall_failed(ret: isize) -> bool {
+        (-4095..=-1).contains(&ret)
+    }
+
+    fn raw_syscall1(number: usize, arg1: usize) -> isize {
+        raw_syscall6(number, arg1, 0, 0, 0, 0, 0)
+    }
+
+    fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
+        raw_syscall6(number, arg1, arg2, arg3, 0, 0, 0)
+    }
+
+    fn raw_syscall4(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) -> isize {
+        raw_syscall6(number, arg1, arg2, arg3, arg4, 0, 0)
+    }
+
+    fn raw_syscall6(
+        number: usize,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+        arg4: usize,
+        arg5: usize,
+        arg6: usize,
+    ) -> isize {
+        let ret: isize;
+
+        // SAFETY: Registers follow the Linux aarch64 syscall ABI. The syscall
+        // number and arguments are fixed by the wrappers above.
+        unsafe {
+            asm!(
+                "svc 0",
+                inlateout("x0") arg1 as isize => ret,
+                in("x1") arg2,
+                in("x2") arg3,
+                in("x3") arg4,
+                in("x4") arg5,
+                in("x5") arg6,
+                in("x8") number,
+                options(nostack)
+            );
+        }
+
+        ret
+    }
+}
+
 /// Error returned when a caller provides a buffer with the wrong length.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LengthError {
@@ -595,13 +728,10 @@ mod memory_lock {
     #[cfg(target_os = "windows")]
     use core::mem::MaybeUninit;
 
-    // Linux exposes page size at runtime rather than through a direct syscall.
-    // Use a conservative architecture granule so requested mappings are page
-    // multiples on supported kernels without depending on libc.
+    // Linux x86_64 has 4 KiB base pages for supported targets. Linux aarch64
+    // is detected at runtime from auxv and falls back to 64 KiB.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const LINUX_PAGE_GRANULE: usize = 4096;
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    const LINUX_PAGE_GRANULE: usize = 65_536;
 
     #[cfg(any(
         target_os = "macos",
@@ -2360,10 +2490,16 @@ mod memory_lock {
             })
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[inline]
     const fn platform_page_granule() -> usize {
         LINUX_PAGE_GRANULE
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    #[inline]
+    fn platform_page_granule() -> usize {
+        crate::linux_aarch64_page_size::detect_page_granule()
     }
 
     #[cfg(any(
@@ -3096,12 +3232,10 @@ mod guard_pages {
     use core::mem::MaybeUninit;
 
     // Guard layout must place the writable region on a kernel page boundary.
-    // x86_64 Linux uses 4 KiB base pages; aarch64 Linux commonly supports
-    // 4 KiB, 16 KiB, and 64 KiB kernels, so 64 KiB is the conservative granule.
+    // Linux x86_64 uses 4 KiB. Linux aarch64 is detected at runtime from auxv
+    // and falls back to 64 KiB if detection fails.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const LINUX_PAGE_GRANULE: usize = 4096;
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    const LINUX_PAGE_GRANULE: usize = 65_536;
 
     #[cfg(any(
         target_os = "macos",
@@ -4098,10 +4232,16 @@ mod guard_pages {
         CANARY_SIZE * 2
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[inline]
     const fn platform_page_granule() -> usize {
         LINUX_PAGE_GRANULE
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    #[inline]
+    fn platform_page_granule() -> usize {
+        crate::linux_aarch64_page_size::detect_page_granule()
     }
 
     #[cfg(any(

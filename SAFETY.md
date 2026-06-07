@@ -273,9 +273,10 @@ Invariant:
 - The writable data pointer is one platform page granule after the mapping
   base.
 - The writable data length is rounded to a platform page granule. Linux uses
-  the existing no-libc conservative granules: 4 KiB on `x86_64`, and 64 KiB on
-  `aarch64` to cover 4 KiB, 16 KiB, and 64 KiB kernels.
-  Android/macOS/iOS/BSD use `getpagesize`; Windows uses `GetSystemInfo`.
+  4 KiB on `x86_64`. Linux `aarch64` reads `AT_PAGESZ` from
+  `/proc/self/auxv` with raw syscalls, caches the result, and falls back to
+  64 KiB if detection fails or returns an invalid value. Android/macOS/iOS/BSD
+  use `getpagesize`; Windows uses `GetSystemInfo`.
 - `len <= data_capacity` is preserved before any slice is created.
 - The `locked` flag is set only after platform lock setup succeeds. On Linux
   this includes `MADV_DONTDUMP`, `MADV_DONTFORK`, and `mlock`.

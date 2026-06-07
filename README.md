@@ -588,8 +588,9 @@ runtime buffer.
 Use `replace_from_slice`, `replace_from_fn`, or `try_replace_from_fn` when
 rotating or replacing the entire guarded value. Fallible generated replacement
 keeps the old value unchanged on generator error. Linux guarded mappings keep
-the no-libc conservative page granules used by the raw syscall backend: 4 KiB
-on `x86_64` and 64 KiB on `aarch64`. Android, macOS, iOS, and BSD use
+the no-libc page granules used by the raw syscall backend: 4 KiB on `x86_64`
+and runtime `AT_PAGESZ` detection from `/proc/self/auxv` on `aarch64`, falling
+back to 64 KiB if detection fails. Android, macOS, iOS, and BSD use
 `getpagesize`; Windows uses `GetSystemInfo`.
 
 With `canary-check`, `GuardedSecretVec` reserves an 8-byte canary before the

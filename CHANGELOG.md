@@ -134,9 +134,9 @@
   copying the previous guarded bytes during growth.
 - Added `GuardedSecretVec::clear_secret_and_flush` and `CacheFlushSanitize`
   support when both `guard-pages` and x86_64 `cache-flush` are enabled.
-- Changed Linux mapping length rounding to use a conservative 64 KiB granule on
-  `aarch64`, keeping guarded and locked mappings compatible with 4 KiB, 16 KiB,
-  and 64 KiB Linux kernels without a libc dependency.
+- Changed Linux `aarch64` mapping length rounding to detect `AT_PAGESZ` from
+  `/proc/self/auxv` with raw syscalls, falling back to 64 KiB when detection is
+  unavailable.
 - Expanded the local check matrix and examples for optional high-assurance
   features.
 - Updated README, safety notes, and threat model for the new clearing model.
