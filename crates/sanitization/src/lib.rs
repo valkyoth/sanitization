@@ -1794,6 +1794,7 @@ mod memory_lock {
         #[inline(never)]
         pub fn secure_clear(&mut self) {
             self.storage_mut().clear_all();
+            self.write_canaries();
         }
 
         /// Consume this slot after clearing it, then return it to the pool.
@@ -1898,6 +1899,10 @@ mod memory_lock {
             self.storage_mut().suffix.copy_from_slice(&canary);
             compiler_fence(Ordering::SeqCst);
         }
+
+        #[cfg(not(feature = "canary-check"))]
+        #[inline]
+        fn write_canaries(&mut self) {}
 
         #[cfg(feature = "canary-check")]
         #[inline]
@@ -3508,6 +3513,7 @@ mod memory_lock {
             if N != 0 {
                 crate::wipe::volatile_wipe(self.ptr.as_ptr(), self.slot_stride());
             }
+            self.write_canaries();
         }
 
         /// Consume this slot after clearing it, then return it to the pool.
@@ -3686,6 +3692,10 @@ mod memory_lock {
             }
             compiler_fence(Ordering::SeqCst);
         }
+
+        #[cfg(not(feature = "canary-check"))]
+        #[inline]
+        fn write_canaries(&mut self) {}
 
         #[cfg(feature = "canary-check")]
         #[inline]
@@ -9832,8 +9842,11 @@ mod tests {
         assert!(first.constant_time_eq(&[9, 2, 3, 4]));
         first.secure_clear();
         #[cfg(feature = "canary-check")]
-        assert_eq!(first.verify_integrity(), Err(CanaryCorruptedError));
-        #[cfg(not(feature = "canary-check"))]
+        assert_eq!(first.verify_integrity(), Ok(()));
+        assert!(first.constant_time_eq(&[0, 0, 0, 0]));
+        first.copy_from_slice(&[4, 3, 2, 1]).unwrap();
+        assert!(first.constant_time_eq(&[4, 3, 2, 1]));
+        first.secure_clear();
         assert!(first.constant_time_eq(&[0, 0, 0, 0]));
 
         let freed_index = first.slot_index();
@@ -9881,9 +9894,10 @@ mod tests {
             Err("generation failed")
         );
         #[cfg(feature = "canary-check")]
-        assert_eq!(slot.verify_integrity(), Err(CanaryCorruptedError));
-        #[cfg(not(feature = "canary-check"))]
+        assert_eq!(slot.verify_integrity(), Ok(()));
         assert!(slot.constant_time_eq(&[0, 0, 0, 0]));
+        slot.copy_from_slice(&[9, 9, 9, 9]).unwrap();
+        assert!(slot.constant_time_eq(&[9, 9, 9, 9]));
         drop(slot);
 
         match pool.try_allocate_from_fn(|index| {
