@@ -144,7 +144,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
 | `memory-lock` | no | Enables `LockedSecretBytes<N>`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported native targets. On WASM this exposes a volatile-only compatibility backend with no actual memory locking. |
-| `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty locked byte mappings, pooled slots, and guarded dynamic mappings. |
+| `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty locked byte mappings, pooled slots, and guarded dynamic mappings. On WASM this must be paired with `random-canary`. |
 | `random-canary` | no | Enables `canary-check` and generates canary words from the OS CSPRNG instead of deriving them from mapping addresses. WASI preview1 uses `random_get`; other bare WASM targets report random generation failure. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
@@ -167,6 +167,11 @@ those host-kernel facilities directly.
 `guard-pages` is rejected at compile time on WASM. WASM linear memory has no
 per-page protection API available to the module, so a guard-page-less
 `GuardedSecretVec` would be misleading.
+
+`canary-check` is also rejected at compile time on WASM unless `random-canary`
+is enabled. Deterministic WASM canaries do not have ASLR-backed mapping
+entropy, so the crate requires a random canary backend instead of silently
+providing a predictable integrity word.
 
 `random-canary` uses WASI preview1 `random_get` when targeting
 `wasm32-wasip1`. Bare `wasm32-unknown-unknown`, Emscripten-style WASM, and
@@ -514,15 +519,16 @@ legacy APIs panic with a fixed message. Use `expose_secret_checked`,
 need explicit error handling with `CanaryCorruptedError`.
 
 Canaries are derived from the mapping or slot address and a fixed mask on
-native mapped backends, so they require no RNG or dependency. On WASM, the
-fallback canary is deterministic because inline storage can move with the Rust
-value and cannot safely use a stable mapping address. They detect overwrites
-that reach the canary
-words; they do not detect corruption entirely inside the secret bytes,
-historical copies, or external copies. `secure_clear` still wipes the full
-mapping or slot, including the canary words, so a canary-checked locked value
-or live pool slot should be treated as terminal after manual clearing. Dropping
-a cleared pool slot returns it to the pool; the next allocation writes fresh
+native mapped backends, so they require no RNG or dependency. That deterministic
+mode assumes ASLR or otherwise unpredictable mapping addresses; enable
+`random-canary` in ASLR-disabled, weak-ASLR, or compliance-sensitive
+environments. On WASM, `canary-check` requires `random-canary` because inline
+storage has no stable ASLR-backed mapping address. Canaries detect overwrites
+that reach the canary words; they do not detect corruption entirely inside the
+secret bytes, historical copies, or external copies. `LockedSecretBytes<N>`
+rewrites canaries after `secure_clear`, so it remains reusable after manual
+clearing. A live `SecretPool` slot still clears the full slot, including the
+canary words; drop and reallocate a manually cleared pool slot to get fresh
 slot canaries.
 
 Enable `random-canary` when the canary word should come from the operating

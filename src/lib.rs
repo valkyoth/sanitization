@@ -45,6 +45,15 @@ compile_error!(
     "sanitization: the guard-pages feature is not supported on wasm32 because WASM linear memory has no page protection or mprotect equivalent"
 );
 
+#[cfg(all(
+    feature = "canary-check",
+    not(feature = "random-canary"),
+    target_arch = "wasm32"
+))]
+compile_error!(
+    "sanitization: canary-check on wasm32 requires random-canary because deterministic WASM canaries have no ASLR-backed entropy"
+);
+
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
@@ -349,6 +358,10 @@ mod linux_aarch64_page_size {
 
         loop {
             let read = raw_syscall3(SYS_READ, fd, buffer.as_mut_ptr() as usize, buffer.len());
+            if read == -4 {
+                continue;
+            }
+
             if syscall_failed(read) || read == 0 {
                 let _ = raw_syscall1(SYS_CLOSE, fd);
                 return None;
@@ -1258,6 +1271,7 @@ mod memory_lock {
         #[inline(never)]
         pub fn secure_clear(&mut self) {
             self.storage.get_mut().clear_all();
+            self.write_canaries();
         }
 
         /// Consume this value after first clearing its storage.
@@ -2746,6 +2760,7 @@ mod memory_lock {
             if self.map_len != 0 {
                 crate::wipe::volatile_wipe(self.ptr.as_ptr(), self.map_len);
             }
+            self.write_canaries();
         }
 
         /// Consume this value after first clearing the full private mapping.
@@ -4288,7 +4303,10 @@ mod compare_asm {
         }
 
         let _ = (left_ptr, right_ptr, remaining, tmp);
-        core::hint::black_box(diff) == 0
+        // The assembly loop ORs byte differences into the low accumulator byte.
+        // Mask explicitly so the observable Rust contract does not depend on
+        // readers inferring that the full register was zeroed before the loop.
+        core::hint::black_box(diff & 0xFF) == 0
     }
 }
 
@@ -9520,7 +9538,13 @@ mod tests {
 
         secret.secure_clear();
         #[cfg(feature = "canary-check")]
-        assert_eq!(secret.verify_integrity(), Err(CanaryCorruptedError));
+        {
+            assert_eq!(secret.verify_integrity(), Ok(()));
+            assert!(secret.copy_to_slice(&mut out).is_ok());
+            assert_eq!(out, [0, 0, 0, 0]);
+            assert!(secret.copy_from_slice(&[9, 8, 7, 6]).is_ok());
+            assert!(secret.constant_time_eq(&[9, 8, 7, 6]));
+        }
         #[cfg(not(feature = "canary-check"))]
         {
             assert!(secret.copy_to_slice(&mut out).is_ok());
@@ -9697,7 +9721,7 @@ mod tests {
         secret.secure_clear_and_flush();
 
         #[cfg(feature = "canary-check")]
-        assert_eq!(secret.verify_integrity(), Err(CanaryCorruptedError));
+        assert_eq!(secret.verify_integrity(), Ok(()));
         #[cfg(not(feature = "canary-check"))]
         {
             assert!(secret.copy_to_slice(&mut out).is_ok());

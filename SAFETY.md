@@ -125,7 +125,9 @@ Invariant:
 - `canary-check` derives the expected canary from the mapping base address and
   a fixed mask, or from the pool slot base address for pooled slots. This avoids
   RNG and dependency requirements while making the canary value mapping-specific
-  under ASLR.
+  under ASLR. This deterministic mode relies on ASLR or otherwise unpredictable
+  mapping addresses; use `random-canary` where ASLR is disabled, weakened, or
+  not acceptable for the threat model.
 - With `random-canary`, the expected canary is generated once from the
   operating-system CSPRNG and stored in the Rust owner or slot metadata. The
   prefix and suffix copies remain in the locked or guarded mapping beside the
@@ -133,11 +135,11 @@ Invariant:
   operation error where the API can return one; `SecretPool` also provides
   `try_allocate` for explicit slot-allocation error handling.
 - Canary writes happen only after platform mapping setup and locking succeed.
-- On WASM, there is no platform mapping setup or locking. Canary writes happen
-  during construction or slot allocation after inline storage has been created.
-  Deterministic WASM canaries use fixed owner/slot metadata instead of mapping
-  addresses; `random-canary` uses WASI preview1 `random_get` where available
-  and otherwise returns a `Random` operation error.
+- On WASM, there is no platform mapping setup or locking. `canary-check`
+  requires `random-canary` at compile time because deterministic inline-storage
+  canaries have no ASLR-backed mapping address. `random-canary` uses WASI
+  preview1 `random_get` where available and otherwise returns a `Random`
+  operation error.
 - Canary verification compares both prefix and suffix with the expected value
   using the crate constant-time slice comparison helper and boolean `&`, so both
   canaries are checked without data-dependent early exit at this layer.
@@ -199,6 +201,8 @@ Invariant:
 - The assembly loop does not write memory.
 - The zero-length path does not dereference either pointer.
 - All output registers are initialized on every branch path.
+- The low byte carries the OR accumulator; Rust masks the accumulator with
+  `0xFF` before testing equality so the post-assembly contract is explicit.
 - Length remains public metadata and mismatched lengths return before the
   assembly path.
 

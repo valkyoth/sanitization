@@ -131,17 +131,19 @@ secret bytes and does not provide authenticity against an attacker who can read
 and rewrite the full process memory image.
 
 By default, canary words are derived from mapping or slot addresses and a fixed
-mask. With `random-canary`, they are generated from the operating-system CSPRNG
-using dependency-free platform backends. Random canaries improve blind
-overwrite detection and audit posture, but they still do not authenticate memory
-against an attacker who can read and rewrite both the owner metadata and mapped
-canary bytes.
-On WASM, deterministic canaries cannot safely derive from a stable mapping
-address because the fallback storage lives inline with the Rust value or pool.
-Use `random-canary` on WASI preview1 when blind overwrite resistance matters;
-bare `wasm32-unknown-unknown`, Emscripten-style WASM, and WASI preview2
-currently return a `Random` operation error for random canary generation in
-this dependency-free implementation.
+mask. This deterministic mode assumes ASLR or otherwise unpredictable mapping
+addresses; use `random-canary` when ASLR is disabled, weakened, or not an
+acceptable source of blind-overwrite resistance. With `random-canary`, canaries
+are generated from the operating-system CSPRNG using dependency-free platform
+backends. Random canaries improve blind overwrite detection and audit posture,
+but they still do not authenticate memory against an attacker who can read and
+rewrite both the owner metadata and mapped canary bytes.
+On WASM, deterministic canaries are rejected at compile time because fallback
+storage lives inline with the Rust value or pool and has no ASLR-backed mapping
+address. `canary-check` on WASM must be paired with `random-canary`. WASI
+preview1 uses `random_get`; bare `wasm32-unknown-unknown`, Emscripten-style
+WASM, and WASI preview2 currently return a `Random` operation error for random
+canary generation in this dependency-free implementation.
 
 With the `asm-compare` feature on x86_64, equal-length comparisons use an
 inline-assembly loop. This gives the comparison body a stronger compiler
