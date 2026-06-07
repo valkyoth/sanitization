@@ -370,8 +370,8 @@ Design constraints:
 
 ### 6. Guard-Page Heap Allocations
 
-Status: implemented for dynamic Linux byte secrets behind the `guard-pages`
-feature.
+Status: implemented for dynamic byte secrets behind the `guard-pages` feature
+on supported Linux, macOS, Windows, and BSD targets.
 
 Priority: complex, post-core.
 
@@ -381,18 +381,18 @@ platform-specific and allocator-sensitive.
 
 Current implementation:
 
-- `GuardedSecretVec` is available on Linux `x86_64` and `aarch64` when the
-  `guard-pages` feature is enabled.
+- `GuardedSecretVec` is available on supported Linux, macOS, Windows, and BSD
+  targets when the `guard-pages` feature is enabled.
 - Secret bytes live in a private anonymous mapping rather than the Rust global
   allocator.
 - The leading and trailing pages remain inaccessible.
-- Guard layout uses a dependency-free Linux page granule: 4 KiB on `x86_64`,
-  and a conservative 64 KiB on `aarch64` so the protected data region remains
-  page-aligned on 4 KiB, 16 KiB, and 64 KiB aarch64 kernels.
+- Guard layout uses a dependency-free Linux page granule: 4 KiB on `x86_64`
+  and a conservative 64 KiB on `aarch64`, so the protected data region remains
+  page-aligned on 4 KiB, 16 KiB, and 64 KiB aarch64 kernels. macOS, BSD, and
+  Windows use runtime page-size discovery through their platform ABI.
 - When `memory-lock` is also enabled, `locked_with_capacity` and
-  `locked_from_slice` mark the writable data pages with `MADV_DONTDUMP` and
-  `MADV_DONTFORK`, then lock them with `mlock` before secret bytes are copied
-  into them.
+  `locked_from_slice` lock the writable data pages before secret bytes are
+  copied into them. Linux also applies `MADV_DONTDUMP` and `MADV_DONTFORK`.
 - `from_fn` and `locked_from_fn` can generate dynamic secret bytes directly
   inside guarded storage, reducing ordinary intermediate copies when callers
   can produce bytes by index.
@@ -415,9 +415,8 @@ Limits:
 - locked guarded mappings inherit all memory-lock limits: resource caps, OS
   policy, hibernation, nonstandard dump paths, privileged reads, DMA, and
   external copies remain out of scope;
-- non-Linux support remains future work;
-- exact runtime page-size discovery remains future work if the crate later
-  wants tighter aarch64 capacity overhead than the conservative 64 KiB granule.
+- Linux aarch64 still uses the conservative 64 KiB granule; tighter runtime
+  page-size handling remains post-stable work unless review requires it.
 
 ## Priority Order
 
