@@ -286,6 +286,23 @@ Invariant:
 - Drop ignores unlock and unmap/free errors because destructors cannot report
   failure.
 
+## Read-Once Secrets
+
+`ReadOnceSecret<T>` uses an `AtomicBool` consumed flag and an `UnsafeCell<T>`.
+The unsafe boundary is intentionally small:
+
+- `consume` and `consume_mut` first claim access with
+  `AtomicBool::swap(true, Ordering::AcqRel)`.
+- Only the caller that observes the previous value as `false` receives access
+  to the inner `T`; every later caller receives `AlreadyConsumedError`.
+- The successful caller clears the inner value immediately after the closure
+  returns. If the closure unwinds, `Drop` still clears the inner value.
+- `ReadOnceSecret<T>` is `Sync` when `T: Send`, following the same runtime
+  exclusivity principle as lock-like containers: shared references may race to
+  claim the value, but only one can access it.
+- `secure_sanitize` and `into_cleared` mark the value consumed before clearing
+  it, so later consume attempts fail closed.
+
 ## Safe Temporary Buffers
 
 `SecretBytes::replace_from_array`, `ExpiringSecretBytes::replace_from_array`,

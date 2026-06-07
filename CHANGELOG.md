@@ -22,8 +22,8 @@
 - Added `SecretBytes::transform`, `try_transform`, `derive`, and `try_derive`
   for in-container fixed-size mutation and derivation without an
   `expose_secret` stack copy.
-- Added `ReadOnceSecret<T>` for ownership-enforced one-time access followed by
-  immediate clearing.
+- Added `ReadOnceSecret<T>` for atomic shared-reference one-time access
+  followed by immediate clearing.
 - Added the optional `multi-pass-clear` feature with explicit three-pass
   volatile overwrite helpers for policy or audit compatibility.
 - Added `MonotonicClock` and `MonotonicExpiringSecretBytes<N, C>` for no-`std`

@@ -6639,85 +6639,162 @@ impl<T: SecureSanitize> fmt::Debug for Secret<T> {
     }
 }
 
-/// Clear-on-drop wrapper that can be consumed exactly once.
-///
-/// Unlike [`Secret<T>`], the primary accessors take ownership of `self`. That
-/// makes repeated reads impossible in safe Rust because the wrapper is moved
-/// into the consume method. The wrapped value is cleared immediately after the
-/// closure returns, and `Drop` still clears during unwinding or if the wrapper
-/// is never consumed.
-pub struct ReadOnceSecret<T: SecureSanitize> {
-    inner: T,
-}
+#[allow(unsafe_code)]
+mod read_once {
+    use super::{fmt, SecureSanitize};
+    use core::{
+        cell::UnsafeCell,
+        sync::atomic::{AtomicBool, Ordering},
+    };
 
-impl<T: SecureSanitize> ReadOnceSecret<T> {
-    /// Wrap a sanitizable value for one-time consumption.
-    #[must_use]
-    #[inline]
-    pub const fn new(inner: T) -> Self {
-        Self { inner }
+    /// Error returned after a [`ReadOnceSecret`] has already been consumed.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct AlreadyConsumedError;
+
+    impl fmt::Display for AlreadyConsumedError {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("read-once secret already consumed")
+        }
     }
 
-    /// Run a closure with read-only access, then clear the wrapped value.
+    #[cfg(feature = "std")]
+    impl std::error::Error for AlreadyConsumedError {}
+
+    /// Clear-on-drop wrapper that can be consumed exactly once.
     ///
-    /// This method consumes the wrapper, so the same `ReadOnceSecret` cannot be
-    /// accessed again. If the closure unwinds, `Drop` still clears the wrapped
-    /// value during unwinding. As with all destructor-based cleanup, process
-    /// abort prevents cleanup from running.
-    #[inline]
-    pub fn consume<R>(mut self, inspect: impl FnOnce(&T) -> R) -> R {
-        let result = inspect(&self.inner);
-        self.inner.secure_sanitize();
-        result
+    /// `ReadOnceSecret<T>` uses an atomic consumed flag, so repeated access is
+    /// rejected even when callers hold multiple shared references to the same
+    /// wrapper. The wrapped value is cleared immediately after the first
+    /// successful closure returns, and `Drop` still clears during unwinding or
+    /// if the wrapper is never consumed.
+    pub struct ReadOnceSecret<T: SecureSanitize> {
+        inner: UnsafeCell<T>,
+        consumed: AtomicBool,
     }
 
-    /// Run a closure with mutable access, then clear the wrapped value.
-    ///
-    /// This is useful for one-time protocol values that need final in-place
-    /// normalization or decoding at the access boundary.
-    #[inline]
-    pub fn consume_mut<R>(mut self, edit: impl FnOnce(&mut T) -> R) -> R {
-        let result = edit(&mut self.inner);
-        self.inner.secure_sanitize();
-        result
+    // SAFETY: Moving the wrapper to another thread transfers ownership of the
+    // inner value and atomic flag. Access to the inner value is still mediated
+    // by the consumed flag.
+    unsafe impl<T: SecureSanitize + Send> Send for ReadOnceSecret<T> {}
+
+    // SAFETY: Shared references may race to consume the value, but the atomic
+    // swap permits exactly one successful accessor. That accessor has exclusive
+    // logical access until it clears the inner value before returning.
+    unsafe impl<T: SecureSanitize + Send> Sync for ReadOnceSecret<T> {}
+
+    impl<T: SecureSanitize> ReadOnceSecret<T> {
+        /// Wrap a sanitizable value for one-time consumption.
+        #[must_use]
+        #[inline]
+        pub const fn new(inner: T) -> Self {
+            Self {
+                inner: UnsafeCell::new(inner),
+                consumed: AtomicBool::new(false),
+            }
+        }
+
+        /// Run a closure with read-only access exactly once, then clear the
+        /// wrapped value.
+        ///
+        /// The first caller wins by atomically setting the consumed flag. Any
+        /// later caller receives [`AlreadyConsumedError`]. If the closure
+        /// unwinds, `Drop` still clears the wrapped value during unwinding. As
+        /// with all destructor-based cleanup, process abort prevents cleanup
+        /// from running.
+        #[inline]
+        pub fn consume<R>(&self, inspect: impl FnOnce(&T) -> R) -> Result<R, AlreadyConsumedError> {
+            self.claim()?;
+            // SAFETY: `claim` permits exactly one successful accessor. No other
+            // safe method can access `inner` after the consumed flag is set.
+            let result = inspect(unsafe { &*self.inner.get() });
+            self.clear_inner();
+            Ok(result)
+        }
+
+        /// Run a closure with mutable access exactly once, then clear the
+        /// wrapped value.
+        ///
+        /// This is useful for one-time protocol values that need final in-place
+        /// normalization or decoding at the access boundary.
+        #[inline]
+        pub fn consume_mut<R>(
+            &self,
+            edit: impl FnOnce(&mut T) -> R,
+        ) -> Result<R, AlreadyConsumedError> {
+            self.claim()?;
+            // SAFETY: `claim` permits exactly one successful accessor. The
+            // successful caller therefore has exclusive logical access.
+            let result = edit(unsafe { &mut *self.inner.get() });
+            self.clear_inner();
+            Ok(result)
+        }
+
+        /// Consume the wrapper after first clearing the wrapped value.
+        #[inline]
+        pub fn into_cleared(mut self) {
+            self.consumed.store(true, Ordering::Release);
+            self.inner.get_mut().secure_sanitize();
+        }
+
+        /// Returns true after the one successful consume attempt, after manual
+        /// sanitization, or after [`ReadOnceSecret::into_cleared`].
+        #[must_use]
+        #[inline]
+        pub fn is_consumed(&self) -> bool {
+            self.consumed.load(Ordering::Acquire)
+        }
+
+        #[inline]
+        fn claim(&self) -> Result<(), AlreadyConsumedError> {
+            if self.consumed.swap(true, Ordering::AcqRel) {
+                Err(AlreadyConsumedError)
+            } else {
+                Ok(())
+            }
+        }
+
+        #[inline]
+        fn clear_inner(&self) {
+            // SAFETY: `clear_inner` is called only after `claim` succeeds or
+            // from contexts holding `&mut self`.
+            unsafe { (&mut *self.inner.get()).secure_sanitize() };
+        }
     }
 
-    /// Consume the wrapper after first clearing the wrapped value.
-    #[inline]
-    pub fn into_cleared(mut self) {
-        self.inner.secure_sanitize();
+    impl<T: SecureSanitize> Drop for ReadOnceSecret<T> {
+        #[inline]
+        fn drop(&mut self) {
+            self.inner.get_mut().secure_sanitize();
+        }
+    }
+
+    impl<T: SecureSanitize + Default> Default for ReadOnceSecret<T> {
+        #[inline]
+        fn default() -> Self {
+            Self::new(T::default())
+        }
+    }
+
+    impl<T: SecureSanitize> SecureSanitize for ReadOnceSecret<T> {
+        #[inline]
+        fn secure_sanitize(&mut self) {
+            self.consumed.store(true, Ordering::Release);
+            self.inner.get_mut().secure_sanitize();
+        }
+    }
+
+    impl<T: SecureSanitize> fmt::Debug for ReadOnceSecret<T> {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter
+                .debug_struct("ReadOnceSecret")
+                .field("consumed", &self.is_consumed())
+                .field("contents", &"<redacted>")
+                .finish()
+        }
     }
 }
 
-impl<T: SecureSanitize> Drop for ReadOnceSecret<T> {
-    #[inline]
-    fn drop(&mut self) {
-        self.inner.secure_sanitize();
-    }
-}
-
-impl<T: SecureSanitize + Default> Default for ReadOnceSecret<T> {
-    #[inline]
-    fn default() -> Self {
-        Self::new(T::default())
-    }
-}
-
-impl<T: SecureSanitize> SecureSanitize for ReadOnceSecret<T> {
-    #[inline]
-    fn secure_sanitize(&mut self) {
-        self.inner.secure_sanitize();
-    }
-}
-
-impl<T: SecureSanitize> fmt::Debug for ReadOnceSecret<T> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ReadOnceSecret")
-            .field("contents", &"<redacted>")
-            .finish()
-    }
-}
+pub use read_once::{AlreadyConsumedError, ReadOnceSecret};
 
 /// Explicit volatile-write backend for ordinary mutable buffers.
 ///
@@ -7406,7 +7483,7 @@ mod tests {
     }
 
     #[test]
-    fn read_once_secret_consumes_by_value() {
+    fn read_once_secret_consumes_once_by_shared_reference() {
         let secret = ReadOnceSecret::new(SecretBytes::<4>::from_array([1, 2, 3, 4]));
 
         let sum = secret.consume(|bytes| {
@@ -7415,7 +7492,12 @@ mod tests {
             out.iter().copied().fold(0_u8, u8::wrapping_add)
         });
 
-        assert_eq!(sum, 10);
+        assert_eq!(sum, Ok(10));
+        assert_eq!(
+            secret.consume(|_| unreachable!()),
+            Err(AlreadyConsumedError)
+        );
+        assert!(secret.is_consumed());
     }
 
     #[test]
@@ -7427,7 +7509,35 @@ mod tests {
             bytes[0]
         });
 
-        assert_eq!(first, 9);
+        assert_eq!(first, Ok(9));
+        assert_eq!(
+            secret.consume_mut(|_| unreachable!()),
+            Err(AlreadyConsumedError)
+        );
+    }
+
+    #[test]
+    fn read_once_secret_allows_only_one_shared_consumer() {
+        let secret = std::sync::Arc::new(ReadOnceSecret::new([1_u8, 2, 3, 4]));
+        let worker_secret = std::sync::Arc::clone(&secret);
+        let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let worker_start = std::sync::Arc::clone(&start);
+
+        let worker = std::thread::spawn(move || {
+            worker_start.wait();
+            worker_secret.consume(|bytes| bytes[0])
+        });
+
+        start.wait();
+        let main_result = secret.consume(|bytes| bytes[0]);
+        let worker_result = worker.join().unwrap();
+
+        let successes = usize::from(main_result.is_ok()) + usize::from(worker_result.is_ok());
+        let failures = usize::from(main_result == Err(AlreadyConsumedError))
+            + usize::from(worker_result == Err(AlreadyConsumedError));
+
+        assert_eq!(successes, 1);
+        assert_eq!(failures, 1);
     }
 
     #[test]

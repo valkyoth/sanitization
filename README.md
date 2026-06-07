@@ -753,11 +753,11 @@ material into `SecretBytes<N>`/`SecretVec` at the boundary where possible.
 ## Read-Once Secrets
 
 Use `ReadOnceSecret<T>` when a value should be accessed once and then cleared.
-The consume methods take ownership of the wrapper, so repeated access is
-rejected by the Rust type system instead of a runtime flag.
+The consume methods take `&self` and atomically mark the wrapper as consumed,
+so repeated access through shared references returns `AlreadyConsumedError`.
 
 ```rust
-use sanitization::{ReadOnceSecret, SecretBytes};
+use sanitization::{AlreadyConsumedError, ReadOnceSecret, SecretBytes};
 
 let token = ReadOnceSecret::new(SecretBytes::<4>::from_array([1, 2, 3, 4]));
 
@@ -765,14 +765,15 @@ let sum = token.consume(|secret| {
     let mut out = [0; 4];
     secret.copy_to_slice(&mut out).unwrap();
     out.iter().copied().fold(0_u8, u8::wrapping_add)
-});
+}).unwrap();
 
 assert_eq!(sum, 10);
+assert_eq!(token.consume(|_| unreachable!()), Err(AlreadyConsumedError));
 ```
 
-The wrapped value is cleared immediately after the closure returns. If the
-closure unwinds, `Drop` clears during unwinding. Like all destructor-based
-cleanup, this cannot run if the process aborts.
+The wrapped value is cleared immediately after the first successful closure
+returns. If the closure unwinds, `Drop` clears during unwinding. Like all
+destructor-based cleanup, this cannot run if the process aborts.
 
 ## Explicit Volatile Wiping
 
