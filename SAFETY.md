@@ -269,23 +269,23 @@ allowing in-place text edits through closure-scoped access.
 ## Non-Goals
 
 This unsafe boundary intentionally does not implement stack scanning, cache
-flushes for non-x86_64 targets, SIMD clearing, non-Linux guard pages, or broad
-platform memory policy. Memory locking is explicit, Linux-only, feature-gated,
-and still does not protect against crash dumps, hibernation, privileged reads,
-DMA, or external copies.
+flushes for non-x86_64 targets, SIMD clearing, or broad platform memory
+policy. Memory locking is explicit, feature-gated, platform-limited, and still
+does not protect against crash dumps, hibernation, privileged reads, DMA, or
+external copies.
 Assembly-backed comparison is x86_64-only and does not make length private.
 Cache-line eviction is explicit, x86_64-only, and does not prove full CPU-cache
 or microarchitectural side-channel secrecy.
-Guard pages are Linux-only, feature-gated, and detect crossings outside the
-writable mapped data pages; they do not catch logical overreads that remain
+Guard pages are feature-gated, platform-limited, and detect crossings outside
+the writable mapped data pages; they do not catch logical overreads that remain
 inside capacity.
 
 ## Thread Safety
 
 `LockedSecretBytes<N>` and `GuardedSecretVec` explicitly implement `Send`
-because each value exclusively owns its private Linux mapping. Moving the Rust
-value to another thread moves only pointer metadata; it does not move or copy
-the mapped secret bytes. Mutation and clearing still require `&mut self`.
+because each value exclusively owns its private platform mapping. Moving the
+Rust value to another thread moves only pointer metadata; it does not move or
+copy the mapped secret bytes. Mutation and clearing still require `&mut self`.
 
 These mapped containers intentionally do not implement `Sync`. Concurrent
 shared access should be provided by caller-owned synchronization such as

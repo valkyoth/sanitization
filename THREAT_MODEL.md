@@ -13,8 +13,9 @@ Rust applications.
 - Volatile clearing of `SecretVec` and `SecretString` initialized bytes and
   spare heap capacity before freeing their allocations.
 - Explicit volatile helper APIs for existing ordinary buffers.
-- Optional Linux memory locking for `LockedSecretBytes<N>` when the
-  `memory-lock` feature is enabled on supported architectures.
+- Optional platform memory locking for `LockedSecretBytes<N>` when the
+  `memory-lock` feature is enabled on supported Linux, macOS, Windows, and BSD
+  targets.
 - Optional Linux `MADV_DONTDUMP` on locked secret mappings to reduce ordinary
   core-dump exposure.
 - Optional Linux `MADV_DONTFORK` on locked secret mappings to reduce accidental
@@ -25,10 +26,10 @@ Rust applications.
   `cache-flush` feature is enabled.
 - Optional `std` lifetime enforcement for fixed-size secrets with
   `ExpiringSecretBytes<N>`.
-- Optional Linux guard-page storage for dynamic byte secrets with
-  `GuardedSecretVec`.
-- Optional Linux memory locking for `GuardedSecretVec` when both `guard-pages`
-  and `memory-lock` are enabled.
+- Optional platform guard-page storage for dynamic byte secrets with
+  `GuardedSecretVec` on supported Linux, macOS, Windows, and BSD targets.
+- Optional platform memory locking for `GuardedSecretVec` when both
+  `guard-pages` and `memory-lock` are enabled.
 
 ## Out of Scope
 
@@ -46,7 +47,7 @@ Rust applications.
 - Clearing temporary stack copies after process abort. Closure helpers clear
   their temporaries on normal return and unwinding paths only; `panic = "abort"`
   and other abort paths skip destructors and post-closure cleanup.
-- Non-Linux guard pages and non-x86_64 cache-line flushing.
+- Cache-line flushing outside x86_64.
 
 ## Design Position
 
@@ -59,11 +60,12 @@ copies made before data enters the container.
 Volatile byte writes improve clearing resistance against compiler optimization,
 but they do not solve broader process, OS, hardware, or allocator threats.
 
-With the `memory-lock` feature on supported Linux targets,
-`LockedSecretBytes<N>` uses a private anonymous mapping, `MADV_DONTDUMP`, and
-`MADV_DONTFORK`, and `mlock` to reduce the chance that the secret's storage
-reaches ordinary core dumps, child processes created by `fork`, or swap. This is
-a high-assurance building block, not a complete OS secrecy guarantee. Resource
+With the `memory-lock` feature on supported Linux, macOS, Windows, and BSD
+targets, `LockedSecretBytes<N>` uses a private platform mapping and memory
+locking to reduce the chance that the secret's storage reaches swap or
+pagefiles. Linux also applies `MADV_DONTDUMP` and `MADV_DONTFORK` to reduce
+ordinary core-dump exposure and accidental inheritance across `fork`. This is a
+high-assurance building block, not a complete OS secrecy guarantee. Resource
 limits or policy can make setup fail, and locked memory can still be exposed
 through hibernation, nonstandard crash dump mechanisms, debuggers, privileged
 reads, DMA, malicious firmware, or copies made before data enters the locked
@@ -86,17 +88,18 @@ at access time. Expired values are cleared before access is rejected. This is an
 API-level policy control; it does not revoke bytes that callers copied out
 before expiration and does not run in the background.
 
-With the `guard-pages` feature on supported Linux targets, `GuardedSecretVec`
-stores dynamic secret bytes between inaccessible pages. This can turn linear
-overreads or overwrites beyond the mapped data pages into faults, but it does
-not catch logical overreads inside the writable capacity and does not protect
-copies made before data enters the guarded container.
+With the `guard-pages` feature on supported Linux, macOS, Windows, and BSD
+targets, `GuardedSecretVec` stores dynamic secret bytes between inaccessible
+pages. This can turn linear overreads or overwrites beyond the mapped data
+pages into faults, but it does not catch logical overreads inside the writable
+capacity and does not protect copies made before data enters the guarded
+container.
 
 When both `guard-pages` and `memory-lock` are enabled, `GuardedSecretVec`
-locked constructors also call `MADV_DONTDUMP`, `MADV_DONTFORK`, and `mlock` on
-the writable data pages. This combines guard-page fault isolation with ordinary
-core-dump, fork-inheritance, and swap-reduction for dynamic secrets, but all
-memory-lock limits still apply.
+locked constructors also lock the writable data pages. Linux additionally calls
+`MADV_DONTDUMP` and `MADV_DONTFORK`. This combines guard-page fault isolation
+with swap/pagefile reduction for dynamic secrets, but all memory-lock limits
+still apply.
 
 `SecretBytes::expose_secret_volatile` makes the volatile temporary-copy cleanup
 explicit at the call site. It clears on normal return and unwinding paths, but

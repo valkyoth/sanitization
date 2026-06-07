@@ -427,9 +427,9 @@ If resources are limited, remaining pre-stable work should be ordered as:
 2. Run downstream integration tests in real consumers before freezing `1.0.0`.
 3. Decide whether optional property-based or timing-distribution tests should
    live in-tree, outside the published crate, or in a separate audit harness.
-4. Keep non-Linux memory locking, non-x86_64 cache eviction, and tighter
-   runtime page-size handling as post-stable target-specific work unless review
-   finds a release-blocking issue.
+4. Keep richer non-Linux dump/fork policy hardening, non-x86_64 cache eviction,
+   and tighter Linux aarch64 page-size handling as post-stable target-specific
+   work unless review finds a release-blocking issue.
 
 ## Stable Release Bar
 

@@ -775,9 +775,9 @@ library when a protocol requires externally audited timing guarantees.
 | Fixed-size key or token | `SecretBytes<N>` |
 | Fixed-size key with no-`std` tick expiry | `MonotonicExpiringSecretBytes<N, C>` |
 | Fixed-size key with access expiry | `ExpiringSecretBytes<N>` with `std` |
-| Fixed-size key that should avoid swap on supported Linux | `LockedSecretBytes<N>` with `memory-lock` |
+| Fixed-size key that should avoid swap/pagefiles on supported platforms | `LockedSecretBytes<N>` with `memory-lock` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |
-| Dynamic bytes with Linux guard pages | `GuardedSecretVec` with `guard-pages` |
+| Dynamic bytes with platform guard pages | `GuardedSecretVec` with `guard-pages` |
 | Secret UTF-8 text | `SecretString` with `alloc` |
 | Secret scalar such as `u64` | `Secret<u64>` |
 | Standard compound value | `Secret<T>` where `T: SecureSanitize` |
