@@ -55,6 +55,8 @@ Implemented now:
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
 - optional explicit multi-pass volatile clear helpers.
+- no-`std` fixed-size lifetime enforcement with caller-provided monotonic
+  clocks.
 - optional `std` lifetime enforcement with `ExpiringSecretBytes<N>`.
 - optional guard-page dynamic byte storage with `GuardedSecretVec` on supported
   Linux, macOS, Windows, and BSD targets.
@@ -194,8 +196,34 @@ operation does not need an extra `expose_secret` stack copy.
 
 ## Expiring Secrets
 
-Enable `std` when fixed-size secrets should reject access after a configured
-maximum age:
+Use `MonotonicExpiringSecretBytes<N, C>` when fixed-size secrets should reject
+access after a caller-defined number of monotonic ticks without requiring
+`std`:
+
+```rust
+use sanitization::{MonotonicClock, MonotonicExpiringSecretBytes};
+
+struct CounterClock(u64);
+
+impl MonotonicClock for CounterClock {
+    fn now(&self) -> u64 {
+        self.0
+    }
+}
+
+let mut key =
+    MonotonicExpiringSecretBytes::<32, _>::from_array([7; 32], CounterClock(10), 300);
+
+assert_eq!(key.try_constant_time_eq(&[7; 32]), Ok(true));
+assert_eq!(key.max_age_ticks(), 300);
+```
+
+The tick unit is application-defined: milliseconds, RTOS ticks, hardware
+counter increments, or another monotonic unit. The clock must not move backward
+within a secret lifetime window.
+
+Enable `std` when you want the convenience wrapper backed by
+`std::time::Instant`:
 
 ```toml
 [dependencies]
@@ -745,6 +773,7 @@ library when a protocol requires externally audited timing guarantees.
 | Use case | Recommended API |
 | --- | --- |
 | Fixed-size key or token | `SecretBytes<N>` |
+| Fixed-size key with no-`std` tick expiry | `MonotonicExpiringSecretBytes<N, C>` |
 | Fixed-size key with access expiry | `ExpiringSecretBytes<N>` with `std` |
 | Fixed-size key that should avoid swap on supported Linux | `LockedSecretBytes<N>` with `memory-lock` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |

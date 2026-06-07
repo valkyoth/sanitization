@@ -26,6 +26,8 @@
   immediate clearing.
 - Added the optional `multi-pass-clear` feature with explicit three-pass
   volatile overwrite helpers for policy or audit compatibility.
+- Added `MonotonicClock` and `MonotonicExpiringSecretBytes<N, C>` for no-`std`
+  fixed-size secret lifetime enforcement with caller-defined ticks.
 - Added `LockedSecretBytes::try_from_fn`, `GuardedSecretVec::try_from_fn`, and
   `GuardedSecretVec::locked_try_from_fn` for fallible high-assurance direct
   byte generation.

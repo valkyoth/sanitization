@@ -3505,11 +3505,9 @@ impl<const N: usize> fmt::Debug for SecretBytes<N> {
 }
 
 /// Error returned when an expiring secret has exceeded its configured lifetime.
-#[cfg(feature = "std")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SecretExpiredError;
 
-#[cfg(feature = "std")]
 impl fmt::Display for SecretExpiredError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("secret has expired")
@@ -3519,8 +3517,7 @@ impl fmt::Display for SecretExpiredError {
 #[cfg(feature = "std")]
 impl std::error::Error for SecretExpiredError {}
 
-/// Error returned by [`ExpiringSecretBytes`] operations.
-#[cfg(feature = "std")]
+/// Error returned by expiring secret operations.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExpiringSecretError {
     /// The secret has exceeded its configured lifetime.
@@ -3529,7 +3526,6 @@ pub enum ExpiringSecretError {
     Length(LengthError),
 }
 
-#[cfg(feature = "std")]
 impl fmt::Display for ExpiringSecretError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -3549,7 +3545,6 @@ impl std::error::Error for ExpiringSecretError {
     }
 }
 
-#[cfg(feature = "std")]
 impl From<SecretExpiredError> for ExpiringSecretError {
     #[inline]
     fn from(error: SecretExpiredError) -> Self {
@@ -3557,11 +3552,316 @@ impl From<SecretExpiredError> for ExpiringSecretError {
     }
 }
 
-#[cfg(feature = "std")]
 impl From<LengthError> for ExpiringSecretError {
     #[inline]
     fn from(error: LengthError) -> Self {
         Self::Length(error)
+    }
+}
+
+/// Caller-provided monotonic tick source for no-`std` expiring secrets.
+///
+/// The unit is intentionally application-defined: milliseconds, RTOS ticks,
+/// counter increments, or another monotonic unit. Implementations must not move
+/// backward for a given secret lifetime window.
+pub trait MonotonicClock {
+    /// Return the current monotonic tick value.
+    fn now(&self) -> u64;
+}
+
+impl<C: MonotonicClock + ?Sized> MonotonicClock for &C {
+    #[inline]
+    fn now(&self) -> u64 {
+        (**self).now()
+    }
+}
+
+/// Fixed-size secret bytes with caller-provided monotonic lifetime enforcement.
+///
+/// This is the `no_std` counterpart to [`ExpiringSecretBytes`]. It wraps
+/// [`SecretBytes<N>`], stores a caller-provided [`MonotonicClock`], and rejects
+/// exposure after `max_age` ticks. On expiration, fallible
+/// read/exposure/comparison methods clear the wrapped secret before returning
+/// [`SecretExpiredError`].
+///
+/// There is no background task. Expiration is checked only when a method is
+/// called.
+pub struct MonotonicExpiringSecretBytes<const N: usize, C: MonotonicClock> {
+    inner: SecretBytes<N>,
+    clock: C,
+    created_at: u64,
+    max_age: u64,
+}
+
+impl<const N: usize, C: MonotonicClock> MonotonicExpiringSecretBytes<N, C> {
+    /// Create an all-zero expiring secret.
+    #[must_use]
+    #[inline]
+    pub fn zeroed(clock: C, max_age: u64) -> Self {
+        let created_at = clock.now();
+        Self {
+            inner: SecretBytes::zeroed(),
+            clock,
+            created_at,
+            max_age,
+        }
+    }
+
+    /// Create an expiring secret from an array, then volatile-clear the input
+    /// array.
+    #[must_use]
+    #[inline]
+    pub fn from_array(bytes: [u8; N], clock: C, max_age: u64) -> Self {
+        let created_at = clock.now();
+        Self {
+            inner: SecretBytes::from_array(bytes),
+            clock,
+            created_at,
+            max_age,
+        }
+    }
+
+    /// Create an expiring secret by producing each byte directly.
+    #[must_use]
+    #[inline]
+    pub fn from_fn(clock: C, max_age: u64, make_byte: impl FnMut(usize) -> u8) -> Self {
+        let created_at = clock.now();
+        Self {
+            inner: SecretBytes::from_fn(make_byte),
+            clock,
+            created_at,
+            max_age,
+        }
+    }
+
+    /// Create an expiring secret by fallibly producing each byte directly.
+    ///
+    /// If `make_byte` returns an error, any bytes generated before the error
+    /// are cleared before the error is returned.
+    #[inline]
+    pub fn try_from_fn<E>(
+        clock: C,
+        max_age: u64,
+        make_byte: impl FnMut(usize) -> Result<u8, E>,
+    ) -> Result<Self, E> {
+        let created_at = clock.now();
+        Ok(Self {
+            inner: SecretBytes::try_from_fn(make_byte)?,
+            clock,
+            created_at,
+            max_age,
+        })
+    }
+
+    /// Wrap an existing [`SecretBytes<N>`] and start a new lifetime window.
+    #[must_use]
+    #[inline]
+    pub fn from_secret(secret: SecretBytes<N>, clock: C, max_age: u64) -> Self {
+        let created_at = clock.now();
+        Self {
+            inner: secret,
+            clock,
+            created_at,
+            max_age,
+        }
+    }
+
+    /// Number of bytes stored in this secret.
+    #[must_use]
+    #[inline]
+    pub const fn len(&self) -> usize {
+        N
+    }
+
+    /// Returns true when the secret has zero length.
+    #[must_use]
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        N == 0
+    }
+
+    /// Configured maximum age in caller-defined clock ticks.
+    #[must_use]
+    #[inline]
+    pub const fn max_age_ticks(&self) -> u64 {
+        self.max_age
+    }
+
+    /// Elapsed lifetime in caller-defined clock ticks.
+    #[must_use]
+    #[inline]
+    pub fn age_ticks(&self) -> u64 {
+        self.clock.now().saturating_sub(self.created_at)
+    }
+
+    /// Returns true when the current secret value has expired.
+    #[must_use]
+    #[inline]
+    pub fn is_expired(&self) -> bool {
+        self.age_ticks() >= self.max_age
+    }
+
+    /// Borrow the monotonic clock stored by this value.
+    #[must_use]
+    #[inline]
+    pub const fn clock(&self) -> &C {
+        &self.clock
+    }
+
+    /// Replace all bytes and restart the lifetime window.
+    ///
+    /// If the previous value has already expired, it is cleared before the new
+    /// value is copied in.
+    #[inline]
+    pub fn replace_from_slice(&mut self, source: &[u8]) -> Result<(), LengthError> {
+        if self.is_expired() {
+            self.inner.secure_clear();
+        }
+
+        self.inner.copy_from_slice(source)?;
+        self.created_at = self.clock.now();
+        Ok(())
+    }
+
+    /// Replace all bytes from an owned array, clear that input array, and
+    /// restart the lifetime window.
+    #[inline]
+    pub fn replace_from_array(&mut self, bytes: [u8; N]) {
+        if self.is_expired() {
+            self.inner.secure_clear();
+        }
+
+        self.inner.replace_from_array(bytes);
+        self.created_at = self.clock.now();
+    }
+
+    /// Replace all bytes from a generator and restart the lifetime window.
+    #[inline]
+    pub fn replace_from_fn(&mut self, make_byte: impl FnMut(usize) -> u8) {
+        let expired = self.is_expired();
+        if expired {
+            self.inner.secure_clear();
+        }
+
+        let replacement = SecretBytes::from_fn(make_byte);
+        if !expired {
+            self.inner.secure_clear();
+        }
+        self.inner = replacement;
+        self.created_at = self.clock.now();
+    }
+
+    /// Replace all bytes from a fallible generator and restart the lifetime
+    /// window.
+    ///
+    /// If the old value is still live and generation fails, the old value
+    /// remains unchanged. If the old value has already expired, it is cleared
+    /// before generation and remains cleared if generation fails.
+    #[inline]
+    pub fn try_replace_from_fn<E>(
+        &mut self,
+        make_byte: impl FnMut(usize) -> Result<u8, E>,
+    ) -> Result<(), E> {
+        let expired = self.is_expired();
+        if expired {
+            self.inner.secure_clear();
+        }
+
+        let replacement = SecretBytes::try_from_fn(make_byte)?;
+        if !expired {
+            self.inner.secure_clear();
+        }
+        self.inner = replacement;
+        self.created_at = self.clock.now();
+        Ok(())
+    }
+
+    /// Fill a caller-provided destination with a copy of the secret bytes if
+    /// the secret has not expired.
+    #[inline]
+    pub fn try_copy_to_slice(&mut self, destination: &mut [u8]) -> Result<(), ExpiringSecretError> {
+        self.enforce_live()?;
+        self.inner.copy_to_slice(destination).map_err(Into::into)
+    }
+
+    /// Run a closure with a temporary array copy if the secret has not expired.
+    #[inline]
+    pub fn try_expose_secret<R>(
+        &mut self,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> Result<R, SecretExpiredError> {
+        self.enforce_live()?;
+        Ok(self.inner.expose_secret(inspect))
+    }
+
+    /// Run a closure with a temporary array copy if the secret has not expired.
+    ///
+    /// This is the monotonic-clock variant of
+    /// [`SecretBytes::expose_secret_volatile`].
+    #[inline]
+    pub fn try_expose_secret_volatile<R>(
+        &mut self,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> Result<R, SecretExpiredError> {
+        self.enforce_live()?;
+        Ok(self.inner.expose_secret_volatile(inspect))
+    }
+
+    /// Compare against a slice if the secret has not expired.
+    ///
+    /// Length mismatch remains public metadata and returns `Ok(false)`.
+    #[inline]
+    pub fn try_constant_time_eq(&mut self, other: &[u8]) -> Result<bool, SecretExpiredError> {
+        self.enforce_live()?;
+        Ok(self.inner.constant_time_eq(other))
+    }
+
+    /// Clear the wrapped secret immediately.
+    #[inline(never)]
+    pub fn secure_clear(&mut self) {
+        self.inner.secure_clear();
+    }
+
+    /// Consume this value after first clearing the wrapped secret.
+    #[inline]
+    pub fn into_cleared(mut self) {
+        self.secure_clear();
+    }
+
+    #[inline]
+    fn enforce_live(&mut self) -> Result<(), SecretExpiredError> {
+        if self.is_expired() {
+            self.inner.secure_clear();
+            Err(SecretExpiredError)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<const N: usize, C: MonotonicClock> Drop for MonotonicExpiringSecretBytes<N, C> {
+    #[inline]
+    fn drop(&mut self) {
+        self.secure_clear();
+    }
+}
+
+impl<const N: usize, C: MonotonicClock> SecureSanitize for MonotonicExpiringSecretBytes<N, C> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.secure_clear();
+    }
+}
+
+impl<const N: usize, C: MonotonicClock> fmt::Debug for MonotonicExpiringSecretBytes<N, C> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MonotonicExpiringSecretBytes")
+            .field("len", &N)
+            .field("age_ticks", &self.age_ticks())
+            .field("max_age_ticks", &self.max_age)
+            .field("contents", &"<redacted>")
+            .finish()
     }
 }
 
@@ -4836,6 +5136,15 @@ pub mod unsafe_wipe {
 mod tests {
     use super::*;
 
+    struct TestClock<'a>(&'a core::cell::Cell<u64>);
+
+    impl MonotonicClock for TestClock<'_> {
+        #[inline]
+        fn now(&self) -> u64 {
+            self.0.get()
+        }
+    }
+
     #[test]
     fn length_error_formats_clearly() {
         let error = LengthError {
@@ -5232,6 +5541,63 @@ mod tests {
             .unwrap();
         assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
         assert_eq!(out, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn monotonic_expiring_secret_allows_access_before_expiration() {
+        let ticks = core::cell::Cell::new(10);
+        let mut secret =
+            MonotonicExpiringSecretBytes::<4, _>::from_array([1, 2, 3, 4], TestClock(&ticks), 5);
+        let mut out = [0; 4];
+
+        ticks.set(14);
+
+        assert_eq!(secret.age_ticks(), 4);
+        assert!(!secret.is_expired());
+        assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+        assert_eq!(out, [1, 2, 3, 4]);
+        assert_eq!(secret.try_constant_time_eq(&[1, 2, 3, 4]), Ok(true));
+    }
+
+    #[test]
+    fn monotonic_expiring_secret_clears_and_rejects_after_expiration() {
+        let ticks = core::cell::Cell::new(10);
+        let mut secret =
+            MonotonicExpiringSecretBytes::<4, _>::from_array([1, 2, 3, 4], TestClock(&ticks), 5);
+        let mut out = [9; 4];
+
+        ticks.set(15);
+
+        assert!(secret.is_expired());
+        assert_eq!(
+            secret.try_copy_to_slice(&mut out),
+            Err(ExpiringSecretError::Expired(SecretExpiredError))
+        );
+        assert_eq!(
+            secret.try_expose_secret(|bytes| bytes[0]),
+            Err(SecretExpiredError)
+        );
+    }
+
+    #[test]
+    fn monotonic_expiring_secret_replacement_restarts_lifetime() {
+        let ticks = core::cell::Cell::new(10);
+        let mut secret =
+            MonotonicExpiringSecretBytes::<4, _>::from_array([1, 2, 3, 4], TestClock(&ticks), 5);
+        let mut out = [0; 4];
+
+        ticks.set(15);
+        secret.replace_from_array([5, 6, 7, 8]);
+
+        assert_eq!(secret.age_ticks(), 0);
+        assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+        assert_eq!(out, [5, 6, 7, 8]);
+
+        ticks.set(17);
+        secret.replace_from_slice(&[8, 7, 6, 5]).unwrap();
+        assert_eq!(secret.age_ticks(), 0);
+        assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+        assert_eq!(out, [8, 7, 6, 5]);
     }
 
     #[test]

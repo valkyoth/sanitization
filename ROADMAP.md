@@ -338,27 +338,32 @@ Design requirements:
 
 ### 5. Secret Lifetime Enforcement
 
-Status: implemented for fixed-size secrets behind the `std` feature.
+Status: implemented for fixed-size secrets through both a no-`std`
+caller-provided monotonic clock wrapper and the `std` convenience wrapper.
 
-Priority: policy feature, likely `std` only.
+Priority: policy feature.
 
-Some systems need secrets to expire after a fixed time. The `std` feature now
-provides `ExpiringSecretBytes<N>`, which tracks creation time and rejects
-fallible access after a configured maximum age.
+Some systems need secrets to expire after a fixed time or tick count. The
+default no-`std` API provides `MonotonicExpiringSecretBytes<N, C>`, which uses
+a caller-provided `MonotonicClock`. The `std` feature provides
+`ExpiringSecretBytes<N>`, which tracks creation time with `std::time::Instant`
+and rejects fallible access after a configured maximum age.
 
 Implemented API shape:
 
 ```rust
+let key = MonotonicExpiringSecretBytes::<32, _>::from_array([0; 32], clock, max_age_ticks);
 let key = ExpiringSecretBytes::<32>::from_array([0; 32], duration);
 ```
 
 Design constraints:
 
-- keep `no_std` defaults untouched: implemented behind `std`;
+- keep `no_std` defaults untouched: implemented without requiring `std`;
 - avoid hidden background work: expiration is checked only on method calls;
 - decide whether expiration clears immediately or only prevents exposure:
   expired access clears before returning `SecretExpiredError`;
-- account for clock behavior and testability: uses `std::time::Instant`; review
+- account for clock behavior and testability: no-`std` callers provide a
+  monotonic tick source; `std` callers can use `std::time::Instant`; review
   clock assumptions before stable.
 - fallible generated replacement preserves a still-live old value on generator
   error, but clears an already-expired old value before returning the error.
