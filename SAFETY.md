@@ -6,14 +6,16 @@ The crate root uses `#![deny(unsafe_code)]` and
 Unsafe code is allowed only inside narrow `src/lib.rs` modules:
 
 - `wipe`, the default volatile clear backend;
-- `memory_lock`, available only with the `memory-lock` feature on supported
-  Linux, Android, macOS, iOS, Windows, and BSD targets.
+- `memory_lock`, available with the `memory-lock` feature on supported native
+  Linux, Android, macOS, iOS, Windows, and BSD targets, and as a volatile-only
+  compatibility backend on WASM.
 - `compare_asm`, available only with the `asm-compare` feature on x86_64
   outside Miri.
 - `cache_flush`, available only with the `cache-flush` feature on x86_64
   outside Miri.
 - `guard_pages`, available only with the `guard-pages` feature on supported
-  Linux, Android, macOS, iOS, Windows, and BSD targets outside Miri.
+  Linux, Android, macOS, iOS, Windows, and BSD targets outside Miri. The
+  feature is rejected at compile time on WASM.
 
 Public APIs, including `unsafe_wipe`, are safe wrappers around those internal
 backends.
@@ -43,6 +45,10 @@ Invariant:
   without reading it.
 - With `multi-pass-clear`, the same pointer validity rules apply to all three
   passes: zero, `0xFF`, zero.
+- On WASM, the volatile loop is called through an `#[inline(never)]`
+  function-pointer boundary to reduce runtime optimizer visibility. This is a
+  best-effort WASM mitigation, not a WASM specification-level volatile
+  guarantee.
 
 ### `String::as_mut_ptr`
 
@@ -69,7 +75,8 @@ Purpose: provide dependency-free platform memory locking for
 `LockedSecretBytes<N>` and pooled `SecretPool<N, SLOTS>` slots without routing
 secret bytes through the Rust global allocator. Linux uses raw syscalls;
 Android, macOS, iOS, and BSD use system C ABI entry points; Windows uses
-Kernel32 virtual memory APIs.
+Kernel32 virtual memory APIs. WASM uses a separate compatibility backend with
+inline WASM-owned storage and no host memory lock.
 
 Operations:
 
@@ -86,12 +93,16 @@ Operations:
   locks it, and `VirtualUnlock`/`VirtualFree` release it.
 - raw pointers from the mapping are converted to byte slices and fixed-size
   byte-array references while the mapping is live.
+- WASM: `UnsafeCell` owns inline fixed-size storage for `LockedSecretBytes<N>`
+  and each `SecretPool<N, SLOTS>` slot. The backend exposes the same safe API
+  surface where possible, volatile-clears on drop, and intentionally reports no
+  locked byte count for pools.
 
 Invariant:
 
 - The module is compiled only for supported OS targets with the `memory-lock`
-  feature enabled. Linux support is limited to `x86_64` and `aarch64` raw
-  syscall ABIs.
+  feature enabled, or for `wasm32` with the volatile-only compatibility
+  backend. Linux support is limited to `x86_64` and `aarch64` raw syscall ABIs.
 - Linux syscall register assignments follow the Linux syscall ABI for the
   target architecture.
 - Non-Linux Unix targets use C ABI declarations without adding a Rust `libc`
@@ -122,6 +133,11 @@ Invariant:
   operation error where the API can return one; `SecretPool` also provides
   `try_allocate` for explicit slot-allocation error handling.
 - Canary writes happen only after platform mapping setup and locking succeed.
+- On WASM, there is no platform mapping setup or locking. Canary writes happen
+  during construction or slot allocation after inline storage has been created.
+  Deterministic WASM canaries use fixed owner/slot metadata instead of mapping
+  addresses; `random-canary` uses WASI preview1 `random_get` where available
+  and otherwise returns a `Random` operation error.
 - Canary verification compares both prefix and suffix with the expected value
   using the crate constant-time slice comparison helper and boolean `&`, so both
   canaries are checked without data-dependent early exit at this layer.

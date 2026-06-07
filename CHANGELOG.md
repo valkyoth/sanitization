@@ -30,6 +30,17 @@
   fixed-size secret lifetime enforcement with caller-defined ticks.
 - Added CI and local check coverage for mapped memory backends across Linux,
   Android, macOS, iOS, Windows, BSD, WASM, and embedded no-`std` target builds.
+- Added a `memory-lock` WASM compatibility backend for
+  `LockedSecretBytes<N>` and `SecretPool<N, SLOTS>` using volatile-only
+  WASM-owned storage, with documentation that no actual host memory lock is
+  applied.
+- Added explicit `guard-pages` compile-time rejection on WASM targets because
+  WASM linear memory has no module-level page protection.
+- Added WASI preview1 `random_get` support for `random-canary`, while keeping
+  unsupported WASM random backends as explicit `Random` operation failures.
+- Added a WASM-specific volatile clear call boundary to reduce runtime
+  optimizer visibility, documented as best-effort rather than equivalent to
+  native volatile semantics.
 - Added full raw allocation wiping for generic `Vec<T>: SecureSanitize`,
   dependency-free errno capture for Unix C ABI mapped backends, and FreeBSD
   `MADV_NOCORE` core-dump exclusion.

@@ -52,7 +52,18 @@ check_installed_target aarch64-linux-android --all-features --lib
 check_installed_target x86_64-linux-android --all-features --lib
 check_installed_target x86_64-unknown-freebsd --features memory-lock,guard-pages,multi-pass-clear --lib
 check_installed_target wasm32-unknown-unknown --no-default-features --lib
+check_installed_target wasm32-unknown-unknown --features alloc,memory-lock,canary-check,multi-pass-clear --lib
+check_installed_target wasm32-unknown-unknown --features random-canary --lib
+check_installed_target wasm32-wasip1 --features alloc,random-canary,multi-pass-clear --lib
+check_installed_target wasm32-wasip2 --features random-canary --lib
 check_installed_target thumbv7em-none-eabihf --no-default-features --lib
+
+if target_installed wasm32-unknown-unknown; then
+    if cargo check --target wasm32-unknown-unknown --features guard-pages --lib >/tmp/sanitization-wasm-guard-pages.log 2>&1; then
+        printf 'wasm32 guard-pages unexpectedly compiled\n'
+        exit 1
+    fi
+fi
 
 scripts/verify-codegen.sh
 scripts/verify-kani.sh

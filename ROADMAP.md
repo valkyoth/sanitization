@@ -180,7 +180,9 @@ if keeping dev dependencies out of the repository remains preferred.
 Status: implemented for fixed-size secrets and pooled fixed-size slots behind
 the `memory-lock` feature on supported Linux, Android, macOS, iOS, Windows, and
 BSD targets, and for guarded dynamic secrets when `memory-lock` and
-`guard-pages` are both enabled.
+`guard-pages` are both enabled. WASM targets expose `LockedSecretBytes<N>` and
+`SecretPool<N, SLOTS>` as volatile-only compatibility containers, not as memory
+locked storage.
 
 `mlock`, `VirtualLock`, guard pages, and platform-specific memory policies are
 important for high-assurance deployments. Memory locking is the biggest
@@ -193,8 +195,11 @@ Current implementation:
   Windows, and BSD targets when the `memory-lock` feature is enabled.
 - `SecretPool<N, SLOTS>` is available on the same memory-lock targets for
   applications that need many same-size fixed secrets under one locked mapping.
+- On `wasm32`, `LockedSecretBytes<N>` and `SecretPool<N, SLOTS>` are available
+  for API portability with inline WASM-owned storage and volatile clearing, but
+  no `mlock`, dump exclusion, fork exclusion, or page-table policy is applied.
 - Secret bytes live in a private platform mapping rather than the Rust global
-  allocator.
+  allocator on native memory-lock backends.
 - Linux uses raw `mmap`/`madvise`/`mlock` syscalls on `x86_64` and `aarch64`.
 - Android, macOS, iOS, and BSD use system `mmap`/`mlock` ABI calls without
   adding a Rust `libc` crate dependency.
@@ -212,11 +217,14 @@ Current implementation:
   `GuardedSecretVec` writable mappings, then fails closed before exposing,
   mutating, replacing, or comparing corrupted secrets.
 - `random-canary` optionally backs those integrity words with direct OS CSPRNG
-  calls without adding external dependencies.
+  calls without adding external dependencies. WASI preview1 uses `random_get`;
+  other currently supported WASM cfgs fail random-canary setup explicitly.
 - `GuardedSecretVec` is available on supported Linux, Android, macOS, iOS,
   Windows, and BSD targets with `guard-pages`. It can also lock its writable
   data pages when both `guard-pages` and `memory-lock` are enabled. Growth and
   whole-value replacement preserve the lock state.
+- `guard-pages` is intentionally unavailable on WASM because WASM linear memory
+  has no module-level page protection API.
 
 Remaining stance:
 

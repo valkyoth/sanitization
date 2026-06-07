@@ -19,6 +19,9 @@ Rust applications.
 - Optional pooled platform memory locking for many same-size fixed secrets with
   `SecretPool<N, SLOTS>` when the `memory-lock` feature is enabled on supported
   targets.
+- WASM API compatibility for `LockedSecretBytes<N>` and
+  `SecretPool<N, SLOTS>` when `memory-lock` is enabled on `wasm32`, using
+  volatile-only WASM-owned storage without claiming host memory locking.
 - Optional prefix/suffix canary integrity checks for non-empty
   `LockedSecretBytes<N>` mappings, pooled slots, and guarded dynamic mappings
   when the `canary-check` feature is enabled.
@@ -46,6 +49,8 @@ Rust applications.
   systems, or external libraries.
 - Preventing swap/pagefile exposure on unsupported targets or for values not
   stored inside `LockedSecretBytes<N>`.
+- Preventing host-runtime copies, swapping, snapshots, dumps, or browser memory
+  inspection for WASM linear memory.
 - Preventing disclosure through a debugger, `/proc/<pid>/mem`, ptrace, kernel
   compromise, DMA, malicious firmware, or privileged co-tenants.
 - Revoking external copies after a secret has already been exposed to caller
@@ -70,6 +75,14 @@ copies made before data enters the container.
 
 Volatile byte writes improve clearing resistance against compiler optimization,
 but they do not solve broader process, OS, hardware, or allocator threats.
+On WASM, this guarantee is weaker than on native targets: Rust/LLVM preserves
+`ptr::write_volatile` while emitting WASM, but the WASM specification has no
+volatile-memory operation. A runtime JIT or AOT compiler sees ordinary WASM
+stores. The crate uses an `#[inline(never)]` function-pointer boundary on
+WASM as a best-effort optimizer barrier, but this is not equivalent to native
+volatile semantics. Building with WASM atomics/shared-memory support can give
+runtimes stronger observable side effects, but that is a deployment property
+outside this crate.
 
 With the `multi-pass-clear` feature, the crate exposes explicit three-pass
 volatile overwrite helpers using zero, `0xFF`, and zero patterns. For ordinary
@@ -95,6 +108,16 @@ container. Leaking a slot with `core::mem::forget` also leaks that slot's
 allocation state and skips its drop-time clearing, just as leaking any
 secret-owning value skips its destructor.
 
+With the `memory-lock` feature on WASM targets, `LockedSecretBytes<N>` and
+`SecretPool<N, SLOTS>` are exposed as volatile-only compatibility containers.
+They keep API-level code portable and still clear their owned WASM storage on
+drop, but they do not call `mlock`, do not create protected mappings, do not
+exclude host dumps or snapshots, and cannot prevent the runtime from copying or
+moving linear memory. `SecretPool::locked_len()` returns `0` on WASM to avoid
+misrepresenting host memory as pinned. `guard-pages` is not available on WASM
+because WASM linear memory has no `mprotect`-style page protection available to
+the module.
+
 With the `canary-check` feature, non-empty `LockedSecretBytes<N>` mappings and
 `SecretPool<N, SLOTS>` slots place an 8-byte canary before and after the secret
 bytes. `GuardedSecretVec` places one canary before the payload and one
@@ -113,6 +136,12 @@ using dependency-free platform backends. Random canaries improve blind
 overwrite detection and audit posture, but they still do not authenticate memory
 against an attacker who can read and rewrite both the owner metadata and mapped
 canary bytes.
+On WASM, deterministic canaries cannot safely derive from a stable mapping
+address because the fallback storage lives inline with the Rust value or pool.
+Use `random-canary` on WASI preview1 when blind overwrite resistance matters;
+bare `wasm32-unknown-unknown`, Emscripten-style WASM, and WASI preview2
+currently return a `Random` operation error for random canary generation in
+this dependency-free implementation.
 
 With the `asm-compare` feature on x86_64, equal-length comparisons use an
 inline-assembly loop. This gives the comparison body a stronger compiler
