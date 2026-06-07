@@ -20,6 +20,8 @@
 //!   `memory-lock` feature on supported Linux, Android, macOS, iOS, Windows,
 //!   and BSD targets. The same feature also enables pooled locked slots with
 //!   [`SecretPool`] on supported targets.
+//! - Locked-secret canary integrity checks are available only through the
+//!   explicit `canary-check` feature on supported memory-lock targets.
 //! - x86_64 assembly-backed comparison is available only through the explicit
 //!   `asm-compare` feature.
 //! - x86_64 cache-line eviction is available only through the explicit
@@ -460,6 +462,11 @@ mod memory_lock {
     #[cfg(target_os = "windows")]
     const PAGE_READWRITE: u32 = 0x04;
 
+    #[cfg(feature = "canary-check")]
+    const CANARY_SIZE: usize = 8;
+    #[cfg(feature = "canary-check")]
+    const CANARY_MASK: u64 = 0xDEAD_BEEF_CAFE_BABE;
+
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     const SYS_MMAP: usize = 9;
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -655,6 +662,67 @@ mod memory_lock {
         }
     }
 
+    /// Error returned when a checked locked secret detects canary corruption.
+    #[cfg(feature = "canary-check")]
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct CanaryCorruptedError;
+
+    #[cfg(feature = "canary-check")]
+    impl fmt::Display for CanaryCorruptedError {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("locked secret canary corrupted")
+        }
+    }
+
+    #[cfg(all(feature = "canary-check", feature = "std"))]
+    impl std::error::Error for CanaryCorruptedError {}
+
+    /// Error returned by checked locked-secret copy operations.
+    #[cfg(feature = "canary-check")]
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum LockedSecretBytesCheckedCopyError {
+        /// The caller provided a destination with the wrong length.
+        Length(crate::LengthError),
+        /// Prefix or suffix canary verification failed.
+        Canary(CanaryCorruptedError),
+    }
+
+    #[cfg(feature = "canary-check")]
+    impl fmt::Display for LockedSecretBytesCheckedCopyError {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::Length(error) => error.fmt(formatter),
+                Self::Canary(error) => error.fmt(formatter),
+            }
+        }
+    }
+
+    #[cfg(all(feature = "canary-check", feature = "std"))]
+    impl std::error::Error for LockedSecretBytesCheckedCopyError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::Length(error) => Some(error),
+                Self::Canary(error) => Some(error),
+            }
+        }
+    }
+
+    #[cfg(feature = "canary-check")]
+    impl From<crate::LengthError> for LockedSecretBytesCheckedCopyError {
+        #[inline]
+        fn from(error: crate::LengthError) -> Self {
+            Self::Length(error)
+        }
+    }
+
+    #[cfg(feature = "canary-check")]
+    impl From<CanaryCorruptedError> for LockedSecretBytesCheckedCopyError {
+        #[inline]
+        fn from(error: CanaryCorruptedError) -> Self {
+            Self::Canary(error)
+        }
+    }
+
     impl From<crate::LengthError> for LockedSecretBytesError {
         #[inline]
         fn from(error: crate::LengthError) -> Self {
@@ -685,6 +753,12 @@ mod memory_lock {
     /// Windows uses `VirtualAlloc`/`VirtualLock`. Every backend volatile-clears
     /// the full mapping before unlocking and releasing it.
     ///
+    /// With the `canary-check` feature enabled, non-empty locked mappings store
+    /// an 8-byte prefix canary and 8-byte suffix canary around the secret data.
+    /// Existing exposure APIs verify those canaries before use and fail closed
+    /// by clearing the mapping and panicking if corruption is detected. Checked
+    /// APIs return [`CanaryCorruptedError`] instead.
+    ///
     /// The secret bytes are not stored inline in the Rust value. Moving this
     /// type only moves pointer metadata, so ordinary Rust moves do not copy the
     /// secret byte array itself.
@@ -709,7 +783,7 @@ mod memory_lock {
                 });
             }
 
-            let map_len = rounded_mapping_len(N)?;
+            let map_len = rounded_mapping_len(Self::mapping_payload_len()?)?;
             let ptr = map_private(map_len)?;
 
             if let Err(error) = mark_dontdump(ptr, map_len) {
@@ -727,7 +801,9 @@ mod memory_lock {
                 return Err(error);
             }
 
-            Ok(Self { ptr, map_len })
+            let mut secret = Self { ptr, map_len };
+            secret.write_canaries();
+            Ok(secret)
         }
 
         /// Allocate locked storage, copy an array into it, then clear the input
@@ -836,6 +912,7 @@ mod memory_lock {
                 });
             }
 
+            self.assert_canaries_intact();
             self.as_mut_slice().copy_from_slice(source);
             compiler_fence(Ordering::SeqCst);
             Ok(())
@@ -913,6 +990,7 @@ mod memory_lock {
                 });
             }
 
+            self.assert_canaries_intact();
             destination.copy_from_slice(self.as_slice());
             compiler_fence(Ordering::SeqCst);
             core::hint::black_box(destination);
@@ -925,7 +1003,72 @@ mod memory_lock {
         /// cryptographic or protocol boundaries that genuinely need raw bytes.
         #[inline]
         pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+            self.assert_canaries_intact();
             inspect(self.as_array())
+        }
+
+        /// Verify canary integrity before exposing the locked secret bytes.
+        ///
+        /// This method is available with `canary-check`. If either canary was
+        /// corrupted, the full mapping is volatile-cleared before
+        /// [`CanaryCorruptedError`] is returned.
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        pub fn expose_secret_checked<R>(
+            &self,
+            inspect: impl FnOnce(&[u8; N]) -> R,
+        ) -> Result<R, CanaryCorruptedError> {
+            self.verify_integrity()?;
+            Ok(inspect(self.as_array()))
+        }
+
+        /// Verify canary integrity before copying secret bytes out.
+        ///
+        /// Length mismatch is still reported as [`crate::LengthError`].
+        /// Canary corruption is reported separately after the destination length
+        /// has been validated.
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        pub fn copy_to_slice_checked(
+            &self,
+            destination: &mut [u8],
+        ) -> Result<(), LockedSecretBytesCheckedCopyError> {
+            if destination.len() != N {
+                return Err(crate::LengthError {
+                    expected: N,
+                    actual: destination.len(),
+                }
+                .into());
+            }
+
+            self.verify_integrity()?;
+            destination.copy_from_slice(self.as_slice());
+            compiler_fence(Ordering::SeqCst);
+            core::hint::black_box(destination);
+            Ok(())
+        }
+
+        /// Verify canary integrity before comparing secret bytes.
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        pub fn constant_time_eq_checked(&self, other: &[u8]) -> Result<bool, CanaryCorruptedError> {
+            self.verify_integrity()?;
+            Ok(crate::constant_time_eq_slices(self.as_slice(), other))
+        }
+
+        /// Verify locked mapping canaries.
+        ///
+        /// If corruption is detected, the full mapping is immediately
+        /// volatile-cleared because the secret can no longer be trusted.
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        pub fn verify_integrity(&self) -> Result<(), CanaryCorruptedError> {
+            if self.canaries_intact() {
+                Ok(())
+            } else {
+                self.clear_after_canary_failure();
+                Err(CanaryCorruptedError)
+            }
         }
 
         /// Compare against a slice without early exit for equal-length inputs.
@@ -940,6 +1083,7 @@ mod memory_lock {
         #[must_use]
         #[inline]
         pub fn constant_time_eq(&self, other: &[u8]) -> bool {
+            self.assert_canaries_intact();
             crate::constant_time_eq_slices(self.as_slice(), other)
         }
 
@@ -971,9 +1115,9 @@ mod memory_lock {
 
         #[inline]
         fn as_slice(&self) -> &[u8] {
-            // SAFETY: `ptr` either points to a live mapping of at least `N`
-            // bytes owned by this value, or is dangling with `N == 0`.
-            unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), N) }
+            // SAFETY: `data_ptr` either points to `N` live secret bytes owned
+            // by this value, or is dangling with `N == 0`.
+            unsafe { core::slice::from_raw_parts(self.data_ptr(), N) }
         }
 
         #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
@@ -988,14 +1132,160 @@ mod memory_lock {
         fn as_mut_slice(&mut self) -> &mut [u8] {
             // SAFETY: `&mut self` gives exclusive access to the live mapping,
             // and the mapping is at least `N` bytes long when `N > 0`.
-            unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), N) }
+            unsafe { core::slice::from_raw_parts_mut(self.data_ptr(), N) }
         }
 
         #[inline]
         fn as_array(&self) -> &[u8; N] {
             // SAFETY: `as_slice` is exactly `N` bytes long, and the pointer is
             // valid for a `[u8; N]` reference for the duration of `&self`.
-            unsafe { &*(self.ptr.as_ptr() as *const [u8; N]) }
+            unsafe { &*(self.data_ptr() as *const [u8; N]) }
+        }
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        fn canary_value(&self) -> [u8; CANARY_SIZE] {
+            ((self.ptr.as_ptr() as u64) ^ CANARY_MASK).to_ne_bytes()
+        }
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        fn canaries_intact(&self) -> bool {
+            if self.map_len == 0 {
+                return true;
+            }
+
+            let Some(suffix_offset) = Self::suffix_offset() else {
+                return false;
+            };
+            let expected = self.canary_value();
+
+            // SAFETY: With `map_len != 0`, construction allocated at least
+            // `CANARY_SIZE + N + CANARY_SIZE` bytes before page rounding.
+            let prefix = unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), CANARY_SIZE) };
+            // SAFETY: `suffix_offset` was checked from the same payload layout,
+            // so the suffix canary is inside the live mapping.
+            let suffix = unsafe {
+                core::slice::from_raw_parts(self.ptr.as_ptr().add(suffix_offset), CANARY_SIZE)
+            };
+
+            crate::constant_time_eq_slices(prefix, &expected)
+                & crate::constant_time_eq_slices(suffix, &expected)
+        }
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        fn write_canaries(&mut self) {
+            if self.map_len == 0 {
+                return;
+            }
+
+            let Some(suffix_offset) = Self::suffix_offset() else {
+                return;
+            };
+            let canary = self.canary_value();
+
+            // SAFETY: With `map_len != 0`, construction allocated at least
+            // `CANARY_SIZE + N + CANARY_SIZE` bytes before page rounding.
+            unsafe {
+                core::ptr::copy_nonoverlapping(canary.as_ptr(), self.ptr.as_ptr(), CANARY_SIZE);
+                core::ptr::copy_nonoverlapping(
+                    canary.as_ptr(),
+                    self.ptr.as_ptr().add(suffix_offset),
+                    CANARY_SIZE,
+                );
+            }
+            compiler_fence(Ordering::SeqCst);
+        }
+
+        #[cfg(not(feature = "canary-check"))]
+        #[inline]
+        fn write_canaries(&mut self) {}
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        fn assert_canaries_intact(&self) {
+            if self.verify_integrity().is_err() {
+                panic!("locked secret canary corrupted");
+            }
+        }
+
+        #[cfg(not(feature = "canary-check"))]
+        #[inline]
+        fn assert_canaries_intact(&self) {}
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        fn clear_after_canary_failure(&self) {
+            if self.map_len != 0 {
+                crate::wipe::volatile_wipe(self.ptr.as_ptr(), self.map_len);
+            }
+        }
+
+        #[inline]
+        fn data_ptr(&self) -> *mut u8 {
+            // SAFETY: `data_offset` is either zero or `CANARY_SIZE`; non-empty
+            // canary-checked mappings are allocated with that prefix included.
+            unsafe { self.ptr.as_ptr().add(Self::data_offset()) }
+        }
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        const fn data_offset() -> usize {
+            if N == 0 {
+                0
+            } else {
+                CANARY_SIZE
+            }
+        }
+
+        #[cfg(not(feature = "canary-check"))]
+        #[inline]
+        const fn data_offset() -> usize {
+            0
+        }
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        const fn suffix_offset() -> Option<usize> {
+            match CANARY_SIZE.checked_add(N) {
+                Some(offset) if N != 0 => Some(offset),
+                _ => None,
+            }
+        }
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        fn mapping_payload_len() -> Result<usize, MemoryLockError> {
+            if N == 0 {
+                return Ok(0);
+            }
+
+            N.checked_add(CANARY_SIZE.saturating_mul(2))
+                .ok_or(MemoryLockError {
+                    operation: MemoryLockOperation::Length,
+                    errno: 0,
+                })
+        }
+
+        #[cfg(not(feature = "canary-check"))]
+        #[inline]
+        fn mapping_payload_len() -> Result<usize, MemoryLockError> {
+            Ok(N)
+        }
+
+        #[cfg(all(test, feature = "canary-check"))]
+        #[inline]
+        pub(crate) fn corrupt_prefix_canary_for_test(&mut self) {
+            if self.map_len == 0 {
+                return;
+            }
+
+            // SAFETY: `map_len != 0` means `ptr` points to the live mapping.
+            unsafe {
+                let byte = self.ptr.as_ptr();
+                core::ptr::write(byte, core::ptr::read(byte) ^ 0xFF);
+            }
         }
     }
 
@@ -2002,6 +2292,25 @@ pub use memory_lock::{
     LockedSecretBytes, LockedSecretBytesError, LockedSecretBytesGenerateError, MemoryLockError,
     MemoryLockOperation, SecretPool, SecretPoolSlot,
 };
+
+#[cfg(all(
+    feature = "canary-check",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    )
+))]
+pub use memory_lock::{CanaryCorruptedError, LockedSecretBytesCheckedCopyError};
 
 #[cfg(all(feature = "asm-compare", target_arch = "x86_64", not(miri)))]
 #[allow(unsafe_code)]
@@ -6950,8 +7259,13 @@ mod tests {
         assert!(!secret.constant_time_eq(&[1, 2, 3]));
 
         secret.secure_clear();
-        assert!(secret.copy_to_slice(&mut out).is_ok());
-        assert_eq!(out, [0, 0, 0, 0]);
+        #[cfg(feature = "canary-check")]
+        assert_eq!(secret.verify_integrity(), Err(CanaryCorruptedError));
+        #[cfg(not(feature = "canary-check"))]
+        {
+            assert!(secret.copy_to_slice(&mut out).is_ok());
+            assert_eq!(out, [0, 0, 0, 0]);
+        }
 
         secret.into_cleared();
     }
@@ -7117,12 +7431,77 @@ mod tests {
     #[test]
     fn locked_secret_bytes_can_clear_and_flush() {
         let mut secret = LockedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+        #[cfg(not(feature = "canary-check"))]
         let mut out = [0; 4];
 
         secret.secure_clear_and_flush();
 
-        assert!(secret.copy_to_slice(&mut out).is_ok());
-        assert_eq!(out, [0, 0, 0, 0]);
+        #[cfg(feature = "canary-check")]
+        assert_eq!(secret.verify_integrity(), Err(CanaryCorruptedError));
+        #[cfg(not(feature = "canary-check"))]
+        {
+            assert!(secret.copy_to_slice(&mut out).is_ok());
+            assert_eq!(out, [0, 0, 0, 0]);
+        }
+    }
+
+    #[cfg(all(
+        feature = "std",
+        feature = "canary-check",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn locked_secret_canary_checked_apis_detect_corruption() {
+        let mut secret = match LockedSecretBytes::<4>::from_array([1, 2, 3, 4]) {
+            Ok(secret) => secret,
+            Err(_) => return,
+        };
+        let mut out = [0; 4];
+
+        assert_eq!(secret.verify_integrity(), Ok(()));
+        assert_eq!(secret.expose_secret_checked(|bytes| bytes[0]), Ok(1));
+        assert_eq!(secret.copy_to_slice_checked(&mut out), Ok(()));
+        assert_eq!(out, [1, 2, 3, 4]);
+        assert_eq!(secret.constant_time_eq_checked(&[1, 2, 3, 4]), Ok(true));
+        assert_eq!(
+            secret.copy_to_slice_checked(&mut [0; 2]),
+            Err(LockedSecretBytesCheckedCopyError::Length(LengthError {
+                expected: 4,
+                actual: 2,
+            }))
+        );
+
+        secret.corrupt_prefix_canary_for_test();
+
+        assert_eq!(
+            secret.expose_secret_checked(|bytes| bytes[0]),
+            Err(CanaryCorruptedError)
+        );
+    }
+
+    #[cfg(all(
+        feature = "std",
+        feature = "canary-check",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn locked_secret_canary_legacy_exposure_fails_closed() {
+        let mut secret = match LockedSecretBytes::<4>::from_array([1, 2, 3, 4]) {
+            Ok(secret) => secret,
+            Err(_) => return,
+        };
+
+        secret.corrupt_prefix_canary_for_test();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = secret.with_secret(|bytes| bytes[0]);
+        }));
+
+        assert!(result.is_err());
     }
 
     #[cfg(all(

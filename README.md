@@ -54,6 +54,7 @@ Implemented now:
   Linux, Android, macOS, iOS, Windows, and BSD targets.
 - optional pooled locked-memory arenas with `SecretPool<N, SLOTS>` for many
   same-size fixed secrets under one memory-lock operation.
+- optional locked-secret canary integrity checks with `canary-check`.
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
 - optional explicit multi-pass volatile clear helpers.
@@ -139,6 +140,7 @@ sanitization = { version = "1.0.0-rc.5", features = ["memory-lock"] }
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
 | `memory-lock` | no | Enables `LockedSecretBytes<N>`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported Linux, Android, macOS, iOS, Windows, and BSD targets. |
+| `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty `LockedSecretBytes<N>` mappings. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
 | `guard-pages` | no | Enables `GuardedSecretVec` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. |
@@ -431,6 +433,48 @@ Use `replace_from_array`, `replace_from_slice`, `replace_from_fn`, or
 `try_replace_from_fn` when rotating the whole locked value. Array replacement
 clears its owned input array. Fallible generated replacement keeps the old
 locked value unchanged on generator error.
+
+Enable `canary-check` when a locked fixed-size secret should detect corruption
+that reaches either side of the secret data while staying inside the writable
+mapping.
+
+```toml
+[dependencies]
+sanitization = { version = "1.0.0-rc.5", features = ["canary-check"] }
+```
+
+```rust
+use sanitization::LockedSecretBytes;
+
+let key = LockedSecretBytes::<32>::from_array([7; 32]).unwrap();
+
+let first = key
+    .expose_secret_checked(|bytes| bytes[0])
+    .unwrap();
+
+assert_eq!(first, 7);
+assert_eq!(key.constant_time_eq_checked(&[7; 32]), Ok(true));
+```
+
+With `canary-check`, non-empty `LockedSecretBytes<N>` mappings use this layout:
+
+```text
+[ 8-byte canary ][ N-byte secret ][ 8-byte canary ]
+```
+
+Existing exposure APIs such as `with_secret`, `copy_to_slice`, and
+`constant_time_eq` verify the canaries before reading secret bytes. If
+corruption is detected, the full mapping is volatile-cleared and those legacy
+APIs panic with a fixed message. Use `expose_secret_checked`,
+`copy_to_slice_checked`, `constant_time_eq_checked`, or `verify_integrity` when
+callers need explicit error handling with `CanaryCorruptedError`.
+
+Canaries are derived from the mapping address and a fixed mask, so they require
+no RNG or dependency. They detect overwrites that reach the canary words; they
+do not detect corruption entirely inside the secret bytes, historical copies,
+or external copies. `secure_clear` still wipes the full mapping, including the
+canary words, so a canary-checked locked value should be treated as terminal
+after manual clearing.
 
 For many same-size locked secrets, use `SecretPool<N, SLOTS>` to amortize
 page-granule memory-locking overhead. This is useful on systems with small
@@ -812,6 +856,7 @@ library when a protocol requires externally audited timing guarantees.
 | Fixed-size key with no-`std` tick expiry | `MonotonicExpiringSecretBytes<N, C>` |
 | Fixed-size key with access expiry | `ExpiringSecretBytes<N>` with `std` |
 | Fixed-size key that should avoid swap/pagefiles on supported platforms | `LockedSecretBytes<N>` with `memory-lock` |
+| Fixed-size locked key with prefix/suffix corruption checks | `LockedSecretBytes<N>` with `canary-check` |
 | Many same-size fixed keys under memory-lock quotas | `SecretPool<N, SLOTS>` with `memory-lock` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |
 | Dynamic bytes with platform guard pages | `GuardedSecretVec` with `guard-pages` |

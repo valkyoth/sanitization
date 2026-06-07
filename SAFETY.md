@@ -103,6 +103,19 @@ Invariant:
 - The Rust value stores only pointer metadata, so moving it does not move or
   copy the secret byte allocation.
 - The mapping length is at least `N` bytes when `N > 0`.
+- With `canary-check`, non-empty `LockedSecretBytes<N>` mappings reserve an
+  8-byte prefix canary and 8-byte suffix canary around the `N` secret bytes.
+  The checked payload length is `N + 16`, rounded to the platform page
+  granule. The public data pointer is offset past the prefix canary.
+- `canary-check` derives the expected canary from the mapping base address and
+  a fixed mask. This avoids RNG and dependency requirements while making the
+  canary value mapping-specific under ASLR.
+- Canary writes happen only after platform mapping setup and locking succeed.
+- Canary verification compares both prefix and suffix with the expected value
+  using the crate constant-time slice comparison helper and boolean `&`, so both
+  canaries are checked without data-dependent early exit at this layer.
+- If canary verification fails, the full mapping is volatile-cleared before the
+  checked API returns `CanaryCorruptedError` or the legacy API panics.
 - Secret bytes are not copied into the mapping until platform setup succeeds:
   Linux dump exclusion, fork exclusion, and `mlock`;
   FreeBSD core-dump exclusion and `mlock`; Android/macOS/iOS/other-BSD

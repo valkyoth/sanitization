@@ -207,6 +207,9 @@ Current implementation:
 - `SecretPool<N, SLOTS>` checks `N * SLOTS`, rounds the mapping length to the
   platform page granule, tracks slot ownership with an atomic bitmap, and
   volatile-clears slots before reuse.
+- `canary-check` adds opt-in prefix/suffix integrity words for non-empty
+  `LockedSecretBytes<N>` mappings and fails closed before exposing corrupted
+  locked secrets.
 - `GuardedSecretVec` is available on supported Linux, Android, macOS, iOS,
   Windows, and BSD targets with `guard-pages`. It can also lock its writable
   data pages when both `guard-pages` and `memory-lock` are enabled. Growth and

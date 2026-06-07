@@ -19,6 +19,8 @@ Rust applications.
 - Optional pooled platform memory locking for many same-size fixed secrets with
   `SecretPool<N, SLOTS>` when the `memory-lock` feature is enabled on supported
   targets.
+- Optional prefix/suffix canary integrity checks for non-empty
+  `LockedSecretBytes<N>` mappings when the `canary-check` feature is enabled.
 - Optional Linux `MADV_DONTDUMP` on locked secret mappings to reduce ordinary
   core-dump exposure.
 - Optional Linux `MADV_DONTFORK` on locked secret mappings to reduce accidental
@@ -52,6 +54,8 @@ Rust applications.
   their temporaries on normal return and unwinding paths only; `panic = "abort"`
   and other abort paths skip destructors and post-closure cleanup.
 - Cache-line flushing outside x86_64.
+- Detecting corruption that changes only the secret bytes and does not reach a
+  canary word.
 
 ## Design Position
 
@@ -79,6 +83,15 @@ reads, DMA, malicious firmware, or copies made before data enters the locked
 container. Leaking a slot with `core::mem::forget` also leaks that slot's
 allocation state and skips its drop-time clearing, just as leaking any
 secret-owning value skips its destructor.
+
+With the `canary-check` feature, non-empty `LockedSecretBytes<N>` mappings place
+an 8-byte canary before and after the secret bytes. Exposure and comparison APIs
+verify both canaries before reading the secret; checked APIs return
+`CanaryCorruptedError`, while legacy APIs clear the mapping and panic. This can
+detect overwrites that stay inside the writable mapping but reach the canary
+words. It does not detect corruption entirely inside the secret bytes and does
+not provide authenticity against an attacker who can read and rewrite the full
+process memory image.
 
 With the `asm-compare` feature on x86_64, equal-length comparisons use an
 inline-assembly loop. This gives the comparison body a stronger compiler
