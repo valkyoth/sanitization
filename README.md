@@ -166,6 +166,18 @@ key.replace_from_fn(|index| 31 - index as u8);
 key.try_replace_from_fn(|index| Ok::<u8, &'static str>(index as u8))
     .unwrap();
 key.replace_from_array([9; 32]);
+
+key.transform(|bytes| {
+    for byte in bytes.iter_mut() {
+        *byte ^= 0xA5;
+    }
+});
+
+let subkey = key.derive::<16>(|input, output| {
+    output.copy_from_slice(&input[..16]);
+});
+assert_eq!(subkey.len(), 16);
+
 key.into_cleared();
 ```
 
@@ -174,6 +186,9 @@ The type intentionally does not implement `Clone`, `Copy`, `Deref`,
 `SecretBytes<N>` stores `N` bytes inline, and `expose_secret` creates an
 additional `N`-byte stack copy. On embedded targets or small thread stacks,
 choose `N` well below the available stack budget or use heap-backed containers.
+For key derivation, masking, or normalization logic that can operate inside the
+container, prefer `transform`, `try_transform`, `derive`, or `try_derive` so the
+operation does not need an extra `expose_secret` stack copy.
 
 ## Expiring Secrets
 

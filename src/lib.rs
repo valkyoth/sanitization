@@ -3183,6 +3183,68 @@ impl<const N: usize> SecretBytes<N> {
         Ok(())
     }
 
+    /// Mutate the secret bytes in place without creating the additional
+    /// stack-copy used by [`SecretBytes::expose_secret`].
+    ///
+    /// The closure receives direct mutable access to the fixed-size storage
+    /// owned by this container. It can still intentionally copy bytes
+    /// elsewhere, so keep this API at cryptographic transformation boundaries
+    /// such as key derivation, masking, or protocol-specific normalization.
+    #[inline]
+    pub fn transform(&mut self, edit: impl FnOnce(&mut [u8; N])) {
+        edit(&mut self.bytes);
+        self.after_secret_write();
+    }
+
+    /// Fallible variant of [`SecretBytes::transform`].
+    ///
+    /// If the closure returns an error after partially mutating the value,
+    /// those mutations remain in place. Use [`SecretBytes::try_replace_from_fn`]
+    /// when the old value must remain unchanged on error.
+    #[inline]
+    pub fn try_transform<E>(
+        &mut self,
+        edit: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
+    ) -> Result<(), E> {
+        edit(&mut self.bytes)?;
+        self.after_secret_write();
+        Ok(())
+    }
+
+    /// Derive a new fixed-size secret without exposing either buffer through a
+    /// temporary stack copy.
+    ///
+    /// The closure receives read-only access to this secret's storage and
+    /// mutable access to the new output secret's storage. This is intended for
+    /// KDFs, key hierarchy expansion, and similar operations where the output
+    /// should be written directly into a clear-on-drop container.
+    #[must_use]
+    #[inline]
+    pub fn derive<const M: usize>(
+        &self,
+        derive: impl FnOnce(&[u8; N], &mut [u8; M]),
+    ) -> SecretBytes<M> {
+        let mut output = SecretBytes::<M>::zeroed();
+        derive(&self.bytes, &mut output.bytes);
+        output.after_secret_write();
+        output
+    }
+
+    /// Fallible variant of [`SecretBytes::derive`].
+    ///
+    /// If derivation fails, the partially written output is dropped and
+    /// volatile-cleared before the error is returned.
+    #[inline]
+    pub fn try_derive<const M: usize, E>(
+        &self,
+        derive: impl FnOnce(&[u8; N], &mut [u8; M]) -> Result<(), E>,
+    ) -> Result<SecretBytes<M>, E> {
+        let mut output = SecretBytes::<M>::zeroed();
+        derive(&self.bytes, &mut output.bytes)?;
+        output.after_secret_write();
+        Ok(output)
+    }
+
     /// Fill a caller-provided destination with a temporary copy of the secret.
     #[inline]
     pub fn copy_to_slice(&self, destination: &mut [u8]) -> Result<(), LengthError> {
@@ -4729,6 +4791,58 @@ mod tests {
         assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
 
         secret.secure_clear();
+    }
+
+    #[test]
+    fn secret_bytes_can_transform_in_place() {
+        let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+
+        secret.transform(|bytes| {
+            for byte in bytes.iter_mut() {
+                *byte ^= 0xFF;
+            }
+        });
+
+        assert!(secret.constant_time_eq(&[254, 253, 252, 251]));
+
+        assert_eq!(
+            secret.try_transform(|bytes| {
+                bytes[0] = 7;
+                Ok::<(), &'static str>(())
+            }),
+            Ok(())
+        );
+        assert!(secret.constant_time_eq(&[7, 253, 252, 251]));
+    }
+
+    #[test]
+    fn secret_bytes_can_derive_new_secret() {
+        let secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+
+        let derived = secret.derive::<8>(|input, output| {
+            output[..4].copy_from_slice(input);
+            output[4..].copy_from_slice(input);
+        });
+
+        assert!(derived.constant_time_eq(&[1, 2, 3, 4, 1, 2, 3, 4]));
+
+        let fallible = secret
+            .try_derive::<2, _>(|input, output| {
+                output.copy_from_slice(&input[..2]);
+                Ok::<(), &'static str>(())
+            })
+            .unwrap();
+
+        assert!(fallible.constant_time_eq(&[1, 2]));
+        assert_eq!(
+            secret
+                .try_derive::<2, _>(|_input, output| {
+                    output[0] = 9;
+                    Err::<(), &'static str>("derive failed")
+                })
+                .err(),
+            Some("derive failed")
+        );
     }
 
     #[test]

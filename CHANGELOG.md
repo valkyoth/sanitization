@@ -19,6 +19,9 @@
 - Added `SecretBytes::try_from_fn`, `SecretVec::try_from_fn`, and
   `SecretVec::try_replace_from_fn` for fallible direct byte generation with
   partial-output clearing on error.
+- Added `SecretBytes::transform`, `try_transform`, `derive`, and `try_derive`
+  for in-container fixed-size mutation and derivation without an
+  `expose_secret` stack copy.
 - Added `LockedSecretBytes::try_from_fn`, `GuardedSecretVec::try_from_fn`, and
   `GuardedSecretVec::locked_try_from_fn` for fallible high-assurance direct
   byte generation.
