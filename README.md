@@ -1075,6 +1075,25 @@ These harnesses prove selected fixed-size properties for the volatile clearing
 path, secret clearing visibility, constant-time equality correctness, and
 capacity arithmetic. They are not a replacement for external review.
 
+## Workspace Layout
+
+The repository is a two-crate workspace:
+
+```text
+crates/sanitization          # main dependency-free-by-default crate
+crates/sanitization-derive   # optional proc-macro sister crate
+```
+
+For crates.io releases, publish the derive crate first, then the main crate:
+
+```bash
+cd crates/sanitization-derive
+cargo publish
+
+cd ../sanitization
+cargo publish
+```
+
 ## Limits
 
 This crate reduces accidental retention and accidental exposure. It does not

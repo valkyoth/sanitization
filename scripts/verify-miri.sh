@@ -9,6 +9,6 @@ if ! cargo +"${toolchain}" miri --version >/dev/null 2>&1; then
     exit 1
 fi
 
-cargo +"${toolchain}" miri test --no-default-features
-cargo +"${toolchain}" miri test --features alloc
-cargo +"${toolchain}" miri test --all-features
+cargo +"${toolchain}" miri test -p sanitization --no-default-features
+cargo +"${toolchain}" miri test -p sanitization --features alloc
+cargo +"${toolchain}" miri test -p sanitization --all-features

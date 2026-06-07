@@ -1,0 +1,47 @@
+[package]
+name = "sanitization"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Dependency-free no_std secret memory sanitization with safe defaults and an explicit volatile wipe backend."
+license.workspace = true
+readme = "../../README.md"
+documentation = "https://docs.rs/sanitization"
+homepage.workspace = true
+repository.workspace = true
+keywords = ["zeroize", "secrets", "security", "no-std", "memory"]
+categories = ["cryptography", "no-std", "memory-management"]
+include = [
+    "Cargo.toml",
+    "src/**/*.rs",
+    "tests/**/*.rs",
+    "examples/**/*.rs",
+]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(miri)'] }
+
+[dependencies]
+sanitization-derive = { version = "1.0.0-rc.6", path = "../sanitization-derive", optional = true }
+
+[features]
+default = []
+alloc = []
+std = ["alloc"]
+derive = ["dep:sanitization-derive"]
+memory-lock = []
+canary-check = ["memory-lock"]
+random-canary = ["canary-check"]
+asm-compare = []
+cache-flush = []
+guard-pages = []
+multi-pass-clear = []
+# Compatibility flag for older release-candidate dependency declarations.
+# Volatile wiping is now the default clear path.
+unsafe-wipe = []
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+path = "src/lib.rs"

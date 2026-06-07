@@ -1,14 +1,14 @@
 [package]
 name = "sanitization-derive"
-version = "1.0.0-rc.6"
-edition = "2021"
-rust-version = "1.90"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Optional derive macros for the sanitization crate."
-license = "MIT OR Apache-2.0"
+license.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/sanitization-derive"
-homepage = "https://github.com/valkyoth/sanitization-rust-crate"
-repository = "https://github.com/valkyoth/sanitization-rust-crate"
+homepage.workspace = true
+repository.workspace = true
 keywords = ["zeroize", "secrets", "security", "derive"]
 categories = ["cryptography", "no-std", "memory-management"]
 include = ["Cargo.toml", "README.md", "src/**/*.rs"]

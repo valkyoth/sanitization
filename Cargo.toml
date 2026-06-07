@@ -1,67 +1,15 @@
-[package]
-name = "sanitization"
+[workspace]
+members = [
+    "crates/sanitization",
+    "crates/sanitization-derive",
+]
+default-members = ["crates/sanitization"]
+resolver = "2"
+
+[workspace.package]
 version = "1.0.0-rc.6"
 edition = "2021"
 rust-version = "1.90"
-description = "Dependency-free no_std secret memory sanitization with safe defaults and an explicit volatile wipe backend."
 license = "MIT OR Apache-2.0"
-readme = "README.md"
-documentation = "https://docs.rs/sanitization"
 homepage = "https://github.com/valkyoth/sanitization-rust-crate"
 repository = "https://github.com/valkyoth/sanitization-rust-crate"
-keywords = ["zeroize", "secrets", "security", "no-std", "memory"]
-categories = ["cryptography", "no-std", "memory-management"]
-include = [
-    "Cargo.toml",
-    "Cargo.lock",
-    "README.md",
-    "ROADMAP.md",
-    "SAFETY.md",
-    "SECURITY.md",
-    "THREAT_MODEL.md",
-    "CHANGELOG.md",
-    "CONTRIBUTING.md",
-    "LICENSE-APACHE",
-    "LICENSE-MIT",
-    "rust-toolchain.toml",
-    "src/**/*.rs",
-    "tests/**/*.rs",
-    "examples/**/*.rs",
-    "scripts/checks.sh",
-    "scripts/ci_install_rust.sh",
-    "scripts/verify-codegen.sh",
-    "scripts/verify-kani.sh",
-    "scripts/verify-miri.sh",
-]
-
-[workspace]
-members = ["sanitization-derive"]
-resolver = "2"
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(miri)'] }
-
-[dependencies]
-sanitization-derive = { version = "1.0.0-rc.6", path = "sanitization-derive", optional = true }
-
-[features]
-default = []
-alloc = []
-std = ["alloc"]
-derive = ["dep:sanitization-derive"]
-memory-lock = []
-canary-check = ["memory-lock"]
-random-canary = ["canary-check"]
-asm-compare = []
-cache-flush = []
-guard-pages = []
-multi-pass-clear = []
-# Compatibility flag for older release-candidate dependency declarations.
-# Volatile wiping is now the default clear path.
-unsafe-wipe = []
-
-[package.metadata.docs.rs]
-all-features = true
-
-[lib]
-path = "src/lib.rs"

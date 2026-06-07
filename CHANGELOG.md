@@ -11,6 +11,8 @@
   fields do not force unnecessary `T: SecureSanitize` bounds.
 - Kept default `sanitization` builds dependency-free; proc-macro dependencies
   are pulled in only when `derive` is explicitly enabled.
+- Moved the repository to a two-crate workspace layout under
+  `crates/sanitization` and `crates/sanitization-derive`.
 
 ## 1.0.0-rc.5
 

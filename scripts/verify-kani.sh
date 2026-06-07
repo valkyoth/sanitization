@@ -6,6 +6,6 @@ if ! cargo kani --version >/dev/null 2>&1; then
     exit 0
 fi
 
-cargo kani --output-format=terse --no-default-features
-cargo kani --output-format=terse --no-default-features --features alloc
-cargo kani --output-format=terse --no-default-features --features std
+cargo kani -p sanitization --output-format=terse --no-default-features
+cargo kani -p sanitization --output-format=terse --no-default-features --features alloc
+cargo kani -p sanitization --output-format=terse --no-default-features --features std

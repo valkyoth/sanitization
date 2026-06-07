@@ -9,7 +9,7 @@ emit_codegen() {
         target/release/deps/libsanitization-verify-codegen.rlib \
         target/release/deps/libsanitization-verify-codegen.rmeta
 
-    cargo rustc --lib --release --all-features -- \
+    cargo rustc -p sanitization --lib --release --all-features -- \
         -C extra-filename=-verify-codegen \
         --emit=llvm-ir,asm
 }
