@@ -22,7 +22,7 @@ include = [
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(miri)'] }
 
 [dependencies]
-sanitization-derive = { version = "1.0.0", path = "../sanitization-derive", optional = true }
+sanitization-derive = { version = "1.0.1", path = "../sanitization-derive", optional = true }
 
 [features]
 default = []

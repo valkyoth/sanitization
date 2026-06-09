@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- Prepared patch release metadata for pentest-followup fixes.
+
 ## 1.0.0
 
 - Promoted the crate family from release candidate to stable `1.0.0`.

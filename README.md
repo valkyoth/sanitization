@@ -35,7 +35,7 @@ internal unsafe boundary.
 
 ## Current Status
 
-The crate is published as stable `1.0.0` on crates.io. It is intended for
+The crate is published as stable `1.0.1` on crates.io. It is intended for
 projects that want dependency-free secret ownership and sanitization by
 default, with stronger platform hardening available through explicit feature
 flags.
@@ -122,14 +122,14 @@ Compatibility evidence:
 
 ```toml
 [dependencies]
-sanitization = "1.0.0"
+sanitization = "1.0.1"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["alloc"] }
+sanitization = { version = "1.0.1", features = ["alloc"] }
 ```
 
 The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
@@ -139,14 +139,14 @@ For memory-locked fixed-size secrets on supported native platforms:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["memory-lock"] }
+sanitization = { version = "1.0.1", features = ["memory-lock"] }
 ```
 
 For derive macros:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["derive"] }
+sanitization = { version = "1.0.1", features = ["derive"] }
 ```
 
 ## Features
@@ -281,7 +281,7 @@ Enable `std` when you want the convenience wrapper backed by
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["std"] }
+sanitization = { version = "1.0.1", features = ["std"] }
 ```
 
 ```rust
@@ -499,7 +499,7 @@ mapping or pooled slot.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["canary-check"] }
+sanitization = { version = "1.0.1", features = ["canary-check"] }
 ```
 
 ```rust
@@ -549,7 +549,7 @@ system CSPRNG instead of the deterministic address-derived fallback:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["random-canary"] }
+sanitization = { version = "1.0.1", features = ["random-canary"] }
 ```
 
 `random-canary` uses direct platform backends without additional crates: Linux
@@ -619,7 +619,7 @@ pages on supported Linux, Android, macOS, iOS, Windows, and BSD targets:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["guard-pages"] }
+sanitization = { version = "1.0.1", features = ["guard-pages"] }
 ```
 
 ```rust
@@ -674,7 +674,7 @@ can also lock their writable data pages:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["guard-pages", "memory-lock"] }
+sanitization = { version = "1.0.1", features = ["guard-pages", "memory-lock"] }
 ```
 
 ```rust
@@ -755,7 +755,7 @@ the explicit proc-macro dependency tradeoff:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["derive"] }
+sanitization = { version = "1.0.1", features = ["derive"] }
 ```
 
 ```rust
@@ -948,7 +948,7 @@ evidence:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["multi-pass-clear"] }
+sanitization = { version = "1.0.1", features = ["multi-pass-clear"] }
 ```
 
 ```rust
@@ -975,7 +975,7 @@ clearing followed by `clflush`/`mfence` over the affected cache lines:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["cache-flush"] }
+sanitization = { version = "1.0.1", features = ["cache-flush"] }
 ```
 
 ```rust
@@ -1004,7 +1004,7 @@ cross an explicit compiler boundary:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.0", features = ["asm-compare"] }
+sanitization = { version = "1.0.1", features = ["asm-compare"] }
 ```
 
 The public API does not change. `SecretBytes<N>`, `SecretVec`, `SecretString`,
