@@ -132,12 +132,16 @@ and rewrite the full process memory image.
 
 By default, canary words are derived from mapping or slot addresses and a fixed
 mask. This deterministic mode assumes ASLR or otherwise unpredictable mapping
-addresses; use `random-canary` when ASLR is disabled, weakened, or not an
-acceptable source of blind-overwrite resistance. With `random-canary`, canaries
-are generated from the operating-system CSPRNG using dependency-free platform
-backends. Random canaries improve blind overwrite detection and audit posture,
-but they still do not authenticate memory against an attacker who can read and
-rewrite both the owner metadata and mapped canary bytes.
+addresses and is intended for blind-overwrite resistance. Disclosure of one
+deterministic canary value reveals the expected value for that mapping or slot
+because the mask is fixed, so an attacker who can both read and write memory can
+forge the canary. Use `random-canary` when ASLR is disabled, weakened, canary
+disclosure is in scope, or deterministic canaries are not acceptable for the
+threat model. With `random-canary`, canaries are generated from the
+operating-system CSPRNG using dependency-free platform backends. Random canaries
+improve blind overwrite detection and audit posture, but they still do not
+authenticate memory against an attacker who can read and rewrite both the owner
+metadata and mapped canary bytes.
 On WASM, deterministic canaries are rejected at compile time because fallback
 storage lives inline with the Rust value or pool and has no ASLR-backed mapping
 address. `canary-check` on WASM must be paired with `random-canary`. WASI

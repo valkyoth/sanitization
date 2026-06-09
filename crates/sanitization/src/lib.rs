@@ -1365,6 +1365,9 @@ mod memory_lock {
         #[cfg(feature = "canary-check")]
         #[inline]
         fn clear_after_canary_failure(&self) {
+            // Fail-closed clearing intentionally mutates secret storage through
+            // `&self`. This type is `Send` but deliberately not `Sync`, so safe
+            // code cannot run this concurrently through shared references.
             // SAFETY: This path fail-closes the value and does not expose any
             // reference into the storage while mutating through `&self`.
             unsafe { (&mut *self.storage.get()).clear_all() };
@@ -1533,7 +1536,7 @@ mod memory_lock {
                         canary: [0; CANARY_SIZE],
                     };
                     if let Err(error) = slot.initialize_canaries() {
-                        flag.store(false, Ordering::Release);
+                        drop(slot);
                         return Err(error);
                     }
                     return Ok(Some(slot));
@@ -1919,6 +1922,9 @@ mod memory_lock {
         #[cfg(feature = "canary-check")]
         #[inline]
         fn clear_after_canary_failure(&self) {
+            // Fail-closed clearing intentionally mutates slot storage through
+            // `&self`. Slot handles are `Send` but deliberately not `Sync`, and
+            // the parent bitmap prevents a second safe handle for this slot.
             // SAFETY: This path fail-closes the slot and does not expose any
             // reference into the storage while mutating through `&self`.
             unsafe { (&mut *self.pool.slots[self.slot_index].get()).clear_all() };
@@ -2456,6 +2462,9 @@ mod memory_lock {
                 });
             }
 
+            #[cfg(feature = "random-canary")]
+            let canary = random_canary_value()?;
+
             let map_len = rounded_mapping_len(Self::mapping_payload_len()?)?;
             let ptr = map_private(map_len)?;
 
@@ -2478,7 +2487,7 @@ mod memory_lock {
                 ptr,
                 map_len,
                 #[cfg(feature = "random-canary")]
-                canary: random_canary_value()?,
+                canary,
             };
             secret.write_canaries();
             Ok(secret)
@@ -2903,6 +2912,10 @@ mod memory_lock {
         #[inline]
         fn clear_after_canary_failure(&self) {
             if self.map_len != 0 {
+                // Fail-closed clearing intentionally mutates the owned mapping
+                // through `&self`. `LockedSecretBytes` is `Send` but not
+                // `Sync`, so safe code cannot run this concurrently through
+                // shared references.
                 crate::wipe::volatile_wipe(self.ptr.as_ptr(), self.map_len);
             }
         }
@@ -3179,7 +3192,7 @@ mod memory_lock {
                         canary: [0; CANARY_SIZE],
                     };
                     if let Err(error) = slot.initialize_canaries() {
-                        flag.store(false, Ordering::Release);
+                        drop(slot);
                         return Err(error);
                     }
                     return Ok(Some(slot));
@@ -3713,6 +3726,10 @@ mod memory_lock {
         #[inline]
         fn clear_after_canary_failure(&self) {
             if N != 0 {
+                // Fail-closed clearing intentionally mutates the uniquely owned
+                // slot mapping through `&self`. Slot handles are `Send` but not
+                // `Sync`, and the parent bitmap prevents a second safe handle
+                // for this slot.
                 crate::wipe::volatile_wipe(self.ptr.as_ptr(), self.slot_stride());
             }
         }
@@ -4910,6 +4927,12 @@ mod guard_pages {
             capacity: usize,
             locked: bool,
         ) -> Result<Self, GuardPageError> {
+            #[cfg(feature = "random-canary")]
+            let canary = random_canary_value().map_err(|error| GuardPageError {
+                operation: error.operation,
+                errno: error.errno,
+            })?;
+
             let page_granule = platform_page_granule();
             let data_capacity = guarded_payload_capacity(capacity)?;
             let writable_len = guarded_writable_len(data_capacity)?;
@@ -4975,7 +4998,7 @@ mod guard_pages {
                 len: 0,
                 locked,
                 #[cfg(feature = "random-canary")]
-                canary: random_canary_value()?,
+                canary,
             };
             secret.write_canaries();
             Ok(secret)
@@ -5442,6 +5465,10 @@ mod guard_pages {
         #[cfg(feature = "canary-check")]
         #[inline]
         fn clear_after_canary_failure(&self) {
+            // Fail-closed clearing intentionally mutates the owned guarded
+            // mapping through `&self`. `GuardedSecretVec` is `Send` but not
+            // `Sync`, so safe code cannot run this concurrently through shared
+            // references.
             crate::wipe::volatile_wipe(self.data.as_ptr(), self.writable_len);
         }
 

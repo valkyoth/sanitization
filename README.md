@@ -533,16 +533,17 @@ need explicit error handling with `CanaryCorruptedError`.
 
 Canaries are derived from the mapping or slot address and a fixed mask on
 native mapped backends, so they require no RNG or dependency. That deterministic
-mode assumes ASLR or otherwise unpredictable mapping addresses; enable
-`random-canary` in ASLR-disabled, weak-ASLR, or compliance-sensitive
-environments. On WASM, `canary-check` requires `random-canary` because inline
-storage has no stable ASLR-backed mapping address. Canaries detect overwrites
-that reach the canary words; they do not detect corruption entirely inside the
-secret bytes, historical copies, or external copies. `LockedSecretBytes<N>`
-rewrites canaries after `secure_clear`, so it remains reusable after manual
-clearing. A live `SecretPool` slot still clears the full slot, including the
-canary words; drop and reallocate a manually cleared pool slot to get fresh
-slot canaries.
+mode assumes ASLR or otherwise unpredictable mapping addresses and is best
+understood as blind-overwrite detection. If one deterministic canary value is
+disclosed, the expected value for that mapping or slot is recoverable because
+the mask is fixed; enable `random-canary` in ASLR-disabled, weak-ASLR,
+canary-disclosure, or compliance-sensitive environments. On WASM,
+`canary-check` requires `random-canary` because inline storage has no stable
+ASLR-backed mapping address. Canaries detect overwrites that reach the canary
+words; they do not detect corruption entirely inside the secret bytes,
+historical copies, or external copies. `LockedSecretBytes<N>` and live
+`SecretPool` slots rewrite canaries after `secure_clear`, so they remain
+reusable after manual clearing.
 
 Enable `random-canary` when the canary word should come from the operating
 system CSPRNG instead of the deterministic address-derived fallback:
