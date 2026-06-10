@@ -31,6 +31,9 @@
 //!   `cache-flush` feature.
 //! - Proc-macro derives are available only through the explicit `derive`
 //!   feature. The default build remains dependency-free.
+//! - `zeroize`, `subtle`, and `serde` integration are available only through
+//!   explicit `zeroize-interop`, `subtle-interop`, and `serde` features. They
+//!   are off by default.
 //! - Fixed-size lifetime enforcement is available only through the `std`
 //!   feature and [`ExpiringSecretBytes`].
 //! - Guard-page allocation is available only through the explicit
@@ -9357,6 +9360,397 @@ mod read_once {
 
 pub use read_once::{AlreadyConsumedError, ReadOnceSecret};
 
+#[cfg(feature = "zeroize-interop")]
+mod zeroize_interop {
+    use super::*;
+
+    impl<const N: usize> zeroize::Zeroize for SecretBytes<N> {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.secure_clear();
+        }
+    }
+
+    impl<const N: usize> zeroize::ZeroizeOnDrop for SecretBytes<N> {}
+
+    #[cfg(feature = "alloc")]
+    impl zeroize::Zeroize for SecretVec {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl zeroize::ZeroizeOnDrop for SecretVec {}
+
+    #[cfg(feature = "alloc")]
+    impl zeroize::Zeroize for SecretString {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl zeroize::ZeroizeOnDrop for SecretString {}
+
+    impl<T: SecureSanitize> zeroize::Zeroize for Secret<T> {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.inner.secure_sanitize();
+        }
+    }
+
+    impl<T: SecureSanitize> zeroize::ZeroizeOnDrop for Secret<T> {}
+
+    impl<T: SecureSanitize> zeroize::Zeroize for ReadOnceSecret<T> {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.secure_sanitize();
+        }
+    }
+
+    impl<T: SecureSanitize> zeroize::ZeroizeOnDrop for ReadOnceSecret<T> {}
+
+    #[cfg(feature = "split-secret")]
+    impl<const N: usize, const SHARES: usize> zeroize::Zeroize for SplitSecretBytes<N, SHARES> {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.secure_sanitize();
+        }
+    }
+
+    #[cfg(feature = "split-secret")]
+    impl<const N: usize, const SHARES: usize> zeroize::ZeroizeOnDrop for SplitSecretBytes<N, SHARES> {}
+
+    #[cfg(feature = "memory-lock")]
+    impl<const N: usize> zeroize::Zeroize for LockedSecretBytes<N> {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.secure_clear();
+        }
+    }
+
+    #[cfg(feature = "memory-lock")]
+    impl<const N: usize> zeroize::ZeroizeOnDrop for LockedSecretBytes<N> {}
+
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    impl zeroize::Zeroize for LockedSecretVec {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    impl zeroize::ZeroizeOnDrop for LockedSecretVec {}
+
+    #[cfg(feature = "guard-pages")]
+    impl zeroize::Zeroize for GuardedSecretVec {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(feature = "guard-pages")]
+    impl zeroize::ZeroizeOnDrop for GuardedSecretVec {}
+}
+
+#[cfg(feature = "subtle-interop")]
+mod subtle_interop {
+    use super::*;
+    use subtle::{Choice, ConstantTimeEq};
+
+    impl<const N: usize> ConstantTimeEq for SecretBytes<N> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            Choice::from(self.constant_time_eq_secret(other) as u8)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl ConstantTimeEq for SecretVec {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            Choice::from(
+                self.with_secret(|left| {
+                    other.with_secret(|right| constant_time_eq_slices(left, right))
+                }) as u8,
+            )
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl ConstantTimeEq for SecretString {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            Choice::from(constant_time_eq_slices(&self.inner, &other.inner) as u8)
+        }
+    }
+
+    #[cfg(feature = "memory-lock")]
+    impl<const N: usize> ConstantTimeEq for LockedSecretBytes<N> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            Choice::from(other.with_secret(|bytes| self.constant_time_eq(bytes)) as u8)
+        }
+    }
+
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    impl ConstantTimeEq for LockedSecretVec {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            Choice::from(other.with_secret(|bytes| self.constant_time_eq(bytes)) as u8)
+        }
+    }
+
+    #[cfg(feature = "guard-pages")]
+    impl ConstantTimeEq for GuardedSecretVec {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            Choice::from(other.with_secret(|bytes| self.constant_time_eq(bytes)) as u8)
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+mod serde_impls {
+    use super::*;
+    use serde::{
+        de::{Error as DeError, IgnoredAny, SeqAccess, Visitor},
+        Deserialize, Deserializer, Serialize, Serializer,
+    };
+
+    const REDACTED: &str = "<redacted>";
+
+    impl<const N: usize> Serialize for SecretBytes<N> {
+        #[inline]
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(REDACTED)
+        }
+    }
+
+    impl<'de, const N: usize> Deserialize<'de> for SecretBytes<N> {
+        #[inline]
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_bytes(SecretBytesVisitor::<N>)
+        }
+    }
+
+    struct SecretBytesVisitor<const N: usize>;
+
+    impl<'de, const N: usize> Visitor<'de> for SecretBytesVisitor<N> {
+        type Value = SecretBytes<N>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(formatter, "exactly {N} secret bytes")
+        }
+
+        fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            if bytes.len() != N {
+                return Err(E::invalid_length(bytes.len(), &self));
+            }
+
+            let mut secret = SecretBytes::<N>::zeroed();
+            secret.copy_from_slice(bytes).map_err(E::custom)?;
+            Ok(secret)
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut secret = SecretBytes::<N>::zeroed();
+            let mut index = 0;
+            while index < N {
+                let Some(byte) = sequence.next_element::<u8>()? else {
+                    return Err(A::Error::invalid_length(index, &self));
+                };
+                secret.store(index, byte);
+                index += 1;
+            }
+
+            if sequence.next_element::<IgnoredAny>()?.is_some() {
+                return Err(A::Error::invalid_length(N.saturating_add(1), &self));
+            }
+
+            secret.after_secret_write();
+            Ok(secret)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl Serialize for SecretVec {
+        #[inline]
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(REDACTED)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl<'de> Deserialize<'de> for SecretVec {
+        #[inline]
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_bytes(SecretVecVisitor)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    struct SecretVecVisitor;
+
+    #[cfg(feature = "alloc")]
+    impl<'de> Visitor<'de> for SecretVecVisitor {
+        type Value = SecretVec;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("secret bytes")
+        }
+
+        fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            Ok(SecretVec::from_slice(bytes))
+        }
+
+        fn visit_byte_buf<E>(self, bytes: Vec<u8>) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            Ok(SecretVec::from_vec(bytes))
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let capacity = sequence.size_hint().unwrap_or(0);
+            let mut secret = SecretVec::with_capacity(capacity);
+            while let Some(byte) = sequence.next_element::<u8>()? {
+                secret.extend_from_slice(&[byte]);
+            }
+            Ok(secret)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl Serialize for SecretString {
+        #[inline]
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(REDACTED)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl<'de> Deserialize<'de> for SecretString {
+        #[inline]
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_string(SecretStringVisitor)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    struct SecretStringVisitor;
+
+    #[cfg(feature = "alloc")]
+    impl<'de> Visitor<'de> for SecretStringVisitor {
+        type Value = SecretString;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("secret UTF-8 text")
+        }
+
+        fn visit_str<E>(self, text: &str) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            Ok(SecretString::from_secret_str(text))
+        }
+
+        fn visit_string<E>(self, text: String) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            Ok(SecretString::from_string(text))
+        }
+    }
+
+    impl<T> Serialize for Secret<T>
+    where
+        T: SecureSanitize,
+    {
+        #[inline]
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(REDACTED)
+        }
+    }
+
+    impl<'de, T> Deserialize<'de> for Secret<T>
+    where
+        T: SecureSanitize + Deserialize<'de>,
+    {
+        #[inline]
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            T::deserialize(deserializer).map(Secret::new)
+        }
+    }
+
+    impl<T> Serialize for ReadOnceSecret<T>
+    where
+        T: SecureSanitize,
+    {
+        #[inline]
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(REDACTED)
+        }
+    }
+
+    impl<'de, T> Deserialize<'de> for ReadOnceSecret<T>
+    where
+        T: SecureSanitize + Deserialize<'de>,
+    {
+        #[inline]
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            T::deserialize(deserializer).map(ReadOnceSecret::new)
+        }
+    }
+}
+
 /// Explicit volatile-write backend for ordinary mutable buffers.
 ///
 /// This module is kept as a named integration boundary for callers that need to
@@ -9553,6 +9947,51 @@ mod tests {
             std::format!("{error}"),
             "length mismatch: expected 4 bytes, got 2 bytes"
         );
+    }
+
+    #[cfg(feature = "zeroize-interop")]
+    #[test]
+    fn zeroize_interop_clears_secret_bytes() {
+        use zeroize::Zeroize;
+
+        let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+        secret.zeroize();
+
+        assert_eq!(secret.expose_secret(|bytes| *bytes), [0; 4]);
+    }
+
+    #[cfg(feature = "subtle-interop")]
+    #[test]
+    fn subtle_interop_compares_secret_bytes() {
+        use subtle::ConstantTimeEq;
+
+        let left = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+        let same = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+        let different = SecretBytes::<4>::from_array([1, 2, 3, 0]);
+
+        assert_eq!(left.ct_eq(&same).unwrap_u8(), 1);
+        assert_eq!(left.ct_eq(&different).unwrap_u8(), 0);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_interop_loads_fixed_secret_bytes_and_redacts_output() {
+        let secret: SecretBytes<4> = serde_json::from_str("[1,2,3,4]").unwrap();
+
+        assert_eq!(secret.expose_secret(|bytes| *bytes), [1, 2, 3, 4]);
+        assert_eq!(serde_json::to_string(&secret).unwrap(), "\"<redacted>\"");
+    }
+
+    #[cfg(all(feature = "serde", feature = "alloc"))]
+    #[test]
+    fn serde_interop_loads_alloc_secrets_and_redacts_output() {
+        let bytes: SecretVec = serde_json::from_str("[1,2,3,4]").unwrap();
+        let text: SecretString = serde_json::from_str("\"token\"").unwrap();
+
+        assert_eq!(bytes.with_secret(|secret| secret.len()), 4);
+        assert_eq!(text.try_with_secret(str::len), Ok(5));
+        assert_eq!(serde_json::to_string(&bytes).unwrap(), "\"<redacted>\"");
+        assert_eq!(serde_json::to_string(&text).unwrap(), "\"<redacted>\"");
     }
 
     #[cfg(feature = "std")]

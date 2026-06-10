@@ -54,6 +54,10 @@ Implemented now:
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
 - optional `SecureSanitize` and `SecureSanitizeOnDrop` derives through the
   `derive` feature.
+- optional `zeroize` and `subtle` trait interop for projects that already use
+  RustCrypto ecosystem bounds.
+- optional `serde` deserialization for loading secrets from config formats,
+  with redacted serialization.
 - optional `alloc` support with `SecretVec` and `SecretString`.
 - optional platform memory locking with `LockedSecretBytes<N>` on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets, plus a documented
@@ -157,6 +161,20 @@ For derive macros:
 sanitization = { version = "1.1.0", features = ["derive"] }
 ```
 
+For optional ecosystem interop:
+
+```toml
+[dependencies]
+sanitization = { version = "1.1.0", features = ["zeroize-interop", "subtle-interop"] }
+```
+
+For serde-based config loading:
+
+```toml
+[dependencies]
+sanitization = { version = "1.1.0", features = ["serde", "alloc"] }
+```
+
 For optional ecosystem wrappers, depend on the separate sister crates only when
 you already use those external libraries:
 
@@ -173,6 +191,9 @@ sanitization-bytes = "1.1.0"
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
 | `derive` | no | Re-exports `sanitization-derive` proc macros for `#[derive(SecureSanitize)]` and `#[derive(SecureSanitizeOnDrop)]`. Pulls in proc-macro dependencies only when explicitly enabled. |
+| `serde` | no | Implements serde deserialization for secret loading and redacted serialization for secret-owning wrappers. |
+| `zeroize-interop` | no | Implements `zeroize::Zeroize` and `zeroize::ZeroizeOnDrop` for crate-owned secret containers. |
+| `subtle-interop` | no | Implements `subtle::ConstantTimeEq` for byte-oriented secret containers where the `subtle` trait can represent the comparison. |
 | `memory-lock` | no | Enables `LockedSecretBytes<N>`, native `LockedSecretVec`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported native targets. On WASM this exposes fixed-size volatile-only compatibility backends with no actual memory locking. |
 | `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty locked byte mappings, pooled slots, and guarded dynamic mappings. On WASM this must be paired with `random-canary`. |
 | `random-canary` | no | Enables `canary-check` and generates canary words from the OS CSPRNG instead of deriving them from mapping addresses. WASI preview1 uses `random_get`; other bare WASM targets report random generation failure. |
@@ -868,6 +889,61 @@ struct Wrapper<T: SecureSanitize> {
 This is a Rust `Drop` restriction: the generated `Drop` impl cannot add a
 stricter `T: SecureSanitize` bound than the struct declaration.
 
+## Ecosystem Interop
+
+The default build stays dependency-free. Enable interop features only when a
+downstream API already requires these ecosystem traits:
+
+```toml
+[dependencies]
+sanitization = { version = "1.1.0", features = ["zeroize-interop", "subtle-interop"] }
+```
+
+```rust
+use sanitization::SecretBytes;
+use subtle::ConstantTimeEq;
+use zeroize::Zeroize;
+
+let mut key = SecretBytes::<32>::from_array([7; 32]);
+let expected = SecretBytes::<32>::from_array([7; 32]);
+
+assert_eq!(key.ct_eq(&expected).unwrap_u8(), 1);
+key.zeroize();
+```
+
+`zeroize-interop` implements `Zeroize` and `ZeroizeOnDrop` for this crate's
+owned secret containers by routing to their existing clear methods.
+`subtle-interop` implements `ConstantTimeEq` for self-type comparisons where
+the `subtle` trait can represent the comparison. Slice and string comparisons
+remain available through this crate's native `constant_time_eq` methods.
+
+## Serde Loading
+
+Enable `serde` when secrets need to be loaded from configuration formats. This
+feature deserializes into secret containers, but serialization always emits the
+literal redaction marker `"<redacted>"` so accidental config dumps or telemetry
+do not leak secret material.
+
+```toml
+[dependencies]
+sanitization = { version = "1.1.0", features = ["serde", "alloc"] }
+serde = { version = "1", features = ["derive"] }
+```
+
+```rust
+use sanitization::{SecretBytes, SecretString};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct Config {
+    signing_key: SecretBytes<32>,
+    api_token: SecretString,
+}
+```
+
+This serde support is intentionally for ingestion. Do not rely on serde
+serialization to export or back up secrets; it redacts by design.
+
 ## Generic Secret Wrapper
 
 Use `Secret<T>` when you already have a type that implements `SecureSanitize`
@@ -1248,6 +1324,8 @@ Allocate the maximum expected size up front with `SecretBytesMut::with_capacity`
 | Explicit SIMD/vector register clearing boundary | `register-scrub` feature |
 | N-of-N fixed-size split storage | `SplitSecretBytes<N, SHARES>` with `split-secret` |
 | Hardware-backed backend crate integration | `hardware-secrets` feature traits |
+| Existing RustCrypto APIs with `zeroize` or `subtle` bounds | `zeroize-interop` or `subtle-interop` features |
+| Config-file secret ingestion | `serde` feature, with redacted serialization |
 | `arrayvec` or `bytes` wrappers | `sanitization-arrayvec` or `sanitization-bytes` |
 
 ## Relationship to `zeroize`
@@ -1256,7 +1334,10 @@ Allocate the maximum expected size up front with `SecretBytesMut::with_capacity`
 especially with `#[derive(Zeroize, ZeroizeOnDrop)]`. This crate keeps the core
 crate dependency-free by default, but now offers an optional
 `sanitization-derive` sister crate behind the `derive` feature for users who
-want similar compiler-generated struct and enum coverage.
+want similar compiler-generated struct and enum coverage. When existing
+RustCrypto ecosystem APIs require `zeroize` or `subtle` trait bounds, enable
+`zeroize-interop` or `subtle-interop`; these are explicit opt-ins and are not
+part of the dependency-free default build.
 
 The intended trade-off:
 
