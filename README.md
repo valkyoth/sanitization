@@ -956,7 +956,11 @@ struct Config {
 ```
 
 This serde support is intentionally for ingestion. Do not rely on serde
-serialization to export or back up secrets; it redacts by design.
+serialization to export or back up secrets; it redacts by design. For generic
+`Secret<T>` and `ReadOnceSecret<T>`, deserialization uses `T`'s own
+`Deserialize` implementation, so use this crate's leaf types such as
+`SecretBytes<N>`, `SecretVec`, and `SecretString` at secret-bearing fields when
+you need secret-aware ingestion end to end.
 
 ## Generic Secret Wrapper
 
