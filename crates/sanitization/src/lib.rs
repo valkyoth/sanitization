@@ -18,9 +18,10 @@
 //!   target-specific unsafe code and platform policy.
 //! - Platform memory locking is available only through the explicit
 //!   `memory-lock` feature on supported Linux, Android, macOS, iOS, Windows,
-//!   and BSD targets. On WASM, the same feature exposes a volatile-only
-//!   compatibility backend without host memory locking. The same feature also
-//!   enables pooled slots with [`SecretPool`] on supported targets.
+//!   and BSD targets. On WASM, `memory-lock` must be paired with `wasm-compat`
+//!   to expose volatile-only compatibility types without host memory locking.
+//!   The same feature also enables pooled slots with [`SecretPool`] on
+//!   supported targets.
 //! - Locked, pooled, and guarded canary integrity checks are available only
 //!   through the explicit `canary-check` feature on supported targets.
 //! - OS-CSPRNG canary generation is available only through the explicit
@@ -40,10 +41,19 @@
 //!   `guard-pages` feature on supported Linux, Android, macOS, iOS, Windows,
 //!   and BSD targets.
 //! - WASM has no kernel page table, `mlock`, `mprotect`, or native volatile
-//!   semantics. Base secret containers compile on WASM, and `memory-lock`
-//!   exposes a documented volatile-only compatibility backend on WASM, but it
-//!   does not pin memory or exclude host dumps there. `guard-pages` is rejected
-//!   at compile time on WASM.
+//!   semantics. Base secret containers compile on WASM. `memory-lock` exposes
+//!   volatile-only compatibility types on WASM only when `wasm-compat` is also
+//!   enabled, so callers explicitly acknowledge the reduced guarantees.
+//!   `guard-pages` is rejected at compile time on WASM.
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_arch = "wasm32",
+    not(feature = "wasm-compat")
+))]
+compile_error!(
+    "sanitization: memory-lock on wasm32 requires the wasm-compat feature; WASM has no mlock/mprotect, so this is an explicit reduced-guarantee compatibility backend"
+);
 
 #[cfg(all(feature = "guard-pages", target_arch = "wasm32"))]
 compile_error!(
@@ -788,7 +798,11 @@ fn max_utf8_capacity(char_count: usize) -> usize {
     char_count.saturating_mul(4)
 }
 
-#[cfg(all(feature = "memory-lock", target_arch = "wasm32"))]
+#[cfg(all(
+    feature = "memory-lock",
+    feature = "wasm-compat",
+    target_arch = "wasm32"
+))]
 #[allow(unsafe_code)]
 mod memory_lock {
     use core::{
@@ -4821,7 +4835,7 @@ mod memory_lock {
         target_os = "openbsd",
         target_os = "netbsd",
         target_os = "dragonfly",
-        target_arch = "wasm32",
+        all(target_arch = "wasm32", feature = "wasm-compat"),
     )
 ))]
 pub use memory_lock::{
@@ -4864,7 +4878,7 @@ pub use memory_lock::{LockedSecretVec, LockedSecretVecGenerateError};
         target_os = "openbsd",
         target_os = "netbsd",
         target_os = "dragonfly",
-        target_arch = "wasm32",
+        all(target_arch = "wasm32", feature = "wasm-compat"),
     )
 ))]
 pub use memory_lock::{CanaryCorruptedError, LockedSecretBytesCheckedCopyError};

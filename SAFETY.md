@@ -8,7 +8,7 @@ Unsafe code is allowed only inside narrow `src/lib.rs` modules:
 - `wipe`, the default volatile clear backend;
 - `memory_lock`, available with the `memory-lock` feature on supported native
   Linux, Android, macOS, iOS, Windows, and BSD targets, and as a volatile-only
-  compatibility backend on WASM.
+  compatibility backend on WASM only when `wasm-compat` is also enabled.
 - `compare_asm`, available only with the `asm-compare` feature on x86_64
   outside Miri.
 - `cache_flush`, available only with the `cache-flush` feature on x86_64
@@ -81,7 +81,7 @@ Purpose: provide dependency-free platform memory locking for
 global allocator. Linux uses raw syscalls; Android, macOS, iOS, and BSD use
 system C ABI entry points; Windows uses Kernel32 virtual memory APIs. WASM uses
 a separate compatibility backend with inline WASM-owned fixed-size storage and
-no host memory lock.
+no host memory lock only when `wasm-compat` is explicitly enabled.
 
 Operations:
 
@@ -106,8 +106,8 @@ Operations:
 Invariant:
 
 - The module is compiled only for supported OS targets with the `memory-lock`
-  feature enabled, or for `wasm32` with the volatile-only compatibility
-  backend. Linux support is limited to `x86_64` and `aarch64` raw syscall ABIs.
+  feature enabled, or for `wasm32` with both `memory-lock` and `wasm-compat`.
+  Linux support is limited to `x86_64` and `aarch64` raw syscall ABIs.
 - Linux syscall register assignments follow the Linux syscall ABI for the
   target architecture.
 - Non-Linux Unix targets use C ABI declarations without adding a Rust `libc`

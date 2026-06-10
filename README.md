@@ -61,12 +61,13 @@ Implemented now:
 - optional `alloc` support with `SecretVec` and `SecretString`.
 - optional platform memory locking with `LockedSecretBytes<N>` on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets, plus a documented
-  volatile-only WASM compatibility backend.
+  volatile-only WASM compatibility backend behind `wasm-compat`.
 - optional dynamic locked byte storage with `LockedSecretVec` on supported
   native memory-lock targets.
 - optional pooled locked-memory arenas with `SecretPool<N, SLOTS>` for many
   same-size fixed secrets under one memory-lock operation on native backends,
-  plus the same pool API on WASM without host memory locking.
+  plus the same pool API on WASM behind `wasm-compat` without host memory
+  locking.
 - optional locked, pooled, and guarded canary integrity checks with
   `canary-check`.
 - optional OS-CSPRNG canary words with `random-canary`.
@@ -194,9 +195,10 @@ sanitization-bytes = "1.1.0"
 | `serde` | no | Implements serde deserialization for secret loading and redacted serialization for secret-owning wrappers. |
 | `zeroize-interop` | no | Implements `zeroize::Zeroize` and `zeroize::ZeroizeOnDrop` for crate-owned secret containers. |
 | `subtle-interop` | no | Implements `subtle::ConstantTimeEq` for byte-oriented secret containers where the `subtle` trait can represent the comparison. |
-| `memory-lock` | no | Enables `LockedSecretBytes<N>`, native `LockedSecretVec`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported native targets. On WASM this exposes fixed-size volatile-only compatibility backends with no actual memory locking. |
-| `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty locked byte mappings, pooled slots, and guarded dynamic mappings. On WASM this must be paired with `random-canary`. |
-| `random-canary` | no | Enables `canary-check` and generates canary words from the OS CSPRNG instead of deriving them from mapping addresses. WASI preview1 uses `random_get`; other bare WASM targets report random generation failure. |
+| `memory-lock` | no | Enables `LockedSecretBytes<N>`, native `LockedSecretVec`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported native targets. On WASM this must be paired with `wasm-compat` and exposes fixed-size volatile-only compatibility backends with no actual memory locking. |
+| `wasm-compat` | no | Explicitly enables reduced-guarantee WASM compatibility backends for `memory-lock` APIs. This does not provide `mlock`, `mprotect`, dump exclusion, or guard pages. |
+| `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty locked byte mappings, pooled slots, and guarded dynamic mappings. On WASM this must be paired with `wasm-compat` and `random-canary`. |
+| `random-canary` | no | Enables `canary-check` and generates canary words from the OS CSPRNG instead of deriving them from mapping addresses. WASI preview1 uses `random_get`; other bare WASM targets report random generation failure. On WASM it also needs `wasm-compat`. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
 | `register-scrub` | no | Enables explicit best-effort SIMD/vector register scrubbing helpers on x86_64 and AArch64. |
@@ -212,20 +214,29 @@ Default builds are dependency-free and `no_std`.
 
 The base containers (`SecretBytes`, `Secret`, `ReadOnceSecret`, and with
 `alloc`, `SecretVec` and `SecretString`) compile on `wasm32` targets.
-`memory-lock` also compiles on WASM as an API-compatible volatile-only backend:
+`memory-lock` compiles on WASM only when `wasm-compat` is also enabled. That
+feature pair exposes API-compatible volatile-only backends:
 `LockedSecretBytes<N>` and `SecretPool<N, SLOTS>` own storage inside WASM
 linear memory and clear it on drop, but no `mlock`, `mmap`, `mprotect`,
 `MADV_DONTDUMP`, or page locking is applied because WASM modules cannot call
 those host-kernel facilities directly.
 
+```toml
+[dependencies]
+sanitization = { version = "1.1.0", features = ["memory-lock", "wasm-compat"] }
+```
+
+`memory-lock` without `wasm-compat` is rejected at compile time on WASM so
+native memory-lock expectations are not silently degraded.
+
 `guard-pages` is rejected at compile time on WASM. WASM linear memory has no
 per-page protection API available to the module, so a guard-page-less
 `GuardedSecretVec` would be misleading.
 
-`canary-check` is also rejected at compile time on WASM unless `random-canary`
-is enabled. Deterministic WASM canaries do not have ASLR-backed mapping
-entropy, so the crate requires a random canary backend instead of silently
-providing a predictable integrity word.
+`canary-check` is also rejected at compile time on WASM unless `wasm-compat`
+and `random-canary` are enabled. Deterministic WASM canaries do not have
+ASLR-backed mapping entropy, so the crate requires a random canary backend
+instead of silently providing a predictable integrity word.
 
 `random-canary` uses WASI preview1 `random_get` when targeting
 `wasm32-wasip1`. Bare `wasm32-unknown-unknown`, Emscripten-style WASM, and
@@ -477,8 +488,8 @@ container.
 
 Enable `memory-lock` for fixed-size secrets stored in private platform memory
 and locked with the operating system's resident-memory API on native targets.
-On WASM, the same feature provides API-compatible volatile-only storage without
-host memory locking.
+On WASM, pair `memory-lock` with `wasm-compat` to explicitly request
+API-compatible volatile-only storage without host memory locking.
 
 | Platform | Backend | Extra policy |
 | --- | --- | --- |
@@ -521,9 +532,10 @@ where supported by the backend, locks the mapping, volatile-clears the full
 mapping on drop, then unlocks and releases it.
 On WASM, there is no kernel mapping or memory-lock syscall available to the
 module. `LockedSecretBytes<N>` and `SecretPool<N, SLOTS>` therefore compile as
-volatile-only compatibility containers in WASM linear memory. This preserves
-API-level portability for shared code, but it does not prevent host-runtime
-copies, swapping, snapshots, browser memory inspection, or crash dumps.
+volatile-only compatibility containers in WASM linear memory only when
+`wasm-compat` is enabled alongside `memory-lock`. This preserves API-level
+portability for shared code, but it does not prevent host-runtime copies,
+swapping, snapshots, browser memory inspection, or crash dumps.
 Use `from_fn` when bytes can be generated directly into locked or
 compatibility storage. Use
 `try_from_fn` for fallible generators such as RNG or KDF APIs. Use `from_slice`
@@ -630,7 +642,9 @@ sanitization = { version = "1.1.0", features = ["random-canary"] }
 
 `random-canary` uses direct platform backends without additional crates: Linux
 and Android `getrandom`, macOS/iOS/BSD `arc4random_buf`, Windows
-`BCryptGenRandom`, and WASI preview1 `random_get`. Bare
+`BCryptGenRandom`, and WASI preview1 `random_get`. On WASM, pair it with
+`wasm-compat` because `random-canary` enables the canary/memory-lock
+compatibility backend. Bare
 `wasm32-unknown-unknown`, Emscripten-style WASM, and WASI preview2 currently
 have no dependency-free crate-level random import here, so random-canary
 construction returns a `Random` operation error on those targets unless a
@@ -644,8 +658,8 @@ For many same-size locked secrets on native targets, use
 `SecretPool<N, SLOTS>` to amortize page-granule memory-locking overhead. This
 is useful on systems with small `RLIMIT_MEMLOCK`/`VirtualLock` quotas because
 one locked mapping can hold many slots. On WASM, `SecretPool` keeps the same
-allocation API but stores slots in WASM linear memory and reports
-`locked_len() == 0`.
+allocation API only when `wasm-compat` is enabled, but stores slots in WASM
+linear memory and reports `locked_len() == 0`.
 
 ```rust
 use sanitization::SecretPool;
@@ -666,12 +680,12 @@ drop(first); // clears this slot and returns it to the pool
 ```
 
 On native targets, `SecretPool<N, SLOTS>` stores all slots inside one private
-locked mapping and tracks live slots with an atomic bitmap. On WASM, the pool
-uses inline WASM-owned slot storage instead. A slot borrows the pool, so the
-pool cannot be dropped while slots are live. Dropping a slot volatile-clears
-that slot before marking it reusable. Dropping the pool volatile-clears the
-full native mapping before unlocking and releasing it, or clears all WASM-owned
-slots on WASM.
+locked mapping and tracks live slots with an atomic bitmap. On WASM with
+`wasm-compat`, the pool uses inline WASM-owned slot storage instead. A slot
+borrows the pool, so the pool cannot be dropped while slots are live. Dropping
+a slot volatile-clears that slot before marking it reusable. Dropping the pool
+volatile-clears the full native mapping before unlocking and releasing it, or
+clears all WASM-owned slots on WASM.
 
 With `canary-check`, each non-empty pool slot has its own prefix and suffix
 canary. Slot exposure, copying, mutation, and comparison verify those canaries
@@ -1301,7 +1315,7 @@ Allocate the maximum expected size up front with `SecretBytesMut::with_capacity`
 | Fixed-size key with access expiry | `ExpiringSecretBytes<N>` with `std` |
 | Fixed-size key that should avoid swap/pagefiles on supported native platforms | `LockedSecretBytes<N>` with `memory-lock` |
 | Dynamic bytes that should avoid swap/pagefiles on supported native platforms | `LockedSecretVec` with `memory-lock` |
-| Fixed-size key needing API-compatible WASM storage | `LockedSecretBytes<N>` with `memory-lock` on WASM, with documented reduced guarantees |
+| Fixed-size key needing API-compatible WASM storage | `LockedSecretBytes<N>` with `memory-lock` and `wasm-compat` on WASM, with documented reduced guarantees |
 | Fixed-size locked key with prefix/suffix corruption checks | `LockedSecretBytes<N>` with `canary-check` |
 | Fixed-size locked key with OS-random canary words | `LockedSecretBytes<N>` with `random-canary` |
 | Many same-size fixed keys under native memory-lock quotas | `SecretPool<N, SLOTS>` with `memory-lock` |

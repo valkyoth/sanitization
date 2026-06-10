@@ -56,14 +56,19 @@ check_installed_target aarch64-linux-android --all-features --lib
 check_installed_target x86_64-linux-android --all-features --lib
 check_installed_target x86_64-unknown-freebsd --features memory-lock,guard-pages,multi-pass-clear --lib
 check_installed_target wasm32-unknown-unknown --no-default-features --lib
-check_installed_target wasm32-unknown-unknown --features alloc,memory-lock,random-canary,multi-pass-clear --lib
-check_installed_target wasm32-unknown-unknown --features random-canary --lib
-check_installed_target wasm32-wasip1 --features alloc,random-canary,multi-pass-clear --lib
-check_installed_target wasm32-wasip2 --features random-canary --lib
+check_installed_target wasm32-unknown-unknown --features alloc,memory-lock,wasm-compat,random-canary,multi-pass-clear --lib
+check_installed_target wasm32-unknown-unknown --features wasm-compat,random-canary --lib
+check_installed_target wasm32-wasip1 --features alloc,wasm-compat,random-canary,multi-pass-clear --lib
+check_installed_target wasm32-wasip2 --features wasm-compat,random-canary --lib
 check_installed_target thumbv7em-none-eabihf --no-default-features --lib
 
 if target_installed wasm32-unknown-unknown; then
-    if cargo check --target wasm32-unknown-unknown --features canary-check --lib >/tmp/sanitization-wasm-canary-check.log 2>&1; then
+    if cargo check --target wasm32-unknown-unknown --features memory-lock --lib >/tmp/sanitization-wasm-memory-lock.log 2>&1; then
+        printf 'wasm32 memory-lock without wasm-compat unexpectedly compiled\n'
+        exit 1
+    fi
+
+    if cargo check --target wasm32-unknown-unknown --features wasm-compat,canary-check --lib >/tmp/sanitization-wasm-canary-check.log 2>&1; then
         printf 'wasm32 canary-check without random-canary unexpectedly compiled\n'
         exit 1
     fi

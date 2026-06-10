@@ -21,9 +21,10 @@ Rust applications.
 - Optional pooled platform memory locking for many same-size fixed secrets with
   `SecretPool<N, SLOTS>` when the `memory-lock` feature is enabled on supported
   targets.
-- WASM API compatibility for `LockedSecretBytes<N>` and
-  `SecretPool<N, SLOTS>` when `memory-lock` is enabled on `wasm32`, using
-  volatile-only WASM-owned storage without claiming host memory locking.
+- Explicit WASM API compatibility for `LockedSecretBytes<N>` and
+  `SecretPool<N, SLOTS>` when both `memory-lock` and `wasm-compat` are enabled
+  on `wasm32`, using volatile-only WASM-owned storage without claiming host
+  memory locking.
 - Optional prefix/suffix canary integrity checks for non-empty
   `LockedSecretBytes<N>` mappings, pooled slots, and guarded dynamic mappings
   when the `canary-check` feature is enabled.
@@ -118,15 +119,17 @@ container. Leaking a slot with `core::mem::forget` also leaks that slot's
 allocation state and skips its drop-time clearing, just as leaking any
 secret-owning value skips its destructor.
 
-With the `memory-lock` feature on WASM targets, `LockedSecretBytes<N>` and
-`SecretPool<N, SLOTS>` are exposed as volatile-only compatibility containers.
-They keep API-level code portable and still clear their owned WASM storage on
-drop, but they do not call `mlock`, do not create protected mappings, do not
-exclude host dumps or snapshots, and cannot prevent the runtime from copying or
-moving linear memory. `SecretPool::locked_len()` returns `0` on WASM to avoid
-misrepresenting host memory as pinned. `guard-pages` is not available on WASM
-because WASM linear memory has no `mprotect`-style page protection available to
-the module.
+With both `memory-lock` and `wasm-compat` on WASM targets,
+`LockedSecretBytes<N>` and `SecretPool<N, SLOTS>` are exposed as volatile-only
+compatibility containers. They keep API-level code portable and still clear
+their owned WASM storage on drop, but they do not call `mlock`, do not create
+protected mappings, do not exclude host dumps or snapshots, and cannot prevent
+the runtime from copying or moving linear memory. `memory-lock` without
+`wasm-compat` is rejected at compile time on WASM to avoid silently degrading
+native memory-lock expectations. `SecretPool::locked_len()` returns `0` on WASM
+to avoid misrepresenting host memory as pinned. `guard-pages` is not available
+on WASM because WASM linear memory has no `mprotect`-style page protection
+available to the module.
 
 With the `canary-check` feature, non-empty `LockedSecretBytes<N>` mappings,
 `LockedSecretVec` mappings, and `SecretPool<N, SLOTS>` slots place an 8-byte
@@ -154,10 +157,11 @@ authenticate memory against an attacker who can read and rewrite both the owner
 metadata and mapped canary bytes.
 On WASM, deterministic canaries are rejected at compile time because fallback
 storage lives inline with the Rust value or pool and has no ASLR-backed mapping
-address. `canary-check` on WASM must be paired with `random-canary`. WASI
-preview1 uses `random_get`; bare `wasm32-unknown-unknown`, Emscripten-style
-WASM, and WASI preview2 currently return a `Random` operation error for random
-canary generation in this dependency-free implementation.
+address. `canary-check` on WASM must be paired with both `wasm-compat` and
+`random-canary`. WASI preview1 uses `random_get`; bare
+`wasm32-unknown-unknown`, Emscripten-style WASM, and WASI preview2 currently
+return a `Random` operation error for random canary generation in this
+dependency-free implementation.
 
 With the `asm-compare` feature on x86_64, equal-length comparisons use an
 inline-assembly loop. This gives the comparison body a stronger compiler
