@@ -9460,7 +9460,7 @@ mod zeroize_interop {
     #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
     impl zeroize::ZeroizeOnDrop for LockedSecretVec {}
 
-    #[cfg(feature = "guard-pages")]
+    #[cfg(all(feature = "guard-pages", not(miri)))]
     impl zeroize::Zeroize for GuardedSecretVec {
         #[inline]
         fn zeroize(&mut self) {
@@ -9468,7 +9468,7 @@ mod zeroize_interop {
         }
     }
 
-    #[cfg(feature = "guard-pages")]
+    #[cfg(all(feature = "guard-pages", not(miri)))]
     impl zeroize::ZeroizeOnDrop for GuardedSecretVec {}
 }
 
@@ -9520,7 +9520,7 @@ mod subtle_interop {
         }
     }
 
-    #[cfg(feature = "guard-pages")]
+    #[cfg(all(feature = "guard-pages", not(miri)))]
     impl ConstantTimeEq for GuardedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
