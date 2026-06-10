@@ -5,7 +5,7 @@ Optional derive macros for the `sanitization` crate.
 Use through the main crate:
 
 ```toml
-sanitization = { version = "1.0.1", features = ["derive"] }
+sanitization = { version = "1.1.0", features = ["derive"] }
 ```
 
 The derive crate only generates calls to `sanitization::SecureSanitize`; it does

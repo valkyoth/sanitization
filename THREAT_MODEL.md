@@ -16,6 +16,8 @@ Rust applications.
 - Optional platform memory locking for `LockedSecretBytes<N>` when the
   `memory-lock` feature is enabled on supported Linux, Android, macOS, iOS,
   Windows, and BSD targets.
+- Optional dynamic platform memory locking for `LockedSecretVec` when the
+  `memory-lock` feature is enabled on supported native targets.
 - Optional pooled platform memory locking for many same-size fixed secrets with
   `SecretPool<N, SLOTS>` when the `memory-lock` feature is enabled on supported
   targets.
@@ -33,8 +35,14 @@ Rust applications.
   `asm-compare` feature is enabled.
 - Optional x86_64 volatile-clear plus cache-line eviction when the
   `cache-flush` feature is enabled.
+- Optional best-effort SIMD/vector register scrubbing on x86_64 and AArch64
+  when the `register-scrub` feature is enabled.
 - Optional explicit three-pass volatile overwrite helpers when the
   `multi-pass-clear` feature is enabled.
+- Optional N-of-N XOR split fixed-size storage when the `split-secret` feature
+  is enabled.
+- Optional hardware-backed provider traits when the `hardware-secrets` feature
+  is enabled.
 - Optional `std` lifetime enforcement for fixed-size secrets with
   `ExpiringSecretBytes<N>`.
 - Optional platform guard-page storage for dynamic byte secrets with
@@ -48,16 +56,18 @@ Rust applications.
 - Preventing secrets from entering hibernation files, crash dumps, logs, tracing
   systems, or external libraries.
 - Preventing swap/pagefile exposure on unsupported targets or for values not
-  stored inside `LockedSecretBytes<N>`.
+  stored inside native `LockedSecretBytes<N>`, `LockedSecretVec`, `SecretPool`,
+  or locked `GuardedSecretVec` storage.
 - Preventing host-runtime copies, swapping, snapshots, dumps, or browser memory
   inspection for WASM linear memory.
 - Preventing disclosure through a debugger, `/proc/<pid>/mem`, ptrace, kernel
   compromise, DMA, malicious firmware, or privileged co-tenants.
 - Revoking external copies after a secret has already been exposed to caller
   code or third-party libraries.
-- Soundly scrubbing old stack frames, prior Rust move copies, CPU registers,
-  unrelated CPU cache lines, SIMD registers, allocator metadata, or third-party
-  library copies.
+- Soundly scrubbing old stack frames, prior Rust move copies, all CPU
+  registers, unrelated CPU cache lines, allocator metadata, or third-party
+  library copies. The `register-scrub` feature is only an explicit best-effort
+  current-thread SIMD/vector register clearing boundary.
 - Clearing temporary stack copies after process abort. Closure helpers clear
   their temporaries on normal return and unwinding paths only; `panic = "abort"`
   and other abort paths skip destructors and post-closure cleanup.
@@ -93,13 +103,13 @@ DoD 5220.22-M-style overwrite procedures; it should not be interpreted as
 meaningfully stronger protection for live process memory.
 
 With the `memory-lock` feature on supported Linux, Android, macOS, iOS,
-Windows, and BSD targets, `LockedSecretBytes<N>` uses a private platform
-mapping and memory locking to reduce the chance that the secret's storage
-reaches swap or pagefiles. `SecretPool<N, SLOTS>` uses the same backend but
-sub-allocates many fixed-size slots from one locked mapping, reducing
-page-granule quota overhead for applications that keep many same-size secrets.
-Linux also applies `MADV_DONTDUMP` and `MADV_DONTFORK` to reduce ordinary
-core-dump exposure and accidental inheritance across `fork`. This is a
+Windows, and BSD targets, `LockedSecretBytes<N>` and native `LockedSecretVec`
+use private platform mappings and memory locking to reduce the chance that
+secret storage reaches swap or pagefiles. `SecretPool<N, SLOTS>` uses the same
+backend but sub-allocates many fixed-size slots from one locked mapping,
+reducing page-granule quota overhead for applications that keep many same-size
+secrets. Linux also applies `MADV_DONTDUMP` and `MADV_DONTFORK` to reduce
+ordinary core-dump exposure and accidental inheritance across `fork`. This is a
 high-assurance building block, not a complete OS secrecy guarantee. Resource
 limits or policy can make setup fail, and locked memory can still be exposed
 through hibernation, nonstandard crash dump mechanisms, debuggers, privileged
@@ -118,17 +128,17 @@ misrepresenting host memory as pinned. `guard-pages` is not available on WASM
 because WASM linear memory has no `mprotect`-style page protection available to
 the module.
 
-With the `canary-check` feature, non-empty `LockedSecretBytes<N>` mappings and
-`SecretPool<N, SLOTS>` slots place an 8-byte canary before and after the secret
-bytes. `GuardedSecretVec` places one canary before the payload and one
-immediately after the initialized payload. Exposure, mutation, replacement, and
-comparison APIs verify both canaries before reading or modifying the secret;
-checked APIs return `CanaryCorruptedError`, while legacy APIs clear the mapping
-or slot and panic. This can detect overwrites that stay inside the writable
-mapping but reach the canary words, including some overrun/underrun cases that
-do not reach a guard page. It does not detect corruption entirely inside the
-secret bytes and does not provide authenticity against an attacker who can read
-and rewrite the full process memory image.
+With the `canary-check` feature, non-empty `LockedSecretBytes<N>` mappings,
+`LockedSecretVec` mappings, and `SecretPool<N, SLOTS>` slots place an 8-byte
+canary before and after the secret bytes. `GuardedSecretVec` places one canary
+before the payload and one immediately after the initialized payload. Exposure,
+mutation, replacement, and comparison APIs verify both canaries before reading
+or modifying the secret; checked APIs return `CanaryCorruptedError`, while
+legacy APIs clear the mapping or slot and panic. This can detect overwrites
+that stay inside the writable mapping but reach the canary words, including
+some overrun/underrun cases that do not reach a guard page. It does not detect
+corruption entirely inside the secret bytes and does not provide authenticity
+against an attacker who can read and rewrite the full process memory image.
 
 By default, canary words are derived from mapping or slot addresses and a fixed
 mask. This deterministic mode assumes ASLR or otherwise unpredictable mapping
@@ -160,6 +170,22 @@ cache lines. This can evict the addressed lines from CPU caches, but it does not
 prove all historical copies are gone and does not solve general
 microarchitectural side channels. When combined with `guard-pages`,
 `GuardedSecretVec` can explicitly clear and flush its full writable data region.
+
+With the `register-scrub` feature, explicit helpers clear selected
+current-thread SIMD/vector registers on x86_64 and AArch64. This is a local
+post-crypto hygiene boundary, not proof that all register, stack, spill, kernel,
+or other-thread copies have been removed.
+
+With the `split-secret` feature, `SplitSecretBytes<N, SHARES>` stores a
+fixed-size secret as N-of-N XOR shares. This can reduce the impact of a single
+contiguous memory disclosure only when shares are placed and protected
+separately by the application. It is not threshold cryptography, not Shamir
+secret sharing, and depends on the caller supplying cryptographically random
+mask bytes.
+
+With the `hardware-secrets` feature, the crate exposes traits for backend
+crates that integrate HSMs, TEEs, platform keystores, enclaves, or similar
+providers. The core crate does not implement or certify any hardware backend.
 
 With the `std` feature, `ExpiringSecretBytes<N>` checks a configured maximum age
 at access time. Expired values are cleared before access is rejected. This is an

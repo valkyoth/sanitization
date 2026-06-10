@@ -1,8 +1,8 @@
 # Roadmap
 
-This crate is still in release-candidate status. We will use that window to fix
-the architecture before `1.0.0`, even if that means making breaking changes
-while adoption is still low.
+This crate is stable in the `1.x` line. The roadmap tracks high-assurance
+features that fit the crate's core model: dependency-free-by-default secret
+ownership, explicit unsafe boundaries, and documented platform limits.
 
 The goal is not to be a drop-in replacement for `zeroize`. The goal is to be a
 zero-dependency secret lifecycle crate for new projects: redacted containers,
@@ -41,6 +41,31 @@ crates.
 
 ## 1.x Architecture Direction
 
+### 0. 1.1.0 High-Assurance Additions
+
+Status: implemented for the 1.1.0 development line.
+
+Implemented in 1.1.0:
+
+- `LockedSecretVec` for native dynamic-length memory-locked byte storage
+  without guard-page overhead.
+- `register-scrub` best-effort SIMD/vector register clearing on x86_64 and
+  AArch64.
+- `hardware-secrets` provider traits so SGX, Nitro, HSM, TPM, platform-keystore,
+  or enclave integration crates can plug in without adding dependencies to the
+  main crate.
+- `split-secret` N-of-N XOR split storage through
+  `SplitSecretBytes<N, SHARES>`.
+- separate `sanitization-arrayvec` and `sanitization-bytes` wrapper crates for
+  users that already depend on those ecosystems.
+
+Still intentionally out of scope for the core crate:
+
+- direct vendor SDK integrations;
+- threshold secret sharing;
+- pretending WASM can provide host memory locking or guard pages;
+- broad dependencies in the default crate.
+
 ### 1. Make Volatile Wiping the Default Clear Path
 
 Status: implemented in `1.0.0`.
@@ -71,7 +96,7 @@ Earlier release candidates used atomic byte storage on targets with 8-bit
 atomics and fell back on non-atomic storage elsewhere. That was defensible, but
 surprising and target-dependent.
 
-Planned direction:
+Implemented direction:
 
 - Fixed-size bytes are stored as `[u8; N]`.
 - Mutation remains behind `&mut self`.
@@ -137,7 +162,7 @@ Implemented dynamic rotation helpers:
 - `SecretString::replace_from_chars`;
 - `SecretString::try_replace_from_chars`.
 
-Avoid before `1.0.0`:
+Continue avoiding:
 
 - broad blanket impls for every primitive and container;
 - proc-macro derives in the core crate;
@@ -166,7 +191,7 @@ Implemented now:
 - `.github/workflows/kani.yml` runs bounded Kani harnesses on pull requests,
   `main` pushes, and manual dispatch.
 
-Before stable `1.0.0`, remaining verification work is:
+Remaining verification work:
 
 - external review focused on unsafe clearing, drop behavior, and API misuse;
 - optional property-based or timing-distribution tests if the project accepts
@@ -335,7 +360,7 @@ Current implementation:
 Remaining work:
 
 - evaluate non-x86_64 support separately;
-- review cache-line sizing assumptions before stable;
+- review cache-line sizing assumptions during future target expansion;
 - keep guard-page allocation as a separate design.
 
 ### 4. Assembly-Backed Constant-Time Comparison
@@ -353,8 +378,8 @@ Design requirements:
 - safe public API: implemented with no API change;
 - strict fallback to the portable implementation on unsupported targets:
   implemented;
-- independent review of inline assembly constraints: still recommended before
-  stable;
+- independent review of inline assembly constraints: still recommended for
+  high-assurance deployments;
 - tests that prove fallback and target paths agree: implemented for x86_64;
 - documentation that length remains public metadata: implemented.
 
@@ -386,7 +411,7 @@ Design constraints:
   expired access clears before returning `SecretExpiredError`;
 - account for clock behavior and testability: no-`std` callers provide a
   monotonic tick source; `std` callers can use `std::time::Instant`; review
-  clock assumptions before stable.
+  clock assumptions for each deployment.
 - fallible generated replacement preserves a still-live old value on generator
   error, but clears an already-expired old value before returning the error.
 
@@ -454,18 +479,16 @@ If resources are limited, remaining 1.x hardening work should be ordered as:
    and further Linux aarch64 page-size detection hardening as target-specific
    work unless review finds a release-blocking issue.
 
-## Stable Release Bar
+## Release Readiness Bar
 
-Do not tag `1.0.0` until:
+Do not tag a new `1.x` release until:
 
-- the volatile default clearing architecture remains implemented and documented;
-- `SecretBytes<N>` storage behavior remains settled;
-- the `unsafe-wipe` compatibility feature remains clearly documented;
 - README, SAFETY, SECURITY, and THREAT_MODEL match the final design;
-- the roadmap clearly marks post-`1.0.0` high-assurance features as optional
-  rather than stable guarantees;
 - the local check matrix passes;
-- at least one external reviewer has looked at the unsafe boundary and secret
-  lifecycle API;
-- downstream testing has not found API friction that would require immediate
-  breaking changes.
+- package metadata and publish order are clear for every workspace crate;
+- new unsafe boundaries have tests, documentation, and a concise invariant
+  description;
+- dependency-bearing functionality remains outside the main crate unless there
+  is a deliberate security reason to change that boundary;
+- external review or downstream testing has not found API friction that would
+  require an immediate patch release.

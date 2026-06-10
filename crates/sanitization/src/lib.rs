@@ -3016,6 +3016,559 @@ mod memory_lock {
         }
     }
 
+    /// Dynamic secret bytes stored in a private locked platform mapping.
+    ///
+    /// Error returned when fallible locked dynamic byte generation fails.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum LockedSecretVecGenerateError<E> {
+        /// Platform mapping, core-dump exclusion, locking, unlocking, or
+        /// unmapping failed before generation completed.
+        Memory(MemoryLockError),
+        /// The caller-provided byte generator failed.
+        Generate(E),
+    }
+
+    impl<E: fmt::Display> fmt::Display for LockedSecretVecGenerateError<E> {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::Memory(error) => error.fmt(formatter),
+                Self::Generate(error) => error.fmt(formatter),
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl<E> std::error::Error for LockedSecretVecGenerateError<E>
+    where
+        E: std::error::Error + 'static,
+    {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::Memory(error) => Some(error),
+                Self::Generate(error) => Some(error),
+            }
+        }
+    }
+
+    impl<E> From<MemoryLockError> for LockedSecretVecGenerateError<E> {
+        #[inline]
+        fn from(error: MemoryLockError) -> Self {
+            Self::Memory(error)
+        }
+    }
+
+    /// `LockedSecretVec` fills the gap between [`crate::SecretVec`] and
+    /// [`crate::GuardedSecretVec`]. It supports runtime-length secret bytes in
+    /// platform-locked memory without adding guard pages, which keeps memory
+    /// overhead lower for large PEM/DER material, tokens, or generated secrets
+    /// where page-fence protection is not required.
+    pub struct LockedSecretVec {
+        ptr: NonNull<u8>,
+        map_len: usize,
+        data_capacity: usize,
+        len: usize,
+        #[cfg(feature = "random-canary")]
+        canary: [u8; CANARY_SIZE],
+    }
+
+    // SAFETY: The value exclusively owns a private mapping. Moving ownership to
+    // another thread does not invalidate the mapping, and mutation/clearing
+    // still requires `&mut self`. `Sync` is intentionally not implemented.
+    unsafe impl Send for LockedSecretVec {}
+
+    impl LockedSecretVec {
+        /// Allocate locked dynamic storage with at least `capacity` bytes.
+        pub fn with_capacity(capacity: usize) -> Result<Self, MemoryLockError> {
+            if capacity == 0 {
+                return Ok(Self {
+                    ptr: NonNull::dangling(),
+                    map_len: 0,
+                    data_capacity: 0,
+                    len: 0,
+                    #[cfg(feature = "random-canary")]
+                    canary: [0; CANARY_SIZE],
+                });
+            }
+
+            #[cfg(feature = "random-canary")]
+            let canary = random_canary_value()?;
+
+            let map_len = rounded_mapping_len(Self::mapping_payload_len(capacity)?)?;
+            let ptr = map_private(map_len)?;
+
+            if let Err(error) = mark_dontdump(ptr, map_len) {
+                let _ = unmap_private(ptr, map_len);
+                return Err(error);
+            }
+
+            if let Err(error) = mark_dontfork(ptr, map_len) {
+                let _ = unmap_private(ptr, map_len);
+                return Err(error);
+            }
+
+            if let Err(error) = lock_mapping(ptr, map_len) {
+                let _ = unmap_private(ptr, map_len);
+                return Err(error);
+            }
+
+            let mut secret = Self {
+                ptr,
+                map_len,
+                data_capacity: capacity,
+                len: 0,
+                #[cfg(feature = "random-canary")]
+                canary,
+            };
+            secret.write_canaries();
+            Ok(secret)
+        }
+
+        /// Create locked dynamic storage by copying bytes from a slice.
+        pub fn from_slice(bytes: &[u8]) -> Result<Self, MemoryLockError> {
+            let mut secret = Self::with_capacity(bytes.len())?;
+            secret.as_mut_capacity_slice()[..bytes.len()].copy_from_slice(bytes);
+            secret.finish_initialization(bytes.len());
+            Ok(secret)
+        }
+
+        /// Create locked dynamic storage by generating bytes directly into it.
+        pub fn from_fn(
+            len: usize,
+            mut make_byte: impl FnMut(usize) -> u8,
+        ) -> Result<Self, MemoryLockError> {
+            let mut secret = Self::with_capacity(len)?;
+            secret.fill_from_fn(len, &mut make_byte);
+            Ok(secret)
+        }
+
+        /// Create locked dynamic storage with a fallible byte generator.
+        pub fn try_from_fn<E>(
+            len: usize,
+            mut make_byte: impl FnMut(usize) -> Result<u8, E>,
+        ) -> Result<Self, LockedSecretVecGenerateError<E>> {
+            let mut secret = Self::with_capacity(len)?;
+            secret
+                .fill_from_try_fn(len, &mut make_byte)
+                .map_err(LockedSecretVecGenerateError::Generate)?;
+            Ok(secret)
+        }
+
+        /// Number of initialized secret bytes.
+        #[must_use]
+        #[inline]
+        pub const fn len(&self) -> usize {
+            self.len
+        }
+
+        /// Returns true when no bytes are held.
+        #[must_use]
+        #[inline]
+        pub const fn is_empty(&self) -> bool {
+            self.len == 0
+        }
+
+        /// Dynamic payload capacity, excluding canary bytes.
+        #[must_use]
+        #[inline]
+        pub const fn capacity(&self) -> usize {
+            self.data_capacity
+        }
+
+        /// Length of the underlying locked mapping.
+        #[must_use]
+        #[inline]
+        pub const fn locked_len(&self) -> usize {
+            self.map_len
+        }
+
+        /// Run a closure with read-only access to initialized secret bytes.
+        #[inline]
+        pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8]) -> R) -> R {
+            self.assert_canaries_intact();
+            inspect(self.as_slice())
+        }
+
+        /// Run a closure with mutable access to initialized secret bytes.
+        #[inline]
+        pub fn with_secret_mut<R>(&mut self, edit: impl FnOnce(&mut [u8]) -> R) -> R {
+            self.assert_canaries_intact();
+            edit(self.as_mut_slice())
+        }
+
+        /// Verify canary integrity before exposing locked dynamic bytes.
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        pub fn expose_secret_checked<R>(
+            &self,
+            inspect: impl FnOnce(&[u8]) -> R,
+        ) -> Result<R, CanaryCorruptedError> {
+            self.verify_integrity()?;
+            Ok(inspect(self.as_slice()))
+        }
+
+        /// Append bytes, growing into a new locked mapping if needed.
+        pub fn extend_from_slice(&mut self, bytes: &[u8]) -> Result<(), MemoryLockError> {
+            self.assert_canaries_intact();
+            let required = self.len.checked_add(bytes.len()).ok_or(MemoryLockError {
+                operation: MemoryLockOperation::Length,
+                errno: 0,
+            })?;
+
+            if required > self.data_capacity {
+                self.grow_to(required)?;
+            }
+
+            let start = self.len;
+            self.as_mut_capacity_slice()[start..required].copy_from_slice(bytes);
+            self.finish_initialization(required);
+            Ok(())
+        }
+
+        /// Replace all initialized bytes from a slice.
+        pub fn replace_from_slice(&mut self, bytes: &[u8]) -> Result<(), MemoryLockError> {
+            self.assert_canaries_intact();
+
+            if bytes.len() > self.data_capacity {
+                let mut replacement = Self::with_capacity(bytes.len())?;
+                replacement.as_mut_capacity_slice()[..bytes.len()].copy_from_slice(bytes);
+                replacement.finish_initialization(bytes.len());
+                self.clear_secret();
+                core::mem::swap(self, &mut replacement);
+                return Ok(());
+            }
+
+            self.clear_secret();
+            self.as_mut_capacity_slice()[..bytes.len()].copy_from_slice(bytes);
+            self.finish_initialization(bytes.len());
+            Ok(())
+        }
+
+        /// Replace all initialized bytes with generated bytes.
+        pub fn replace_from_fn(
+            &mut self,
+            len: usize,
+            mut make_byte: impl FnMut(usize) -> u8,
+        ) -> Result<(), MemoryLockError> {
+            self.assert_canaries_intact();
+            let mut replacement = Self::with_capacity(len)?;
+            replacement.fill_from_fn(len, &mut make_byte);
+            self.clear_secret();
+            core::mem::swap(self, &mut replacement);
+            Ok(())
+        }
+
+        /// Replace all initialized bytes with fallibly generated bytes.
+        pub fn try_replace_from_fn<E>(
+            &mut self,
+            len: usize,
+            mut make_byte: impl FnMut(usize) -> Result<u8, E>,
+        ) -> Result<(), LockedSecretVecGenerateError<E>> {
+            self.assert_canaries_intact();
+            let mut replacement = Self::with_capacity(len)?;
+            replacement
+                .fill_from_try_fn(len, &mut make_byte)
+                .map_err(LockedSecretVecGenerateError::Generate)?;
+            self.clear_secret();
+            core::mem::swap(self, &mut replacement);
+            Ok(())
+        }
+
+        /// Clear the full locked mapping and reset initialized length.
+        #[inline(never)]
+        pub fn clear_secret(&mut self) {
+            if self.map_len != 0 {
+                crate::wipe::volatile_wipe(self.ptr.as_ptr(), self.map_len);
+            }
+            self.len = 0;
+            self.write_canaries();
+        }
+
+        /// Consume this value after first clearing the full locked mapping.
+        #[inline]
+        pub fn into_cleared(mut self) {
+            self.clear_secret();
+        }
+
+        /// Clear the full locked mapping, then flush its cache lines.
+        #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+        #[inline(never)]
+        pub fn clear_secret_and_flush(&mut self) {
+            self.clear_secret();
+            crate::cache_flush::flush_cache_lines(self.as_mapping_slice());
+        }
+
+        /// Compare against a byte slice without early exit for equal-length
+        /// inputs.
+        #[must_use]
+        #[inline]
+        pub fn constant_time_eq(&self, other: &[u8]) -> bool {
+            self.assert_canaries_intact();
+            crate::constant_time_eq_slices(self.as_slice(), other)
+        }
+
+        /// Verify canary integrity before comparing locked dynamic bytes.
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        pub fn constant_time_eq_checked(&self, other: &[u8]) -> Result<bool, CanaryCorruptedError> {
+            self.verify_integrity()?;
+            Ok(crate::constant_time_eq_slices(self.as_slice(), other))
+        }
+
+        /// Verify locked dynamic mapping canaries.
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        pub fn verify_integrity(&self) -> Result<(), CanaryCorruptedError> {
+            if self.canaries_intact() {
+                Ok(())
+            } else {
+                self.clear_after_canary_failure();
+                Err(CanaryCorruptedError)
+            }
+        }
+
+        fn grow_to(&mut self, required: usize) -> Result<(), MemoryLockError> {
+            self.assert_canaries_intact();
+            let next_capacity = self.data_capacity.saturating_mul(2).max(required).max(1);
+            let mut replacement = Self::with_capacity(next_capacity)?;
+            replacement.as_mut_capacity_slice()[..self.len].copy_from_slice(self.as_slice());
+            replacement.finish_initialization(self.len);
+            self.clear_secret();
+            core::mem::swap(self, &mut replacement);
+            Ok(())
+        }
+
+        fn fill_from_fn(&mut self, len: usize, make_byte: &mut impl FnMut(usize) -> u8) {
+            debug_assert!(len <= self.data_capacity);
+            let capacity = self.as_mut_capacity_slice();
+            let mut index = 0;
+            while index < len {
+                capacity[index] = make_byte(index);
+                index += 1;
+            }
+            self.finish_initialization(len);
+        }
+
+        fn fill_from_try_fn<E>(
+            &mut self,
+            len: usize,
+            make_byte: &mut impl FnMut(usize) -> Result<u8, E>,
+        ) -> Result<(), E> {
+            debug_assert!(len <= self.data_capacity);
+            let capacity = self.as_mut_capacity_slice();
+            let mut index = 0;
+            while index < len {
+                capacity[index] = make_byte(index)?;
+                index += 1;
+            }
+            self.finish_initialization(len);
+            Ok(())
+        }
+
+        #[inline]
+        fn finish_initialization(&mut self, len: usize) {
+            debug_assert!(len <= self.data_capacity);
+            self.len = len;
+            self.write_canaries();
+            compiler_fence(Ordering::SeqCst);
+        }
+
+        #[inline]
+        fn as_slice(&self) -> &[u8] {
+            // SAFETY: `payload_ptr` points to `data_capacity` writable payload
+            // bytes owned by this value, and `len <= data_capacity`.
+            unsafe { core::slice::from_raw_parts(self.payload_ptr(), self.len) }
+        }
+
+        #[inline]
+        fn as_mut_slice(&mut self) -> &mut [u8] {
+            // SAFETY: `&mut self` gives exclusive access and `len <=
+            // data_capacity`.
+            unsafe { core::slice::from_raw_parts_mut(self.payload_ptr(), self.len) }
+        }
+
+        #[inline]
+        fn as_mut_capacity_slice(&mut self) -> &mut [u8] {
+            // SAFETY: `&mut self` gives exclusive access to the full payload
+            // capacity inside the locked mapping.
+            unsafe { core::slice::from_raw_parts_mut(self.payload_ptr(), self.data_capacity) }
+        }
+
+        #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+        #[inline]
+        fn as_mapping_slice(&self) -> &[u8] {
+            // SAFETY: `ptr` points to this value's live mapping, or is
+            // dangling with `map_len == 0`.
+            unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.map_len) }
+        }
+
+        #[inline]
+        fn payload_ptr(&self) -> *mut u8 {
+            if self.map_len == 0 {
+                return self.ptr.as_ptr();
+            }
+
+            // SAFETY: `payload_offset` is zero or the prefix canary size and
+            // remains inside non-empty mappings.
+            unsafe { self.ptr.as_ptr().add(Self::payload_offset()) }
+        }
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        const fn payload_offset() -> usize {
+            CANARY_SIZE
+        }
+
+        #[cfg(not(feature = "canary-check"))]
+        #[inline]
+        const fn payload_offset() -> usize {
+            0
+        }
+
+        #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+        #[inline]
+        fn canary_value(&self) -> [u8; CANARY_SIZE] {
+            ((self.ptr.as_ptr() as u64) ^ CANARY_MASK).to_ne_bytes()
+        }
+
+        #[cfg(feature = "random-canary")]
+        #[inline]
+        fn canary_value(&self) -> [u8; CANARY_SIZE] {
+            self.canary
+        }
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        fn canaries_intact(&self) -> bool {
+            if self.map_len == 0 {
+                return true;
+            }
+
+            let expected = self.canary_value();
+            // SAFETY: non-empty canary-checked dynamic mappings reserve prefix
+            // and suffix canary regions around initialized bytes.
+            let prefix = unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), CANARY_SIZE) };
+            // SAFETY: `len <= data_capacity`, so the suffix at prefix + len is
+            // inside the allocated payload plus suffix region.
+            let suffix = unsafe {
+                core::slice::from_raw_parts(
+                    self.ptr.as_ptr().add(CANARY_SIZE + self.len),
+                    CANARY_SIZE,
+                )
+            };
+
+            crate::constant_time_eq_slices(prefix, &expected)
+                & crate::constant_time_eq_slices(suffix, &expected)
+        }
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        fn write_canaries(&mut self) {
+            if self.map_len == 0 {
+                return;
+            }
+
+            let canary = self.canary_value();
+            // SAFETY: non-empty canary-checked dynamic mappings reserve prefix
+            // and suffix canary regions around initialized bytes.
+            unsafe {
+                core::ptr::copy_nonoverlapping(canary.as_ptr(), self.ptr.as_ptr(), CANARY_SIZE);
+                core::ptr::copy_nonoverlapping(
+                    canary.as_ptr(),
+                    self.ptr.as_ptr().add(CANARY_SIZE + self.len),
+                    CANARY_SIZE,
+                );
+            }
+            compiler_fence(Ordering::SeqCst);
+        }
+
+        #[cfg(not(feature = "canary-check"))]
+        #[inline]
+        fn write_canaries(&mut self) {}
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        fn assert_canaries_intact(&self) {
+            if self.verify_integrity().is_err() {
+                panic!("locked dynamic secret canary corrupted");
+            }
+        }
+
+        #[cfg(not(feature = "canary-check"))]
+        #[inline]
+        fn assert_canaries_intact(&self) {}
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        fn clear_after_canary_failure(&self) {
+            if self.map_len != 0 {
+                // Fail-closed clearing intentionally mutates the owned mapping
+                // through `&self`. `LockedSecretVec` is `Send` but not `Sync`.
+                crate::wipe::volatile_wipe(self.ptr.as_ptr(), self.map_len);
+            }
+        }
+
+        #[cfg(feature = "canary-check")]
+        #[inline]
+        fn mapping_payload_len(capacity: usize) -> Result<usize, MemoryLockError> {
+            capacity
+                .checked_add(CANARY_SIZE.saturating_mul(2))
+                .ok_or(MemoryLockError {
+                    operation: MemoryLockOperation::Length,
+                    errno: 0,
+                })
+        }
+
+        #[cfg(not(feature = "canary-check"))]
+        #[inline]
+        fn mapping_payload_len(capacity: usize) -> Result<usize, MemoryLockError> {
+            Ok(capacity)
+        }
+
+        #[cfg(all(test, feature = "canary-check", feature = "std"))]
+        #[inline]
+        pub(crate) fn corrupt_prefix_canary_for_test(&mut self) {
+            if self.map_len == 0 {
+                return;
+            }
+
+            // SAFETY: `map_len != 0` means `ptr` points to the live mapping.
+            unsafe {
+                let byte = self.ptr.as_ptr();
+                core::ptr::write(byte, core::ptr::read(byte) ^ 0xFF);
+            }
+        }
+    }
+
+    impl Drop for LockedSecretVec {
+        #[inline]
+        fn drop(&mut self) {
+            self.clear_secret();
+            if self.map_len != 0 {
+                let _ = unlock_mapping(self.ptr, self.map_len);
+                let _ = unmap_private(self.ptr, self.map_len);
+            }
+        }
+    }
+
+    impl crate::SecureSanitize for LockedSecretVec {
+        #[inline]
+        fn secure_sanitize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    impl fmt::Debug for LockedSecretVec {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter
+                .debug_struct("LockedSecretVec")
+                .field("len", &self.len)
+                .field("capacity", &self.data_capacity)
+                .field("locked_len", &self.map_len)
+                .field("contents", &"<redacted>")
+                .finish()
+        }
+    }
+
     /// Fixed-slot arena for many same-size secrets inside one locked mapping.
     ///
     /// `SecretPool<N, SLOTS>` amortizes platform memory-locking overhead when
@@ -4274,6 +4827,26 @@ pub use memory_lock::{
 };
 
 #[cfg(all(
+    feature = "memory-lock",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+pub use memory_lock::{LockedSecretVec, LockedSecretVecGenerateError};
+
+#[cfg(all(
     feature = "canary-check",
     any(
         all(
@@ -4526,6 +5099,207 @@ pub mod cache_flush {
         }
 
         compiler_fence(Ordering::SeqCst);
+    }
+}
+
+/// Architecture-specific register scrubbing helpers.
+///
+/// This module is available with the `register-scrub` feature. It is an
+/// explicit best-effort boundary for code that wants to clear caller-saved SIMD
+/// registers after cryptographic routines. It does not and cannot clear
+/// registers saved by the compiler, callee-saved vector state,
+/// kernel context-switch buffers, or registers owned by other threads.
+#[cfg(feature = "register-scrub")]
+#[allow(unsafe_code)]
+pub mod register_scrub {
+    use core::sync::atomic::{compiler_fence, Ordering};
+
+    /// Best-effort scrub of architecture SIMD/vector registers supported by
+    /// this crate.
+    ///
+    /// On unsupported architectures this is a fenced no-op. On x86_64 it
+    /// clears caller-saved XMM0-XMM5. On AArch64 it clears caller-saved V0-V7
+    /// and V16-V31. Call this immediately after a cryptographic routine that
+    /// may have left key material in vector registers.
+    #[inline(never)]
+    pub fn scrub_simd_registers() {
+        compiler_fence(Ordering::SeqCst);
+
+        #[cfg(all(target_arch = "x86_64", not(miri)))]
+        scrub_x86_64_simd_registers();
+
+        #[cfg(all(target_arch = "aarch64", not(miri)))]
+        scrub_aarch64_neon_registers();
+
+        compiler_fence(Ordering::SeqCst);
+    }
+
+    /// Clear x86_64 XMM registers with zeroing instructions.
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[inline(never)]
+    pub fn scrub_x86_64_simd_registers() {
+        // SAFETY: These instructions write only architectural SIMD registers
+        // in the current thread. They do not read or write memory.
+        unsafe {
+            core::arch::asm!(
+                "pxor xmm0, xmm0",
+                "pxor xmm1, xmm1",
+                "pxor xmm2, xmm2",
+                "pxor xmm3, xmm3",
+                "pxor xmm4, xmm4",
+                "pxor xmm5, xmm5",
+                out("xmm0") _,
+                out("xmm1") _,
+                out("xmm2") _,
+                out("xmm3") _,
+                out("xmm4") _,
+                out("xmm5") _,
+                options(nostack, nomem, preserves_flags)
+            );
+        }
+    }
+
+    /// Clear AArch64 NEON vector registers with zeroing instructions.
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
+    #[inline(never)]
+    pub fn scrub_aarch64_neon_registers() {
+        // SAFETY: These instructions write only architectural vector registers
+        // in the current thread. They do not read or write memory.
+        unsafe {
+            core::arch::asm!(
+                "eor v0.16b, v0.16b, v0.16b",
+                "eor v1.16b, v1.16b, v1.16b",
+                "eor v2.16b, v2.16b, v2.16b",
+                "eor v3.16b, v3.16b, v3.16b",
+                "eor v4.16b, v4.16b, v4.16b",
+                "eor v5.16b, v5.16b, v5.16b",
+                "eor v6.16b, v6.16b, v6.16b",
+                "eor v7.16b, v7.16b, v7.16b",
+                "eor v16.16b, v16.16b, v16.16b",
+                "eor v17.16b, v17.16b, v17.16b",
+                "eor v18.16b, v18.16b, v18.16b",
+                "eor v19.16b, v19.16b, v19.16b",
+                "eor v20.16b, v20.16b, v20.16b",
+                "eor v21.16b, v21.16b, v21.16b",
+                "eor v22.16b, v22.16b, v22.16b",
+                "eor v23.16b, v23.16b, v23.16b",
+                "eor v24.16b, v24.16b, v24.16b",
+                "eor v25.16b, v25.16b, v25.16b",
+                "eor v26.16b, v26.16b, v26.16b",
+                "eor v27.16b, v27.16b, v27.16b",
+                "eor v28.16b, v28.16b, v28.16b",
+                "eor v29.16b, v29.16b, v29.16b",
+                "eor v30.16b, v30.16b, v30.16b",
+                "eor v31.16b, v31.16b, v31.16b",
+                out("v0") _,
+                out("v1") _,
+                out("v2") _,
+                out("v3") _,
+                out("v4") _,
+                out("v5") _,
+                out("v6") _,
+                out("v7") _,
+                out("v16") _,
+                out("v17") _,
+                out("v18") _,
+                out("v19") _,
+                out("v20") _,
+                out("v21") _,
+                out("v22") _,
+                out("v23") _,
+                out("v24") _,
+                out("v25") _,
+                out("v26") _,
+                out("v27") _,
+                out("v28") _,
+                out("v29") _,
+                out("v30") _,
+                out("v31") _,
+                options(nostack, nomem)
+            );
+        }
+    }
+}
+
+/// Traits for integrating external hardware-backed secret providers.
+///
+/// This module is available with the `hardware-secrets` feature. It deliberately
+/// defines only trait surfaces and small error types; it does not claim built-in
+/// SGX, Nitro, TPM, HSM, or enclave support. Backend crates can implement these
+/// traits while keeping vendor SDKs and platform dependencies out of the main
+/// crate.
+#[cfg(feature = "hardware-secrets")]
+pub mod hardware {
+    use core::fmt;
+
+    /// Broad class of hardware-backed provider failure.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum HardwareSecretErrorKind {
+        /// The backend is unavailable on this host.
+        Unavailable,
+        /// The backend denied access to the requested secret.
+        AccessDenied,
+        /// The caller provided an invalid or stale handle.
+        InvalidHandle,
+        /// The caller-provided output buffer is too small.
+        OutputTooSmall,
+        /// Backend-specific failure.
+        Backend,
+    }
+
+    /// Small dependency-free error type for hardware-backed secret providers.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct HardwareSecretError {
+        /// Failure class.
+        pub kind: HardwareSecretErrorKind,
+        /// Optional platform or backend error code. `0` means unavailable.
+        pub code: i32,
+    }
+
+    impl fmt::Display for HardwareSecretError {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                formatter,
+                "hardware secret operation {:?} failed with code {}",
+                self.kind, self.code
+            )
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for HardwareSecretError {}
+
+    /// Marker trait for opaque handles owned by a hardware-backed provider.
+    pub trait HardwareSecretHandle {}
+
+    /// Provider interface for secrets that live outside ordinary process
+    /// memory until deliberately exposed through a closure.
+    pub trait HardwareSecretProvider {
+        /// Opaque backend-owned handle type.
+        type Handle: HardwareSecretHandle;
+        /// Backend-specific error type.
+        type Error;
+
+        /// Seal or import a byte slice into the backend and return a handle.
+        fn seal_from_slice(&self, secret: &[u8]) -> Result<Self::Handle, Self::Error>;
+
+        /// Expose a backend secret for the duration of a closure.
+        fn expose_secret<R, F: FnOnce(&[u8]) -> R>(
+            &self,
+            handle: &Self::Handle,
+            inspect: F,
+        ) -> Result<R, Self::Error>;
+
+        /// Replace the value behind an existing backend handle.
+        fn rotate_from_slice(
+            &self,
+            handle: &mut Self::Handle,
+            secret: &[u8],
+        ) -> Result<(), Self::Error>;
+
+        /// Destroy a backend handle if the provider has an explicit deletion
+        /// operation. Providers without one may make this a no-op.
+        fn destroy(&self, handle: Self::Handle) -> Result<(), Self::Error>;
     }
 }
 
@@ -6730,6 +7504,169 @@ impl<const N: usize> fmt::Debug for SecretBytes<N> {
         formatter
             .debug_struct("SecretBytes")
             .field("len", &N)
+            .field("contents", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Error returned by split-secret construction.
+#[cfg(feature = "split-secret")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SplitSecretError {
+    /// XOR split storage requires at least two shares.
+    TooFewShares,
+}
+
+#[cfg(feature = "split-secret")]
+impl fmt::Display for SplitSecretError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooFewShares => formatter.write_str("split secrets require at least two shares"),
+        }
+    }
+}
+
+#[cfg(all(feature = "split-secret", feature = "std"))]
+impl std::error::Error for SplitSecretError {}
+
+/// Fixed-size N-of-N XOR split secret storage.
+///
+/// This type is available with the `split-secret` feature. It stores a secret
+/// as `SHARES` independent-looking fixed-size shares where XORing every share
+/// reconstructs the original bytes. It is not threshold secret sharing: all
+/// shares are required, and the caller must provide cryptographically random
+/// bytes for every mask share through the generator closure.
+#[cfg(feature = "split-secret")]
+pub struct SplitSecretBytes<const N: usize, const SHARES: usize> {
+    shares: [SecretBytes<N>; SHARES],
+}
+
+#[cfg(feature = "split-secret")]
+impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
+    /// Split an owned secret array into `SHARES` XOR shares, then clear the
+    /// input array.
+    ///
+    /// `make_mask_byte(share_index, byte_index)` is called for shares
+    /// `0..SHARES - 1`. It must return cryptographically random mask bytes for
+    /// the split to provide meaningful protection.
+    pub fn from_array_with_generator(
+        mut secret: [u8; N],
+        mut make_mask_byte: impl FnMut(usize, usize) -> u8,
+    ) -> Result<Self, SplitSecretError> {
+        let guard = TemporaryBytes { bytes: &mut secret };
+
+        if SHARES < 2 {
+            return Err(SplitSecretError::TooFewShares);
+        }
+
+        let split = Self::from_secret_bytes_with_generator(guard.bytes, &mut make_mask_byte);
+        sanitize_bytes(guard.bytes);
+        Ok(split)
+    }
+
+    /// Split an existing [`SecretBytes`] value into `SHARES` XOR shares.
+    ///
+    /// The source secret is not cleared by this method. Use
+    /// [`SecretBytes::secure_clear`] afterwards if ownership policy requires
+    /// moving the secret exclusively into the split representation.
+    pub fn from_secret_with_generator(
+        secret: &SecretBytes<N>,
+        mut make_mask_byte: impl FnMut(usize, usize) -> u8,
+    ) -> Result<Self, SplitSecretError> {
+        if SHARES < 2 {
+            return Err(SplitSecretError::TooFewShares);
+        }
+
+        Ok(Self::from_secret_bytes_with_generator(
+            &secret.bytes,
+            &mut make_mask_byte,
+        ))
+    }
+
+    /// Reconstruct all shares into a new [`SecretBytes`] value.
+    #[must_use]
+    pub fn reconstruct(&self) -> SecretBytes<N> {
+        let mut output = SecretBytes::<N>::zeroed();
+        let mut byte_index = 0;
+        while byte_index < N {
+            let mut value = 0;
+            let mut share_index = 0;
+            while share_index < SHARES {
+                value ^= self.shares[share_index].load(byte_index);
+                share_index += 1;
+            }
+            output.store(byte_index, value);
+            byte_index += 1;
+        }
+        output.after_secret_write();
+        output
+    }
+
+    /// Borrow all shares.
+    #[must_use]
+    #[inline]
+    pub const fn shares(&self) -> &[SecretBytes<N>; SHARES] {
+        &self.shares
+    }
+
+    /// Borrow one share by index.
+    #[must_use]
+    #[inline]
+    pub fn share(&self, index: usize) -> Option<&SecretBytes<N>> {
+        self.shares.get(index)
+    }
+
+    /// Consume the split storage and return the underlying shares.
+    #[must_use]
+    #[inline]
+    pub fn into_shares(self) -> [SecretBytes<N>; SHARES] {
+        self.shares
+    }
+
+    fn from_secret_bytes_with_generator(
+        secret: &[u8; N],
+        make_mask_byte: &mut impl FnMut(usize, usize) -> u8,
+    ) -> Self {
+        let mut shares = core::array::from_fn(|_| SecretBytes::<N>::zeroed());
+
+        let mut byte_index = 0;
+        while byte_index < N {
+            let mut accumulator = 0;
+            let mut share_index = 0;
+            while share_index + 1 < SHARES {
+                let mask = make_mask_byte(share_index, byte_index);
+                shares[share_index].store(byte_index, mask);
+                accumulator ^= mask;
+                share_index += 1;
+            }
+
+            shares[SHARES - 1].store(byte_index, secret[byte_index] ^ accumulator);
+            byte_index += 1;
+        }
+
+        for share in shares.iter() {
+            share.after_secret_write();
+        }
+
+        Self { shares }
+    }
+}
+
+#[cfg(feature = "split-secret")]
+impl<const N: usize, const SHARES: usize> SecureSanitize for SplitSecretBytes<N, SHARES> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.shares.secure_sanitize();
+    }
+}
+
+#[cfg(feature = "split-secret")]
+impl<const N: usize, const SHARES: usize> fmt::Debug for SplitSecretBytes<N, SHARES> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SplitSecretBytes")
+            .field("len", &N)
+            .field("shares", &SHARES)
             .field("contents", &"<redacted>")
             .finish()
     }
@@ -9049,6 +9986,48 @@ mod tests {
         assert!(!rendered.contains("[0, 0, 0, 0]"));
     }
 
+    #[cfg(feature = "split-secret")]
+    #[test]
+    fn split_secret_reconstructs_with_all_shares() {
+        let split =
+            SplitSecretBytes::<4, 3>::from_array_with_generator([9, 8, 7, 6], |share, index| {
+                ((share as u8) << 4) ^ (index as u8)
+            })
+            .unwrap();
+
+        assert_eq!(split.shares().len(), 3);
+        assert!(split
+            .reconstruct()
+            .constant_time_eq_secret(&SecretBytes::from_array([9, 8, 7, 6])));
+        assert!(std::format!("{split:?}").contains("redacted"));
+    }
+
+    #[cfg(feature = "split-secret")]
+    #[test]
+    fn split_secret_requires_multiple_shares() {
+        assert!(matches!(
+            SplitSecretBytes::<4, 1>::from_array_with_generator([1, 2, 3, 4], |_, _| 0),
+            Err(SplitSecretError::TooFewShares)
+        ));
+    }
+
+    #[cfg(feature = "hardware-secrets")]
+    #[test]
+    fn hardware_secret_error_is_displayable() {
+        let error = hardware::HardwareSecretError {
+            kind: hardware::HardwareSecretErrorKind::Unavailable,
+            code: 0,
+        };
+
+        assert!(std::format!("{error}").contains("Unavailable"));
+    }
+
+    #[cfg(feature = "register-scrub")]
+    #[test]
+    fn register_scrub_api_is_callable() {
+        register_scrub::scrub_simd_registers();
+    }
+
     #[test]
     fn scalar_values_implement_secure_sanitize() {
         let mut unsigned = Secret::new(0xDEAD_BEEF_u64);
@@ -9751,6 +10730,108 @@ mod tests {
         assert!(secret.constant_time_eq(&[7, 8, 9, 10]));
 
         secret.secure_clear();
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn locked_secret_vec_round_trip_grow_replace_and_clear() {
+        let mut secret = match LockedSecretVec::from_slice(b"key") {
+            Ok(secret) => secret,
+            Err(_) => return,
+        };
+
+        assert_eq!(secret.len(), 3);
+        assert!(secret.capacity() >= 3);
+        assert!(secret.locked_len() >= 3);
+        assert_eq!(secret.with_secret(|bytes| bytes[0]), b'k');
+        assert!(secret.constant_time_eq(b"key"));
+        assert!(!secret.constant_time_eq(b"ke"));
+
+        secret.extend_from_slice(b"-material").unwrap();
+        assert!(secret.constant_time_eq(b"key-material"));
+
+        secret
+            .replace_from_fn(4, |index| (index as u8) + 1)
+            .unwrap();
+        assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+        assert_eq!(
+            secret.try_replace_from_fn(4, |index| {
+                if index == 2 {
+                    Err("generation failed")
+                } else {
+                    Ok(index as u8)
+                }
+            }),
+            Err(LockedSecretVecGenerateError::Generate("generation failed"))
+        );
+        assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+        secret.with_secret_mut(|bytes| bytes[0] = 9);
+        assert!(secret.constant_time_eq(&[9, 2, 3, 4]));
+
+        secret.clear_secret();
+        assert!(secret.is_empty());
+        #[cfg(feature = "canary-check")]
+        assert_eq!(secret.verify_integrity(), Ok(()));
+
+        secret.extend_from_slice(b"next").unwrap();
+        assert!(secret.constant_time_eq(b"next"));
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn locked_secret_vec_zero_capacity_is_reusable() {
+        let mut secret = LockedSecretVec::with_capacity(0).unwrap();
+
+        assert!(secret.is_empty());
+        assert_eq!(secret.capacity(), 0);
+        assert_eq!(secret.locked_len(), 0);
+        secret.clear_secret();
+        #[cfg(feature = "canary-check")]
+        assert_eq!(secret.verify_integrity(), Ok(()));
+
+        if secret.extend_from_slice(b"x").is_err() {
+            return;
+        }
+        assert!(secret.constant_time_eq(b"x"));
+    }
+
+    #[cfg(all(
+        feature = "std",
+        feature = "canary-check",
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn locked_secret_vec_canaries_detect_corruption() {
+        let mut secret = match LockedSecretVec::from_slice(b"secret") {
+            Ok(secret) => secret,
+            Err(_) => return,
+        };
+
+        assert_eq!(secret.verify_integrity(), Ok(()));
+        assert_eq!(secret.expose_secret_checked(|bytes| bytes[0]), Ok(b's'));
+        assert_eq!(secret.constant_time_eq_checked(b"secret"), Ok(true));
+
+        secret.corrupt_prefix_canary_for_test();
+
+        assert_eq!(
+            secret.expose_secret_checked(|bytes| bytes[0]),
+            Err(CanaryCorruptedError)
+        );
     }
 
     #[cfg(all(

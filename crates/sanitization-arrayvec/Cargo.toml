@@ -1,0 +1,25 @@
+[package]
+name = "sanitization-arrayvec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "ArrayVec integration wrappers for the sanitization crate."
+license.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/sanitization-arrayvec"
+homepage.workspace = true
+repository.workspace = true
+keywords = ["zeroize", "secrets", "security", "arrayvec", "no-std"]
+categories = ["cryptography", "no-std", "memory-management"]
+include = [
+    "Cargo.toml",
+    "src/**/*.rs",
+    "README.md",
+]
+
+[dependencies]
+arrayvec = { version = "0.7", default-features = false }
+sanitization = { version = "1.1.0", path = "../sanitization" }
+
+[lib]
+path = "src/lib.rs"

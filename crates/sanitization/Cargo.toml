@@ -22,7 +22,7 @@ include = [
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(miri)'] }
 
 [dependencies]
-sanitization-derive = { version = "1.0.1", path = "../sanitization-derive", optional = true }
+sanitization-derive = { version = "1.1.0", path = "../sanitization-derive", optional = true }
 
 [features]
 default = []
@@ -34,8 +34,11 @@ canary-check = ["memory-lock"]
 random-canary = ["canary-check"]
 asm-compare = []
 cache-flush = []
+register-scrub = []
 guard-pages = []
 multi-pass-clear = []
+hardware-secrets = []
+split-secret = []
 # Compatibility flag for older release-candidate dependency declarations.
 # Volatile wiping is now the default clear path.
 unsafe-wipe = []

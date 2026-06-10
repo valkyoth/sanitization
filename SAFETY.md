@@ -13,6 +13,9 @@ Unsafe code is allowed only inside narrow `src/lib.rs` modules:
   outside Miri.
 - `cache_flush`, available only with the `cache-flush` feature on x86_64
   outside Miri.
+- `register_scrub`, available with the `register-scrub` feature. It emits
+  architecture-specific register-zeroing instructions on x86_64 and AArch64
+  outside Miri, and is a fenced no-op elsewhere.
 - `guard_pages`, available only with the `guard-pages` feature on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets outside Miri. The
   feature is rejected at compile time on WASM.
@@ -72,11 +75,12 @@ Invariant:
 Location: `memory_lock`
 
 Purpose: provide dependency-free platform memory locking for
-`LockedSecretBytes<N>` and pooled `SecretPool<N, SLOTS>` slots without routing
-secret bytes through the Rust global allocator. Linux uses raw syscalls;
-Android, macOS, iOS, and BSD use system C ABI entry points; Windows uses
-Kernel32 virtual memory APIs. WASM uses a separate compatibility backend with
-inline WASM-owned storage and no host memory lock.
+`LockedSecretBytes<N>`, native `LockedSecretVec`, and pooled
+`SecretPool<N, SLOTS>` slots without routing secret bytes through the Rust
+global allocator. Linux uses raw syscalls; Android, macOS, iOS, and BSD use
+system C ABI entry points; Windows uses Kernel32 virtual memory APIs. WASM uses
+a separate compatibility backend with inline WASM-owned fixed-size storage and
+no host memory lock.
 
 Operations:
 
@@ -109,15 +113,18 @@ Invariant:
   crate dependency.
 - Windows targets use Kernel32 ABI declarations without adding a Rust Windows
   bindings dependency.
-- The mapped pointer is non-null and owned by exactly one
-  `LockedSecretBytes<N>` value.
+- The mapped pointer is non-null and owned by exactly one `LockedSecretBytes<N>`
+  or `LockedSecretVec` value, or by one `SecretPool<N, SLOTS>` pool.
 - The Rust value stores only pointer metadata, so moving it does not move or
   copy the secret byte allocation.
-- The mapping length is at least `N` bytes when `N > 0`.
-- With `canary-check`, non-empty `LockedSecretBytes<N>` mappings reserve an
-  8-byte prefix canary and 8-byte suffix canary around the `N` secret bytes.
-  The checked payload length is `N + 16`, rounded to the platform page
-  granule. The public data pointer is offset past the prefix canary.
+- The fixed-size mapping length is at least `N` bytes when `N > 0`. The dynamic
+  `LockedSecretVec` mapping length is at least its requested capacity when
+  capacity is non-zero.
+- With `canary-check`, non-empty `LockedSecretBytes<N>` and `LockedSecretVec`
+  mappings reserve an 8-byte prefix canary and 8-byte suffix canary around the
+  initialized secret bytes. The checked payload length includes both canaries
+  and is rounded to the platform page granule. The public data pointer is
+  offset past the prefix canary.
 - With `canary-check`, non-empty `SecretPool<N, SLOTS>` slots reserve the same
   8-byte prefix and suffix canaries inside each slot stride. Allocation writes
   fresh canaries before returning a slot handle, and slot drop clears the full
@@ -159,6 +166,11 @@ Invariant:
 - Replacement helpers stage the new value in a fresh locked mapping before
   clearing and swapping out the old mapping. If mapping setup or generation
   fails, the old locked value remains unchanged.
+- `LockedSecretVec` zero-capacity values use a dangling non-null pointer and
+  never offset that pointer to create zero-length slices.
+- `LockedSecretVec` growth stages a replacement mapping, copies initialized
+  bytes into it, writes canaries if enabled, then clears and swaps the old
+  mapping.
 - `&mut self` is required for mutation and clearing.
 - Drop volatile-clears the full mapping before attempting platform unlock and
   release.
@@ -181,6 +193,30 @@ Invariant:
 - Dropping the pool requires no live slots, volatile-clears the full mapping,
   then unlocks and releases it with the same platform backend as
   `LockedSecretBytes<N>`.
+
+### SIMD/vector register scrub instructions
+
+Location: `register_scrub`
+
+Purpose: provide an explicit best-effort register clearing boundary after
+cryptographic code that may leave secret material in SIMD/vector registers.
+
+Operation:
+
+- x86_64 emits `pxor xmmN, xmmN` for caller-saved XMM0-XMM5.
+- AArch64 emits `eor vN.16b, vN.16b, vN.16b` for caller-saved V0-V7 and
+  V16-V31.
+- Unsupported targets and Miri use a fenced no-op.
+
+Invariant:
+
+- The assembly writes only declared current-thread caller-saved architectural
+  registers and does not read or write memory.
+- The public function is `#[inline(never)]` and fenced before and after the
+  register instructions.
+- This does not guarantee whole-process register secrecy. It does not clear
+  compiler spills, unrelated registers outside the implemented set, kernel
+  context-switch buffers, other threads, or memory copies.
 
 ### x86_64 inline assembly comparison
 

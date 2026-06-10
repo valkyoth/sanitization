@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.0
+
+- Added `LockedSecretVec` for native dynamic-length memory-locked byte storage
+  without guard-page overhead.
+- Added `register-scrub` for explicit best-effort SIMD/vector register
+  scrubbing on x86_64 and AArch64.
+- Added `hardware-secrets` provider traits for external HSM, TEE, enclave,
+  platform-keystore, or other backend integration crates without adding vendor
+  dependencies to the main crate.
+- Added `split-secret` with `SplitSecretBytes<N, SHARES>` for dependency-free
+  N-of-N XOR split storage.
+- Added separate optional `sanitization-arrayvec` and `sanitization-bytes`
+  wrapper crates, keeping the main `sanitization` crate dependency-free by
+  default.
+- Updated README, safety notes, threat model, and roadmap for the 1.1.0
+  feature set.
+
 ## 1.0.1
 
 - Fixed a `SecretPool::try_allocate` error path in both native and WASM

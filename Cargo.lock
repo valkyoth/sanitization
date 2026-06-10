@@ -3,6 +3,18 @@
 version = 4
 
 [[package]]
+name = "arrayvec"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+
+[[package]]
+name = "bytes"
+version = "1.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -22,14 +34,30 @@ dependencies = [
 
 [[package]]
 name = "sanitization"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "sanitization-derive",
 ]
 
 [[package]]
+name = "sanitization-arrayvec"
+version = "1.1.0"
+dependencies = [
+ "arrayvec",
+ "sanitization",
+]
+
+[[package]]
+name = "sanitization-bytes"
+version = "1.1.0"
+dependencies = [
+ "bytes",
+ "sanitization",
+]
+
+[[package]]
 name = "sanitization-derive"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "proc-macro2",
  "quote",

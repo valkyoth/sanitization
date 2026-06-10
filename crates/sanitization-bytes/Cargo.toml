@@ -1,0 +1,25 @@
+[package]
+name = "sanitization-bytes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "bytes::BytesMut integration wrappers for the sanitization crate."
+license.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/sanitization-bytes"
+homepage.workspace = true
+repository.workspace = true
+keywords = ["zeroize", "secrets", "security", "bytes", "memory"]
+categories = ["cryptography", "memory-management"]
+include = [
+    "Cargo.toml",
+    "src/**/*.rs",
+    "README.md",
+]
+
+[dependencies]
+bytes = { version = "1", default-features = false }
+sanitization = { version = "1.1.0", path = "../sanitization", features = ["alloc"] }
+
+[lib]
+path = "src/lib.rs"

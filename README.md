@@ -35,7 +35,7 @@ internal unsafe boundary.
 
 ## Current Status
 
-The crate is published as stable `1.0.1` on crates.io. It is intended for
+The crate is published as stable `1.1.0` on crates.io. It is intended for
 projects that want dependency-free secret ownership and sanitization by
 default, with stronger platform hardening available through explicit feature
 flags.
@@ -58,6 +58,8 @@ Implemented now:
 - optional platform memory locking with `LockedSecretBytes<N>` on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets, plus a documented
   volatile-only WASM compatibility backend.
+- optional dynamic locked byte storage with `LockedSecretVec` on supported
+  native memory-lock targets.
 - optional pooled locked-memory arenas with `SecretPool<N, SLOTS>` for many
   same-size fixed secrets under one memory-lock operation on native backends,
   plus the same pool API on WASM without host memory locking.
@@ -67,6 +69,10 @@ Implemented now:
 - optional x86_64 assembly-backed equal-length comparison.
 - optional x86_64 volatile-clear plus cache-line eviction helpers.
 - optional explicit multi-pass volatile clear helpers.
+- optional SIMD/vector register scrubbing helpers on x86_64 and AArch64.
+- optional hardware-backed secret provider traits for enclave, HSM, TEE, or
+  platform-keystore integration crates.
+- optional N-of-N XOR split storage with `SplitSecretBytes<N, SHARES>`.
 - no-`std` fixed-size lifetime enforcement with caller-provided monotonic
   clocks.
 - optional `std` lifetime enforcement with `ExpiringSecretBytes<N>`.
@@ -77,6 +83,8 @@ Implemented now:
 - clear-on-drop behavior for crate-owned secret containers.
 - local CI/check script and GitHub workflows.
 - optional bounded Kani proof harnesses for core fixed-size properties.
+- separate optional `sanitization-arrayvec` and `sanitization-bytes` wrapper
+  crates for users that already depend on those ecosystems.
 - threat model and unsafe-boundary documentation.
 
 ## Trust Dashboard
@@ -122,14 +130,14 @@ Compatibility evidence:
 
 ```toml
 [dependencies]
-sanitization = "1.0.1"
+sanitization = "1.1.0"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["alloc"] }
+sanitization = { version = "1.1.0", features = ["alloc"] }
 ```
 
 The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
@@ -139,14 +147,23 @@ For memory-locked fixed-size secrets on supported native platforms:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["memory-lock"] }
+sanitization = { version = "1.1.0", features = ["memory-lock"] }
 ```
 
 For derive macros:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["derive"] }
+sanitization = { version = "1.1.0", features = ["derive"] }
+```
+
+For optional ecosystem wrappers, depend on the separate sister crates only when
+you already use those external libraries:
+
+```toml
+[dependencies]
+sanitization-arrayvec = "1.1.0"
+sanitization-bytes = "1.1.0"
 ```
 
 ## Features
@@ -156,13 +173,16 @@ sanitization = { version = "1.0.1", features = ["derive"] }
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
 | `derive` | no | Re-exports `sanitization-derive` proc macros for `#[derive(SecureSanitize)]` and `#[derive(SecureSanitizeOnDrop)]`. Pulls in proc-macro dependencies only when explicitly enabled. |
-| `memory-lock` | no | Enables `LockedSecretBytes<N>`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported native targets. On WASM this exposes a volatile-only compatibility backend with no actual memory locking. |
+| `memory-lock` | no | Enables `LockedSecretBytes<N>`, native `LockedSecretVec`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported native targets. On WASM this exposes fixed-size volatile-only compatibility backends with no actual memory locking. |
 | `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty locked byte mappings, pooled slots, and guarded dynamic mappings. On WASM this must be paired with `random-canary`. |
 | `random-canary` | no | Enables `canary-check` and generates canary words from the OS CSPRNG instead of deriving them from mapping addresses. WASI preview1 uses `random_get`; other bare WASM targets report random generation failure. |
 | `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
+| `register-scrub` | no | Enables explicit best-effort SIMD/vector register scrubbing helpers on x86_64 and AArch64. |
 | `guard-pages` | no | Enables `GuardedSecretVec` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. This feature is rejected at compile time on WASM. |
 | `multi-pass-clear` | no | Enables explicit three-pass volatile overwrite helpers for policy or audit compatibility. |
+| `hardware-secrets` | no | Enables dependency-free traits for external hardware-backed secret provider crates. |
+| `split-secret` | no | Enables `SplitSecretBytes<N, SHARES>` N-of-N XOR split storage. |
 | `unsafe-wipe` | no | Compatibility no-op; volatile wiping is default. |
 
 Default builds are dependency-free and `no_std`.
@@ -281,7 +301,7 @@ Enable `std` when you want the convenience wrapper backed by
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["std"] }
+sanitization = { version = "1.1.0", features = ["std"] }
 ```
 
 ```rust
@@ -493,13 +513,46 @@ Use `replace_from_array`, `replace_from_slice`, `replace_from_fn`, or
 clears its owned input array. Fallible generated replacement keeps the old
 locked value unchanged on generator error.
 
+Use `LockedSecretVec` when the secret length is known only at runtime and you
+want native memory-locking without guard pages:
+
+```rust
+use sanitization::LockedSecretVec;
+
+let mut token = LockedSecretVec::from_slice(b"session-key").unwrap();
+let generated = LockedSecretVec::try_from_fn(11, |index| {
+    Ok::<u8, &'static str>(b"session-key"[index])
+})
+.unwrap();
+
+assert!(token.constant_time_eq(b"session-key"));
+assert!(generated.constant_time_eq(b"session-key"));
+
+token.extend_from_slice(b"-v2").unwrap();
+token.replace_from_slice(b"rotated-session-key").unwrap();
+token.replace_from_fn(16, |index| index as u8).unwrap();
+token
+    .try_replace_from_fn(16, |index| Ok::<u8, &'static str>(index as u8))
+    .unwrap();
+
+token.clear_secret();
+assert!(token.is_empty());
+```
+
+`LockedSecretVec` uses the same native mapping and memory-lock backends as
+`LockedSecretBytes<N>`, but its payload length and capacity are dynamic. It is
+lower overhead than `GuardedSecretVec` because it does not reserve guard pages.
+Use `GuardedSecretVec` instead when page-boundary fault detection matters more
+than allocation footprint. `LockedSecretVec` is native-only; WASM has no
+host-kernel memory-lock facility and does not expose this dynamic locked type.
+
 Enable `canary-check` when locked or guarded secrets should detect corruption
 that reaches either side of the secret data while staying inside the writable
 mapping or pooled slot.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["canary-check"] }
+sanitization = { version = "1.1.0", features = ["canary-check"] }
 ```
 
 ```rust
@@ -515,8 +568,8 @@ assert_eq!(first, 7);
 assert_eq!(key.constant_time_eq_checked(&[7; 32]), Ok(true));
 ```
 
-With `canary-check`, non-empty `LockedSecretBytes<N>` mappings and
-`SecretPool<N, SLOTS>` slots use this layout:
+With `canary-check`, non-empty `LockedSecretBytes<N>` mappings,
+`LockedSecretVec` mappings, and `SecretPool<N, SLOTS>` slots use this layout:
 
 ```text
 [ 8-byte canary ][ N-byte secret ][ 8-byte canary ]
@@ -527,9 +580,9 @@ Existing exposure APIs such as `with_secret`, `copy_to_slice`, and
 corruption is detected, the full mapping or slot is volatile-cleared and those
 legacy APIs panic with a fixed message. Use `expose_secret_checked`,
 `copy_to_slice_checked`, `constant_time_eq_checked`, or `verify_integrity` on
-`LockedSecretBytes<N>`, and `expose_secret_checked`,
-`constant_time_eq_checked`, or `verify_integrity` on pool slots, when callers
-need explicit error handling with `CanaryCorruptedError`.
+`LockedSecretBytes<N>`, `expose_secret_checked`, `constant_time_eq_checked`, or
+`verify_integrity` on `LockedSecretVec` and pool slots, when callers need
+explicit error handling with `CanaryCorruptedError`.
 
 Canaries are derived from the mapping or slot address and a fixed mask on
 native mapped backends, so they require no RNG or dependency. That deterministic
@@ -541,16 +594,17 @@ canary-disclosure, or compliance-sensitive environments. On WASM,
 `canary-check` requires `random-canary` because inline storage has no stable
 ASLR-backed mapping address. Canaries detect overwrites that reach the canary
 words; they do not detect corruption entirely inside the secret bytes,
-historical copies, or external copies. `LockedSecretBytes<N>` and live
-`SecretPool` slots rewrite canaries after `secure_clear`, so they remain
-reusable after manual clearing.
+historical copies, or external copies. `LockedSecretBytes<N>`,
+`LockedSecretVec`, and live `SecretPool` slots rewrite canaries after
+`secure_clear` or `clear_secret`, so they remain reusable after manual
+clearing.
 
 Enable `random-canary` when the canary word should come from the operating
 system CSPRNG instead of the deterministic address-derived fallback:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["random-canary"] }
+sanitization = { version = "1.1.0", features = ["random-canary"] }
 ```
 
 `random-canary` uses direct platform backends without additional crates: Linux
@@ -620,7 +674,7 @@ pages on supported Linux, Android, macOS, iOS, Windows, and BSD targets:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["guard-pages"] }
+sanitization = { version = "1.1.0", features = ["guard-pages"] }
 ```
 
 ```rust
@@ -675,7 +729,7 @@ can also lock their writable data pages:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["guard-pages", "memory-lock"] }
+sanitization = { version = "1.1.0", features = ["guard-pages", "memory-lock"] }
 ```
 
 ```rust
@@ -756,7 +810,7 @@ the explicit proc-macro dependency tradeoff:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["derive"] }
+sanitization = { version = "1.1.0", features = ["derive"] }
 ```
 
 ```rust
@@ -949,7 +1003,7 @@ evidence:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["multi-pass-clear"] }
+sanitization = { version = "1.1.0", features = ["multi-pass-clear"] }
 ```
 
 ```rust
@@ -976,7 +1030,7 @@ clearing followed by `clflush`/`mfence` over the affected cache lines:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["cache-flush"] }
+sanitization = { version = "1.1.0", features = ["cache-flush"] }
 ```
 
 ```rust
@@ -1005,7 +1059,7 @@ cross an explicit compiler boundary:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.0.1", features = ["asm-compare"] }
+sanitization = { version = "1.1.0", features = ["asm-compare"] }
 ```
 
 The public API does not change. `SecretBytes<N>`, `SecretVec`, `SecretString`,
@@ -1017,6 +1071,138 @@ not a formal hardware-level constant-time guarantee. Use `asm-compare` where it
 is available, or pair this crate with a dedicated constant-time comparison
 library when a protocol requires externally audited timing guarantees.
 
+## Register Scrubbing
+
+Enable `register-scrub` when a call site explicitly wants a best-effort SIMD
+register clearing boundary after cryptographic code:
+
+```toml
+[dependencies]
+sanitization = { version = "1.1.0", features = ["register-scrub"] }
+```
+
+```rust
+use sanitization::register_scrub::scrub_simd_registers;
+
+// Run crypto code that may use vector registers.
+scrub_simd_registers();
+```
+
+On x86_64 this clears caller-saved XMM0-XMM5. On AArch64 this clears
+caller-saved V0-V7 and V16-V31. Unsupported targets expose a fenced no-op.
+This is not a whole-process register hygiene guarantee: it cannot clear
+compiler spills, callee-saved vector state, kernel context-switch buffers,
+registers used by other threads, or copies already written to memory.
+
+## Split Secrets
+
+Enable `split-secret` for fixed-size N-of-N XOR split storage:
+
+```toml
+[dependencies]
+sanitization = { version = "1.1.0", features = ["split-secret"] }
+```
+
+```rust
+use sanitization::SplitSecretBytes;
+
+let split = SplitSecretBytes::<32, 3>::from_array_with_generator([7; 32], |share, index| {
+    // Use a real CSPRNG or KDF-backed random source here.
+    ((share as u8) << 4) ^ (index as u8)
+})
+.unwrap();
+
+let reconstructed = split.reconstruct();
+assert!(reconstructed.constant_time_eq(&[7; 32]));
+```
+
+This is not Shamir secret sharing and it is not threshold cryptography. Every
+share is required to reconstruct the secret. The generator closure must produce
+cryptographically random bytes for all mask shares; deterministic examples are
+only for documentation and tests.
+
+## Hardware Secret Traits
+
+Enable `hardware-secrets` when an external crate needs a dependency-free trait
+surface for hardware-backed secret providers:
+
+```toml
+[dependencies]
+sanitization = { version = "1.1.0", features = ["hardware-secrets"] }
+```
+
+```rust
+use sanitization::hardware::{HardwareSecretHandle, HardwareSecretProvider};
+
+struct Handle(u64);
+impl HardwareSecretHandle for Handle {}
+
+struct Provider;
+
+impl HardwareSecretProvider for Provider {
+    type Handle = Handle;
+    type Error = ();
+
+    fn seal_from_slice(&self, _secret: &[u8]) -> Result<Self::Handle, Self::Error> {
+        Ok(Handle(1))
+    }
+
+    fn expose_secret<R, F: FnOnce(&[u8]) -> R>(
+        &self,
+        _handle: &Self::Handle,
+        inspect: F,
+    ) -> Result<R, Self::Error> {
+        Ok(inspect(&[]))
+    }
+
+    fn rotate_from_slice(
+        &self,
+        _handle: &mut Self::Handle,
+        _secret: &[u8],
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn destroy(&self, _handle: Self::Handle) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+```
+
+The main crate does not include SGX, Nitro, TPM, HSM, or platform-keystore
+backends. Those belong in backend crates with their own platform dependencies,
+audits, and threat models.
+
+## Optional Integration Crates
+
+The main `sanitization` crate remains dependency-free by default. The workspace
+also publishes small wrapper crates for users that already depend on common
+buffer libraries:
+
+```toml
+[dependencies]
+sanitization-arrayvec = "1.1.0"
+sanitization-bytes = "1.1.0"
+```
+
+```rust
+use sanitization::SecretBytes;
+use sanitization_arrayvec::SecretArrayVec;
+use sanitization_bytes::SecretBytesMut;
+
+let mut keys = SecretArrayVec::<SecretBytes<32>, 4>::new();
+keys.push(SecretBytes::from_array([7; 32])).unwrap();
+
+let mut token = SecretBytesMut::from_slice(b"session-token");
+token.extend_from_slice(b"-v2");
+
+keys.clear_secret();
+token.clear_secret();
+```
+
+These crates use wrapper types because Rust's orphan rules prevent implementing
+`SecureSanitize` directly for external types in a separate crate.
+
 ## Choosing the Right API
 
 | Use case | Recommended API |
@@ -1025,6 +1211,7 @@ library when a protocol requires externally audited timing guarantees.
 | Fixed-size key with no-`std` tick expiry | `MonotonicExpiringSecretBytes<N, C>` |
 | Fixed-size key with access expiry | `ExpiringSecretBytes<N>` with `std` |
 | Fixed-size key that should avoid swap/pagefiles on supported native platforms | `LockedSecretBytes<N>` with `memory-lock` |
+| Dynamic bytes that should avoid swap/pagefiles on supported native platforms | `LockedSecretVec` with `memory-lock` |
 | Fixed-size key needing API-compatible WASM storage | `LockedSecretBytes<N>` with `memory-lock` on WASM, with documented reduced guarantees |
 | Fixed-size locked key with prefix/suffix corruption checks | `LockedSecretBytes<N>` with `canary-check` |
 | Fixed-size locked key with OS-random canary words | `LockedSecretBytes<N>` with `random-canary` |
@@ -1045,6 +1232,10 @@ library when a protocol requires externally audited timing guarantees.
 | Generic clear-on-drop wrapper | `Secret<T>` |
 | Explicit x86_64 comparison compiler boundary | `asm-compare` feature |
 | Explicit x86_64 cache-line eviction after clearing | `cache-flush` feature |
+| Explicit SIMD/vector register clearing boundary | `register-scrub` feature |
+| N-of-N fixed-size split storage | `SplitSecretBytes<N, SHARES>` with `split-secret` |
+| Hardware-backed backend crate integration | `hardware-secrets` feature traits |
+| `arrayvec` or `bytes` wrappers | `sanitization-arrayvec` or `sanitization-bytes` |
 
 ## Relationship to `zeroize`
 
@@ -1094,20 +1285,29 @@ capacity arithmetic. They are not a replacement for external review.
 
 ## Workspace Layout
 
-The repository is a two-crate workspace:
+The repository is a multi-crate workspace:
 
 ```text
-crates/sanitization          # main dependency-free-by-default crate
-crates/sanitization-derive   # optional proc-macro sister crate
+crates/sanitization           # main dependency-free-by-default crate
+crates/sanitization-derive    # optional proc-macro sister crate
+crates/sanitization-arrayvec  # optional ArrayVec wrapper crate
+crates/sanitization-bytes     # optional BytesMut wrapper crate
 ```
 
-For crates.io releases, publish the derive crate first, then the main crate:
+For crates.io releases, publish the derive crate first, then the main crate,
+then the integration wrapper crates:
 
 ```bash
 cd crates/sanitization-derive
 cargo publish
 
 cd ../sanitization
+cargo publish
+
+cd ../sanitization-arrayvec
+cargo publish
+
+cd ../sanitization-bytes
 cargo publish
 ```
 
@@ -1116,6 +1316,8 @@ From the repository root, the equivalent package-specific commands are:
 ```bash
 cargo publish -p sanitization-derive
 cargo publish -p sanitization
+cargo publish -p sanitization-arrayvec
+cargo publish -p sanitization-bytes
 ```
 
 ## Limits
