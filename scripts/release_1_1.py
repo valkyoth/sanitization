@@ -100,6 +100,30 @@ def verify_versions(expected_version: str) -> None:
             )
 
 
+def check_release_tag(version: str, *, require_tag: bool) -> None:
+    tag = f"v{version}"
+    try:
+        head = capture(["git", "rev-parse", "HEAD"])
+        tagged_commit = capture(["git", "rev-list", "-n", "1", tag])
+    except subprocess.CalledProcessError:
+        message = f"Release tag {tag!r} was not found."
+        if require_tag:
+            print(f"Refusing to publish: {message}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Warning: {message}", file=sys.stderr)
+        return
+
+    if head != tagged_commit:
+        message = f"HEAD is not tagged as {tag} (HEAD {head}, {tag} {tagged_commit})."
+        if require_tag:
+            print(f"Refusing to publish: {message}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Warning: {message}", file=sys.stderr)
+        return
+
+    print(f"Release tag {tag} points at HEAD.")
+
+
 def wait_for_index(package: str, version: str, *, dry_run: bool) -> None:
     url = f"https://crates.io/crates/{package}/{version}"
     print()
@@ -187,6 +211,11 @@ def main() -> int:
         help="Pass --no-verify to cargo publish. Use only if you understand why.",
     )
     parser.add_argument(
+        "--require-tag",
+        action="store_true",
+        help="Refuse to publish unless HEAD matches the v<version> release tag.",
+    )
+    parser.add_argument(
         "--yes",
         action="store_true",
         help="Do not ask for the initial confirmation.",
@@ -195,6 +224,7 @@ def main() -> int:
 
     require_clean_tree(allow_dirty=args.allow_dirty or args.dry_run)
     verify_versions(args.version)
+    check_release_tag(args.version, require_tag=args.require_tag)
 
     steps = selected_steps(args.start_at)
 
