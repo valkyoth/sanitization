@@ -170,11 +170,16 @@ cache lines. This can evict the addressed lines from CPU caches, but it does not
 prove all historical copies are gone and does not solve general
 microarchitectural side channels. When combined with `guard-pages`,
 `GuardedSecretVec` can explicitly clear and flush its full writable data region.
+`clflush` itself is an unprivileged instruction commonly used in cache-timing
+attacks such as Flush+Reload; this feature reduces post-use residency but does
+not protect against an attacker who can observe cache timing while the secret is
+live.
 
 With the `register-scrub` feature, explicit helpers clear selected
 current-thread SIMD/vector registers on x86_64 and AArch64. This is a local
 post-crypto hygiene boundary, not proof that all register, stack, spill, kernel,
-or other-thread copies have been removed.
+or other-thread copies have been removed. AVX-512 opmask registers, ZMM16-ZMM31,
+and AArch64 V8-V15 upper halves remain outside the implemented scrub path.
 
 With the `split-secret` feature, `SplitSecretBytes<N, SHARES>` stores a
 fixed-size secret as N-of-N XOR shares. This can reduce the impact of a single

@@ -5118,9 +5118,18 @@ pub mod register_scrub {
     /// this crate.
     ///
     /// On unsupported architectures this is a fenced no-op. On x86_64 it
-    /// clears caller-saved XMM0-XMM5. On AArch64 it clears caller-saved V0-V7
-    /// and V16-V31. Call this immediately after a cryptographic routine that
-    /// may have left key material in vector registers.
+    /// clears caller-saved XMM0-XMM5 and, when AVX OS support is detected,
+    /// clears AVX upper register state. Non-Windows x86_64 targets use
+    /// `vzeroall` when AVX is available; Windows x64 uses `vzeroupper` to avoid
+    /// clobbering ABI-preserved XMM6-XMM15 lower halves. On AArch64 it clears
+    /// caller-saved V0-V7 and V16-V31. Call this immediately after a
+    /// cryptographic routine that may have left key material in vector
+    /// registers.
+    ///
+    /// This is not complete register-file erasure. AVX-512 opmask registers
+    /// and ZMM16-ZMM31 are not scrubbed, and AArch64 V8-V15 upper halves are
+    /// intentionally not modified because Rust inline assembly cannot express
+    /// that partial-register clobber safely.
     #[inline(never)]
     pub fn scrub_simd_registers() {
         compiler_fence(Ordering::SeqCst);
@@ -5138,8 +5147,19 @@ pub mod register_scrub {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     #[inline(never)]
     pub fn scrub_x86_64_simd_registers() {
-        // SAFETY: These instructions write only architectural SIMD registers
-        // in the current thread. They do not read or write memory.
+        if avx_os_supported() {
+            scrub_x86_64_avx_registers();
+        } else {
+            scrub_x86_64_sse_registers();
+        }
+    }
+
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[inline(never)]
+    fn scrub_x86_64_sse_registers() {
+        // SAFETY: These instructions write only caller-saved architectural
+        // SIMD registers in the current thread. They do not read or write
+        // memory.
         unsafe {
             core::arch::asm!(
                 "pxor xmm0, xmm0",
@@ -5156,6 +5176,72 @@ pub mod register_scrub {
                 out("xmm5") _,
                 options(nostack, nomem, preserves_flags)
             );
+        }
+    }
+
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows"), not(miri)))]
+    #[inline(never)]
+    fn scrub_x86_64_avx_registers() {
+        // SAFETY: `avx_os_supported` verified AVX and XMM/YMM OS save support.
+        // On non-Windows x86_64 ABIs, XMM/YMM registers are caller-saved. The
+        // instruction does not read or write memory.
+        unsafe {
+            core::arch::asm!(
+                "vzeroall",
+                out("xmm0") _,
+                out("xmm1") _,
+                out("xmm2") _,
+                out("xmm3") _,
+                out("xmm4") _,
+                out("xmm5") _,
+                out("xmm6") _,
+                out("xmm7") _,
+                out("xmm8") _,
+                out("xmm9") _,
+                out("xmm10") _,
+                out("xmm11") _,
+                out("xmm12") _,
+                out("xmm13") _,
+                out("xmm14") _,
+                out("xmm15") _,
+                options(nostack, nomem, preserves_flags)
+            );
+        }
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_os = "windows", not(miri)))]
+    #[inline(never)]
+    fn scrub_x86_64_avx_registers() {
+        scrub_x86_64_sse_registers();
+        // SAFETY: `avx_os_supported` verified AVX and XMM/YMM OS save support.
+        // `vzeroupper` clears the upper vector state without clobbering the
+        // ABI-preserved lower halves of XMM6-XMM15 on Windows x64.
+        unsafe {
+            core::arch::asm!("vzeroupper", options(nostack, nomem, preserves_flags));
+        }
+    }
+
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[inline]
+    fn avx_os_supported() -> bool {
+        const CPUID_1_ECX_OSXSAVE: u32 = 1 << 27;
+        const CPUID_1_ECX_AVX: u32 = 1 << 28;
+        const XCR0_XMM: u64 = 1 << 1;
+        const XCR0_YMM: u64 = 1 << 2;
+
+        // SAFETY: `cpuid` and `xgetbv` query CPU/OS feature state and do not
+        // access memory. `_xgetbv(0)` is executed only when CPUID reports
+        // OSXSAVE support.
+        unsafe {
+            let cpuid = core::arch::x86_64::__cpuid_count(1, 0);
+            if (cpuid.ecx & (CPUID_1_ECX_OSXSAVE | CPUID_1_ECX_AVX))
+                != (CPUID_1_ECX_OSXSAVE | CPUID_1_ECX_AVX)
+            {
+                return false;
+            }
+
+            let xcr0 = core::arch::x86_64::_xgetbv(0);
+            (xcr0 & (XCR0_XMM | XCR0_YMM)) == (XCR0_XMM | XCR0_YMM)
         }
     }
 
@@ -7536,6 +7622,13 @@ impl std::error::Error for SplitSecretError {}
 /// reconstructs the original bytes. It is not threshold secret sharing: all
 /// shares are required, and the caller must provide cryptographically random
 /// bytes for every mask share through the generator closure.
+///
+/// # Security
+///
+/// The generator is trusted. Passing a deterministic, constant, low-entropy, or
+/// reused generator can make the split provide no confidentiality. Debug builds
+/// include a cheap heuristic that rejects trivially constant mask shares, but
+/// that is not a substitute for a CSPRNG.
 #[cfg(feature = "split-secret")]
 pub struct SplitSecretBytes<const N: usize, const SHARES: usize> {
     shares: [SecretBytes<N>; SHARES],
@@ -7644,11 +7737,42 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
             byte_index += 1;
         }
 
+        debug_assert!(
+            !Self::mask_shares_are_trivially_constant(&shares),
+            "split-secret mask shares are constant; use cryptographically random mask bytes"
+        );
+
         for share in shares.iter() {
             share.after_secret_write();
         }
 
         Self { shares }
+    }
+
+    #[inline]
+    fn mask_shares_are_trivially_constant(shares: &[SecretBytes<N>; SHARES]) -> bool {
+        if N < 2 {
+            return false;
+        }
+
+        let mut share_index = 0;
+        while share_index + 1 < SHARES {
+            let first = shares[share_index].load(0);
+            let mut byte_index = 1;
+            let mut all_same = true;
+            while byte_index < N {
+                all_same &= shares[share_index].load(byte_index) == first;
+                byte_index += 1;
+            }
+
+            if all_same {
+                return true;
+            }
+
+            share_index += 1;
+        }
+
+        false
     }
 }
 

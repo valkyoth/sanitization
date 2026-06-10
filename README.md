@@ -1050,7 +1050,9 @@ clear the full allocation capacity before flushing the allocation's cache
 lines. With both `guard-pages` and `cache-flush`, `GuardedSecretVec` also
 provides `clear_secret_and_flush` for its full writable data region. Unsupported
 targets, Miri, and builds without `cache-flush` do not expose the `cache_flush`
-module.
+module. This feature reduces post-clear cache residency; it does not protect
+against an attacker who can already observe cache timing while the secret is
+live.
 
 ## Assembly Comparison
 
@@ -1088,11 +1090,15 @@ use sanitization::register_scrub::scrub_simd_registers;
 scrub_simd_registers();
 ```
 
-On x86_64 this clears caller-saved XMM0-XMM5. On AArch64 this clears
-caller-saved V0-V7 and V16-V31. Unsupported targets expose a fenced no-op.
-This is not a whole-process register hygiene guarantee: it cannot clear
-compiler spills, callee-saved vector state, kernel context-switch buffers,
-registers used by other threads, or copies already written to memory.
+On non-Windows x86_64 this uses `vzeroall` when AVX OS support is available,
+falling back to caller-saved XMM clears. On Windows x64 it clears XMM0-XMM5 and
+uses `vzeroupper` when AVX OS support is available, preserving ABI-required
+XMM6-XMM15 lower halves. On AArch64 this clears caller-saved V0-V7 and
+V16-V31. Unsupported targets expose a fenced no-op. This is not a whole-process
+register hygiene guarantee: it cannot clear compiler spills, callee-saved
+vector state, AVX-512 opmask registers, ZMM16-ZMM31, AArch64 V8-V15 upper
+halves, kernel context-switch buffers, registers used by other threads, or
+copies already written to memory.
 
 ## Split Secrets
 
@@ -1107,7 +1113,8 @@ sanitization = { version = "1.1.0", features = ["split-secret"] }
 use sanitization::SplitSecretBytes;
 
 let split = SplitSecretBytes::<32, 3>::from_array_with_generator([7; 32], |share, index| {
-    // Use a real CSPRNG or KDF-backed random source here.
+    // Documentation-only deterministic mask. Use a real CSPRNG or KDF-backed
+    // random source in production.
     ((share as u8) << 4) ^ (index as u8)
 })
 .unwrap();
@@ -1119,7 +1126,8 @@ assert!(reconstructed.constant_time_eq(&[7; 32]));
 This is not Shamir secret sharing and it is not threshold cryptography. Every
 share is required to reconstruct the secret. The generator closure must produce
 cryptographically random bytes for all mask shares; deterministic examples are
-only for documentation and tests.
+only for documentation and tests. Debug builds reject trivially constant mask
+shares as a misuse guardrail, but this heuristic does not validate entropy.
 
 ## Hardware Secret Traits
 
@@ -1193,8 +1201,9 @@ use sanitization_bytes::SecretBytesMut;
 let mut keys = SecretArrayVec::<SecretBytes<32>, 4>::new();
 keys.push(SecretBytes::from_array([7; 32])).unwrap();
 
-let mut token = SecretBytesMut::from_slice(b"session-token");
-token.extend_from_slice(b"-v2");
+let mut token = SecretBytesMut::with_capacity(16);
+token.extend_from_slice(b"session-token").unwrap();
+token.extend_from_slice(b"-v2").unwrap();
 
 keys.clear_secret();
 token.clear_secret();
@@ -1202,6 +1211,10 @@ token.clear_secret();
 
 These crates use wrapper types because Rust's orphan rules prevent implementing
 `SecureSanitize` directly for external types in a separate crate.
+`SecretBytesMut` treats capacity as fixed after construction and returns an
+error instead of reallocating on append, because implicit `BytesMut` growth
+would free an old allocation containing secret bytes before it can be wiped.
+Allocate the maximum expected size up front with `SecretBytesMut::with_capacity`.
 
 ## Choosing the Right API
 

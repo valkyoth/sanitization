@@ -14,12 +14,41 @@ use sanitization::{sanitize_bytes, SecureSanitize};
 #[cfg(test)]
 extern crate std;
 
+/// Error returned when an append would exceed the fixed buffer capacity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CapacityError {
+    /// Current reported buffer capacity.
+    pub capacity: usize,
+    /// Current initialized length.
+    pub len: usize,
+    /// Additional bytes requested by the caller.
+    pub additional: usize,
+}
+
+impl fmt::Display for CapacityError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "insufficient secret buffer capacity: capacity {}, len {}, additional {}",
+            self.capacity, self.len, self.additional
+        )
+    }
+}
+
 /// Clear-on-drop wrapper around [`BytesMut`].
 ///
 /// Clearing expands the buffer to its reported capacity, volatile-clears that
 /// initialized view, then resets the length to zero. This covers the owned
 /// capacity exposed by `BytesMut`; it does not make claims about allocator
 /// internals outside that buffer.
+///
+/// # Security
+///
+/// This wrapper treats capacity as fixed after construction. Appending beyond
+/// capacity would force `BytesMut` to reallocate and free the old allocation
+/// while it still contains secret bytes. [`SecretBytesMut::extend_from_slice`]
+/// therefore returns [`CapacityError`] instead of growing implicitly. Allocate
+/// the maximum expected size up front with [`SecretBytesMut::with_capacity`].
 pub struct SecretBytesMut {
     inner: BytesMut,
 }
@@ -80,10 +109,24 @@ impl SecretBytesMut {
         self.inner.capacity()
     }
 
-    /// Append bytes to the secret buffer.
+    /// Append bytes to the secret buffer without reallocating.
+    ///
+    /// Returns [`CapacityError`] if the append would exceed the current
+    /// capacity. This avoids leaving secret bytes in a freed old allocation
+    /// after an implicit `BytesMut` growth.
     #[inline]
-    pub fn extend_from_slice(&mut self, bytes: &[u8]) {
+    pub fn extend_from_slice(&mut self, bytes: &[u8]) -> Result<(), CapacityError> {
+        let remaining = self.inner.capacity().saturating_sub(self.inner.len());
+        if bytes.len() > remaining {
+            return Err(CapacityError {
+                capacity: self.inner.capacity(),
+                len: self.inner.len(),
+                additional: bytes.len(),
+            });
+        }
+
         self.inner.extend_from_slice(bytes);
+        Ok(())
     }
 
     /// Borrow initialized bytes.
@@ -159,9 +202,10 @@ mod tests {
 
     #[test]
     fn bytes_mut_wrapper_round_trip_and_clear() {
-        let mut secret = SecretBytesMut::from_slice(b"token");
+        let mut secret = SecretBytesMut::with_capacity(8);
 
-        secret.extend_from_slice(b"-v2");
+        secret.extend_from_slice(b"token").unwrap();
+        secret.extend_from_slice(b"-v2").unwrap();
 
         assert_eq!(secret.len(), 8);
         assert_eq!(secret.with_secret(|bytes| bytes[0]), b't');
@@ -171,6 +215,23 @@ mod tests {
 
         secret.clear_secret();
         assert!(secret.is_empty());
+    }
+
+    #[test]
+    fn bytes_mut_wrapper_refuses_growth_past_capacity() {
+        let mut secret = SecretBytesMut::with_capacity(5);
+
+        secret.extend_from_slice(b"token").unwrap();
+
+        assert_eq!(
+            secret.extend_from_slice(b"-v2"),
+            Err(CapacityError {
+                capacity: 5,
+                len: 5,
+                additional: 3,
+            })
+        );
+        assert!(secret.with_secret(|bytes| bytes == b"token"));
     }
 
     #[test]

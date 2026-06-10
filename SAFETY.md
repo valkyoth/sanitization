@@ -15,7 +15,8 @@ Unsafe code is allowed only inside narrow `src/lib.rs` modules:
   outside Miri.
 - `register_scrub`, available with the `register-scrub` feature. It emits
   architecture-specific register-zeroing instructions on x86_64 and AArch64
-  outside Miri, and is a fenced no-op elsewhere.
+  outside Miri, and is a fenced no-op elsewhere. x86_64 uses runtime AVX OS
+  support detection before emitting AVX instructions.
 - `guard_pages`, available only with the `guard-pages` feature on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets outside Miri. The
   feature is rejected at compile time on WASM.
@@ -203,7 +204,11 @@ cryptographic code that may leave secret material in SIMD/vector registers.
 
 Operation:
 
-- x86_64 emits `pxor xmmN, xmmN` for caller-saved XMM0-XMM5.
+- x86_64 checks CPUID OSXSAVE/AVX and XCR0 XMM/YMM state before emitting AVX
+  instructions. Non-Windows x86_64 emits `vzeroall` when AVX is available, and
+  Windows x64 emits `vzeroupper` plus caller-saved XMM0-XMM5 clears to preserve
+  ABI-required XMM6-XMM15 lower halves. The non-AVX fallback emits
+  `pxor xmmN, xmmN` for caller-saved XMM0-XMM5.
 - AArch64 emits `eor vN.16b, vN.16b, vN.16b` for caller-saved V0-V7 and
   V16-V31.
 - Unsupported targets and Miri use a fenced no-op.
@@ -212,6 +217,9 @@ Invariant:
 
 - The assembly writes only declared current-thread caller-saved architectural
   registers and does not read or write memory.
+- AVX-512 opmask registers and ZMM16-ZMM31 are not scrubbed. AArch64 V8-V15
+  upper halves are not scrubbed because Rust inline assembly cannot express a
+  safe partial-register clobber for those ABI-split registers.
 - The public function is `#[inline(never)]` and fenced before and after the
   register instructions.
 - This does not guarantee whole-process register secrecy. It does not clear
