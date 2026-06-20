@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish the sanitization 1.1.x workspace crates in dependency order.
+"""Publish the sanitization workspace crates in dependency order.
 
 This script intentionally pauses after publishing dependency crates so crates.io
 has time to index them before publishing dependents.

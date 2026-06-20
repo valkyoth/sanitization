@@ -1410,7 +1410,7 @@ For crates.io releases, publish the derive crate first, then the main crate,
 then the integration wrapper crates:
 
 ```bash
-scripts/release_1_1.py
+scripts/release_crates.py --require-tag
 ```
 
 The script runs the local checks, publishes in dependency order, and pauses
