@@ -41,18 +41,25 @@ crates.
 
 ## 1.x Architecture Direction
 
-### Planned: 1.2.0 Native Constant-Time API
+### Planned: 1.2.0 Native Data-Oblivious API
 
 Status: planned.
 
-The `1.2.0` line should add a first-class dependency-free constant-time module:
+The `1.2.0` line should add a first-class dependency-free data-oblivious
+primitive module:
 
 ```rust
 sanitization::ct
 ```
 
+The module name should stay short and familiar, but the documented security
+claim should be precise: no secret-dependent control flow or secret-dependent
+memory access under documented compiler, target, feature, and release-profile
+conditions. It should not claim identical wall-clock timing or universal
+microarchitectural protection.
+
 This is not intended to replace the optional `subtle-interop` feature. The
-native module gives this crate its own no-dependency constant-time primitives,
+native module gives this crate its own no-dependency data-oblivious primitives,
 while `subtle-interop` remains the compatibility bridge for RustCrypto and other
 ecosystem APIs that already require `subtle` traits.
 
@@ -71,12 +78,28 @@ Only the stable `v1.2.0` tag is intended for crates.io publication.
 Initial API shape:
 
 - `ct::Choice`: normalized opaque 0/1 constant-time boolean;
+- `ct::Choice::declassify(reason)`: explicit conversion from a secret-derived
+  choice into a public boolean, so reviews can search for every branch boundary;
 - `ct::ConstantTimeEq`: native equality trait for public-length,
   secret-content comparisons;
 - `ct::ConditionallySelectable`: branchless selection between two values;
 - `ct::ConditionallyAssignable`: branchless assignment under a `Choice`;
 - `ct::CtOption<T>`: optional value controlled by a `Choice` instead of a
-  secret-dependent branch.
+  secret-dependent branch;
+- `ct::CtResult<T, E>`: result-like value where success/failure can remain
+  hidden until explicit declassification;
+- `ct::Mask<T>`: all-zero/all-one mask values used by branchless operations;
+- `ct::Public<T>` and `ct::Secret<T>` marker wrappers for APIs that need to
+  distinguish public parameters from secret-controlled values.
+
+Initial memory-access primitives:
+
+- `ct::oblivious_lookup(table, secret_index)`, implemented as a full-table scan;
+- `ct::conditional_copy(dst, src, choice)`;
+- `ct::conditional_swap(left, right, choice)`;
+- `ct::select_slice(left, right, choice)`;
+- `ct::eq_fixed(left, right)` for fixed-size arrays;
+- `ct::eq_public_len(left, right)` for slices where length is explicitly public.
 
 Initial implementation targets:
 
@@ -99,7 +122,44 @@ Design rules:
 - avoid secret-dependent branching and secret-dependent memory access inside
   the native constant-time operations;
 - treat slice length, allocation behavior, page faults, panics, scheduling, and
-  platform faults as public/non-constant-time effects.
+  platform faults as public/non-constant-time effects;
+- make declassification explicit and searchable;
+- make secret-dependent indexing impossible through the safe `Secret<T>` wrapper
+  APIs; callers should use oblivious lookup helpers instead;
+- do not derive or implement raw struct-byte comparisons that could read padding
+  or representation details;
+- document forbidden or target-sensitive operations for secret values:
+  branching, indexing, early return, secret-dependent allocation sizes,
+  floating point, formatting/logging, panics, and division/modulo unless a
+  target-specific review covers them.
+
+Barrier strategy:
+
+- portable branchless arithmetic and bitwise operations are the baseline;
+- `core::hint::black_box` may be used as a best-effort optimizer boundary, but
+  never as the only proof argument;
+- optional inline assembly remains the stronger backend on reviewed targets;
+- external-symbol or function-pointer barriers can be considered only if they
+  improve release-codegen evidence without adding dependencies;
+- each target tier should document which barrier strategy is active.
+
+Target evidence tiers:
+
+- Tier A: checked in CI with release-codegen inspection and available proof or
+  leakage-test evidence;
+- Tier B: source-level discipline and tests, but no target-specific timing
+  evidence;
+- Tier C: API available, no strong data-oblivious timing claim;
+- Forbidden: known-bad target or feature combinations.
+
+Expected initial target stance:
+
+- x86_64 Linux with release profile and reviewed feature set: target Tier A;
+- aarch64 Linux with release profile and reviewed feature set: target Tier A or
+  Tier B depending on available assembly/timing evidence;
+- embedded ARM/RISC-V without hardware timing tests: Tier B;
+- browser/Node WASM JIT targets: Tier C because LLVM output can be optimized
+  again by the runtime.
 
 Verification work for `1.2.0`:
 
@@ -111,13 +171,19 @@ Verification work for `1.2.0`:
 - Kani or code-structure checks that equal-length byte comparisons visit every
   element;
 - release-codegen checks updated where the `ct` module reuses or extends the
-  existing comparison backends.
+  existing comparison backends;
+- an `EVIDENCE.md` or machine-readable `ct-evidence.json` draft that lists the
+  exact targets, rustc versions, features, checks, and claims covered by the
+  release;
+- documentation pages for guarantees, non-guarantees, barriers, target tiers,
+  WASM limits, and leakage-test expectations.
 
 The stable `1.2.0` release should not claim complete hardware-level
 constant-time behavior across all targets. The claim should be narrower:
-branchless, dependency-free constant-time primitives with documented compiler
-and platform limits, stronger optional assembly paths where available, and
-bounded formal verification for selected invariants.
+branchless/data-oblivious, dependency-free primitives with documented compiler
+and platform limits, stronger optional assembly paths where available, explicit
+declassification boundaries, target evidence, and bounded formal verification
+for selected invariants.
 
 ### Implemented: 1.1.0 High-Assurance Additions
 
