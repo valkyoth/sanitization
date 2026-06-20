@@ -65,15 +65,45 @@ ecosystem APIs that already require `subtle` traits.
 
 Planned release checkpoints:
 
-- `v1.2.0-alpha.1`: public API skeleton and documentation;
-- `v1.2.0-alpha.2`: primitive and byte-slice implementations;
-- `v1.2.0-alpha.3`: secret-container integrations;
-- `v1.2.0-alpha.4`: Kani/test coverage and verification scripts;
-- `v1.2.0-rc.1`: documentation-complete release candidate;
+- `v1.2.0-alpha.1`: public API skeleton.
+  Exit gate: `ct` module exists with documented `Choice`,
+  `ConstantTimeEq`, conditional select/assign traits, `CtOption`, and explicit
+  non-guarantees. Existing crate APIs and feature builds still compile.
+- `v1.2.0-alpha.2`: primitive implementations.
+  Exit gate: unsigned/signed integer, fixed-array, and public-length slice
+  equality/select implementations are complete, tested, and routed through one
+  documented portable backend.
+- `v1.2.0-alpha.3`: oblivious memory operations.
+  Exit gate: oblivious lookup, conditional copy, conditional swap, slice select,
+  fixed equality, and public-length equality helpers are implemented with tests
+  that cover edge cases and length/publicness behavior.
+- `v1.2.0-alpha.4`: secret-container integrations.
+  Exit gate: `SecretBytes<N>`, `SecretVec`, `SecretString`,
+  `LockedSecretBytes<N>`, `LockedSecretVec`, `SecretPoolSlot<N, SLOTS>`, and
+  `GuardedSecretVec` use or expose the native `ct` traits where their feature
+  gates are enabled. Existing `constant_time_eq` APIs remain source-compatible.
+- `v1.2.0-alpha.5`: verification and evidence.
+  Exit gate: Kani harnesses, release-codegen checks, Miri coverage, and the
+  first `EVIDENCE.md` or `ct-evidence.json` draft describe exactly which
+  targets, features, rustc versions, and claims are covered.
+- `v1.2.0-rc.1`: documentation-complete release candidate.
+  Exit gate: README, SAFETY, THREAT_MODEL, roadmap, examples, rustdoc, target
+  tier table, barrier notes, WASM notes, and non-guarantees are complete. Full
+  CI is green. This is the tag to hand to external reviewers/pentest.
+- `v1.2.0-rc.2`: pentest close-out candidate, only if needed.
+  Exit gate: every pentest finding is fixed, explicitly accepted as documented
+  residual risk, or moved out of scope with rationale. The temporary pentest
+  report file is removed, relevant lessons are reflected in permanent docs, and
+  full CI is green again.
 - `v1.2.0`: stable crates.io release.
+  Exit gate: the latest RC has clean CI, clean docs, clean release checks, no
+  open high/medium pentest findings, and no known API changes pending for the
+  1.2 line.
 
 The alpha and RC tags are GitHub-only save points unless explicitly published.
-Only the stable `v1.2.0` tag is intended for crates.io publication.
+Only the stable `v1.2.0` tag is intended for crates.io publication. If a
+checkpoint is not actually complete, do not tag it; either continue work or add
+the next alpha tag with a clear reason in the release notes.
 
 Initial API shape:
 
