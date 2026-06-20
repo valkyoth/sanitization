@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1
+
+- Updated crate metadata, README links, and package examples after the GitHub
+  repository rename to `valkyoth/sanitization`.
+- No runtime API or security-behavior changes.
+
 ## 1.1.0
 
 - Added `LockedSecretVec` for native dynamic-length memory-locked byte storage

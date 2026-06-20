@@ -16,8 +16,8 @@
 <br>
 
 <p align="center">
-  <a href="https://github.com/valkyoth/sanitization-rust-crate">
-    <img src="https://raw.githubusercontent.com/valkyoth/sanitization-rust-crate/main/.github/images/sanitization.webp" alt="sanitization Rust crate overview">
+  <a href="https://github.com/valkyoth/sanitization">
+    <img src="https://raw.githubusercontent.com/valkyoth/sanitization/main/.github/images/sanitization.webp" alt="sanitization Rust crate overview">
   </a>
 </p>
 
@@ -35,7 +35,7 @@ internal unsafe boundary.
 
 ## Current Status
 
-The crate is published as stable `1.1.0` on crates.io. It is intended for
+The crate is published as stable `1.1.1` on crates.io. It is intended for
 projects that want dependency-free secret ownership and sanitization by
 default, with stronger platform hardening available through explicit feature
 flags.
@@ -135,14 +135,14 @@ Compatibility evidence:
 
 ```toml
 [dependencies]
-sanitization = "1.1.0"
+sanitization = "1.1.1"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["alloc"] }
+sanitization = { version = "1.1.1", features = ["alloc"] }
 ```
 
 The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
@@ -152,28 +152,28 @@ For memory-locked fixed-size secrets on supported native platforms:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["memory-lock"] }
+sanitization = { version = "1.1.1", features = ["memory-lock"] }
 ```
 
 For derive macros:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["derive"] }
+sanitization = { version = "1.1.1", features = ["derive"] }
 ```
 
 For optional ecosystem interop:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["zeroize-interop", "subtle-interop"] }
+sanitization = { version = "1.1.1", features = ["zeroize-interop", "subtle-interop"] }
 ```
 
 For serde-based config loading:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["serde", "alloc"] }
+sanitization = { version = "1.1.1", features = ["serde", "alloc"] }
 ```
 
 For optional ecosystem wrappers, depend on the separate sister crates only when
@@ -181,8 +181,8 @@ you already use those external libraries:
 
 ```toml
 [dependencies]
-sanitization-arrayvec = "1.1.0"
-sanitization-bytes = "1.1.0"
+sanitization-arrayvec = "1.1.1"
+sanitization-bytes = "1.1.1"
 ```
 
 ## Features
@@ -223,7 +223,7 @@ those host-kernel facilities directly.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["memory-lock", "wasm-compat"] }
+sanitization = { version = "1.1.1", features = ["memory-lock", "wasm-compat"] }
 ```
 
 `memory-lock` without `wasm-compat` is rejected at compile time on WASM so
@@ -333,7 +333,7 @@ Enable `std` when you want the convenience wrapper backed by
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["std"] }
+sanitization = { version = "1.1.1", features = ["std"] }
 ```
 
 ```rust
@@ -585,7 +585,7 @@ mapping or pooled slot.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["canary-check"] }
+sanitization = { version = "1.1.1", features = ["canary-check"] }
 ```
 
 ```rust
@@ -637,7 +637,7 @@ system CSPRNG instead of the deterministic address-derived fallback:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["random-canary"] }
+sanitization = { version = "1.1.1", features = ["random-canary"] }
 ```
 
 `random-canary` uses direct platform backends without additional crates: Linux
@@ -709,7 +709,7 @@ pages on supported Linux, Android, macOS, iOS, Windows, and BSD targets:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["guard-pages"] }
+sanitization = { version = "1.1.1", features = ["guard-pages"] }
 ```
 
 ```rust
@@ -764,7 +764,7 @@ can also lock their writable data pages:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["guard-pages", "memory-lock"] }
+sanitization = { version = "1.1.1", features = ["guard-pages", "memory-lock"] }
 ```
 
 ```rust
@@ -845,7 +845,7 @@ the explicit proc-macro dependency tradeoff:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["derive"] }
+sanitization = { version = "1.1.1", features = ["derive"] }
 ```
 
 ```rust
@@ -910,7 +910,7 @@ downstream API already requires these ecosystem traits:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["zeroize-interop", "subtle-interop"] }
+sanitization = { version = "1.1.1", features = ["zeroize-interop", "subtle-interop"] }
 ```
 
 ```rust
@@ -940,7 +940,7 @@ do not leak secret material.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["serde", "alloc"] }
+sanitization = { version = "1.1.1", features = ["serde", "alloc"] }
 serde = { version = "1", features = ["derive"] }
 ```
 
@@ -1097,7 +1097,7 @@ evidence:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["multi-pass-clear"] }
+sanitization = { version = "1.1.1", features = ["multi-pass-clear"] }
 ```
 
 ```rust
@@ -1124,7 +1124,7 @@ clearing followed by `clflush`/`mfence` over the affected cache lines:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["cache-flush"] }
+sanitization = { version = "1.1.1", features = ["cache-flush"] }
 ```
 
 ```rust
@@ -1155,7 +1155,7 @@ cross an explicit compiler boundary:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["asm-compare"] }
+sanitization = { version = "1.1.1", features = ["asm-compare"] }
 ```
 
 The public API does not change. `SecretBytes<N>`, `SecretVec`, `SecretString`,
@@ -1174,7 +1174,7 @@ register clearing boundary after cryptographic code:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["register-scrub"] }
+sanitization = { version = "1.1.1", features = ["register-scrub"] }
 ```
 
 ```rust
@@ -1200,7 +1200,7 @@ Enable `split-secret` for fixed-size N-of-N XOR split storage:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["split-secret"] }
+sanitization = { version = "1.1.1", features = ["split-secret"] }
 ```
 
 ```rust
@@ -1230,7 +1230,7 @@ surface for hardware-backed secret providers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.1.0", features = ["hardware-secrets"] }
+sanitization = { version = "1.1.1", features = ["hardware-secrets"] }
 ```
 
 ```rust
@@ -1283,8 +1283,8 @@ buffer libraries:
 
 ```toml
 [dependencies]
-sanitization-arrayvec = "1.1.0"
-sanitization-bytes = "1.1.0"
+sanitization-arrayvec = "1.1.1"
+sanitization-bytes = "1.1.1"
 ```
 
 ```rust

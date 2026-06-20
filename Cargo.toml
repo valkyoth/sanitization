@@ -9,9 +9,9 @@ default-members = ["crates/sanitization"]
 resolver = "2"
 
 [workspace.package]
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 rust-version = "1.90"
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/valkyoth/sanitization-rust-crate"
-repository = "https://github.com/valkyoth/sanitization-rust-crate"
+homepage = "https://github.com/valkyoth/sanitization"
+repository = "https://github.com/valkyoth/sanitization"

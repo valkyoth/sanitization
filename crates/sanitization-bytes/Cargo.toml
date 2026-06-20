@@ -19,7 +19,7 @@ include = [
 
 [dependencies]
 bytes = { version = "1", default-features = false }
-sanitization = { version = "1.1.0", path = "../sanitization", features = ["alloc"] }
+sanitization = { version = "1.1.1", path = "../sanitization", features = ["alloc"] }
 
 [lib]
 path = "src/lib.rs"
