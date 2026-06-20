@@ -41,7 +41,85 @@ crates.
 
 ## 1.x Architecture Direction
 
-### 0. 1.1.0 High-Assurance Additions
+### Planned: 1.2.0 Native Constant-Time API
+
+Status: planned.
+
+The `1.2.0` line should add a first-class dependency-free constant-time module:
+
+```rust
+sanitization::ct
+```
+
+This is not intended to replace the optional `subtle-interop` feature. The
+native module gives this crate its own no-dependency constant-time primitives,
+while `subtle-interop` remains the compatibility bridge for RustCrypto and other
+ecosystem APIs that already require `subtle` traits.
+
+Planned release checkpoints:
+
+- `v1.2.0-alpha.1`: public API skeleton and documentation;
+- `v1.2.0-alpha.2`: primitive and byte-slice implementations;
+- `v1.2.0-alpha.3`: secret-container integrations;
+- `v1.2.0-alpha.4`: Kani/test coverage and verification scripts;
+- `v1.2.0-rc.1`: documentation-complete release candidate;
+- `v1.2.0`: stable crates.io release.
+
+The alpha and RC tags are GitHub-only save points unless explicitly published.
+Only the stable `v1.2.0` tag is intended for crates.io publication.
+
+Initial API shape:
+
+- `ct::Choice`: normalized opaque 0/1 constant-time boolean;
+- `ct::ConstantTimeEq`: native equality trait for public-length,
+  secret-content comparisons;
+- `ct::ConditionallySelectable`: branchless selection between two values;
+- `ct::ConditionallyAssignable`: branchless assignment under a `Choice`;
+- `ct::CtOption<T>`: optional value controlled by a `Choice` instead of a
+  secret-dependent branch.
+
+Initial implementation targets:
+
+- unsigned integers: `u8`, `u16`, `u32`, `u64`, `u128`, `usize`;
+- signed integers through byte-equivalent logic where appropriate;
+- fixed byte arrays `[u8; N]`;
+- byte slices `[u8]`, with length treated as public;
+- existing secret containers: `SecretBytes<N>`, `SecretVec`, `SecretString`,
+  `LockedSecretBytes<N>`, `LockedSecretVec`, `SecretPoolSlot<N, SLOTS>`, and
+  `GuardedSecretVec` where their feature gates are enabled.
+
+Design rules:
+
+- keep the portable core `no_std` and dependency-free;
+- do not make `black_box` the sole security argument;
+- document that `core::hint::black_box` is a best-effort optimization boundary,
+  not a formal hardware timing guarantee;
+- keep the optional `asm-compare` backend as the stronger x86_64 equal-length
+  byte-comparison path;
+- avoid secret-dependent branching and secret-dependent memory access inside
+  the native constant-time operations;
+- treat slice length, allocation behavior, page faults, panics, scheduling, and
+  platform faults as public/non-constant-time effects.
+
+Verification work for `1.2.0`:
+
+- tests for `Choice` normalization and boolean algebra;
+- tests for primitive, array, slice, and secret-container equality;
+- tests for conditional select, conditional assign, and `CtOption`;
+- Kani proofs that selected equality implementations match normal equality;
+- Kani proofs that `Choice` remains normalized;
+- Kani or code-structure checks that equal-length byte comparisons visit every
+  element;
+- release-codegen checks updated where the `ct` module reuses or extends the
+  existing comparison backends.
+
+The stable `1.2.0` release should not claim complete hardware-level
+constant-time behavior across all targets. The claim should be narrower:
+branchless, dependency-free constant-time primitives with documented compiler
+and platform limits, stronger optional assembly paths where available, and
+bounded formal verification for selected invariants.
+
+### Implemented: 1.1.0 High-Assurance Additions
 
 Status: implemented for the 1.1.0 development line.
 
