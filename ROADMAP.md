@@ -151,6 +151,8 @@ Initial implementation targets:
 - existing secret containers: `SecretBytes<N>`, `SecretVec`, `SecretString`,
   `LockedSecretBytes<N>`, `LockedSecretVec`, `SecretPoolSlot<N, SLOTS>`, and
   `GuardedSecretVec` where their feature gates are enabled.
+- optional `derive` feature support for conservative field-wise
+  `ConstantTimeEq` and `ConditionallySelectable` struct derives.
 
 Design rules:
 

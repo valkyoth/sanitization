@@ -19,6 +19,13 @@ The 1.2 development line adds a native `sanitization::ct` module. Its claim is:
 - stronger assembly comparison backends are available only on documented
   targets and features.
 
+The optional `derive` feature also exposes conservative field-wise derives for
+`ct::ConstantTimeEq` and `ct::ConditionallySelectable`. Those derives generate
+calls to each field's own `ct` trait implementation. They do not compare raw
+struct bytes, do not read padding, and reject enums/unions. Their evidence is
+compile-time expansion plus integration tests, not a separate hardware timing
+claim.
+
 The crate does not claim:
 
 - identical wall-clock timing on every CPU;
@@ -55,6 +62,8 @@ scripts/checks.sh
 This script runs formatting, feature-matrix tests, examples, clippy, target
 checks for installed targets, release codegen checks, optional Kani proofs,
 documentation with warnings denied, and package listing.
+The derive test target covers `SecureSanitize`, `SecureSanitizeOnDrop`, and the
+native `ct` struct derives.
 
 Run Miri separately when a nightly toolchain with Miri is installed:
 

@@ -69,7 +69,16 @@
     {
       "name": "workspace-checks",
       "command": "scripts/checks.sh",
-      "coverage": ["formatting", "feature matrix", "clippy", "docs", "package listing", "release codegen", "optional Kani"]
+      "coverage": [
+        "formatting",
+        "feature matrix",
+        "derive macro tests",
+        "clippy",
+        "docs",
+        "package listing",
+        "release codegen",
+        "optional Kani"
+      ]
     },
     {
       "name": "miri",
