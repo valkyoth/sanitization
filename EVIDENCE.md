@@ -108,6 +108,10 @@ Current proof scope:
 - `ct::eq_public_len` rejects public length mismatch;
 - `ct::conditional_copy` matches the public interpretation of the `Choice`;
 - `ct::select_slice` matches the public interpretation of the `Choice`;
+- `ct::CtOption` unwrap/combine/select behavior matches the public
+  interpretation of hidden presence bits;
+- `ct::CtResult` unwrap/map/select behavior matches the public interpretation
+  of hidden success bits;
 - allocation growth arithmetic does not under-allocate for the bounded harness.
 
 These proofs are functional correctness checks over bounded inputs. They do not

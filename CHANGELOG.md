@@ -48,6 +48,8 @@
 - Expanded `ct::CtOption` and `ct::CtResult` with CT-domain map/select
   combinators so callers can keep hidden presence/success state out of normal
   control flow longer.
+- Added bounded Kani proof coverage for the new `CtOption` and `CtResult`
+  combinator semantics.
 - Added a draft machine-readable `ct-evidence.json` describing 1.2 target
   tiers, claims, non-claims, proof harnesses, and release-candidate evidence
   requirements.

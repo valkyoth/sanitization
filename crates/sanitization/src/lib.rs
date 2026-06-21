@@ -8375,6 +8375,121 @@ mod kani_verification {
     }
 
     #[kani::proof]
+    fn prove_ct_option_unwrap_or_matches_presence() {
+        let value: u8 = kani::any();
+        let fallback: u8 = kani::any();
+        let presence_byte: u8 = kani::any();
+        let presence = ct::Choice::from_u8(presence_byte);
+        let option = ct::CtOption::new(value, presence);
+
+        let selected = option.unwrap_or(&fallback);
+
+        if presence.unwrap_u8() == 1 {
+            assert_eq!(selected, value);
+        } else {
+            assert_eq!(selected, fallback);
+        }
+    }
+
+    #[kani::proof]
+    fn prove_ct_option_and_or_match_presence_bits() {
+        let left_value: u8 = kani::any();
+        let right_value: u8 = kani::any();
+        let fallback: u8 = kani::any();
+        let left_presence_byte: u8 = kani::any();
+        let right_presence_byte: u8 = kani::any();
+        let left_presence = ct::Choice::from_u8(left_presence_byte);
+        let right_presence = ct::Choice::from_u8(right_presence_byte);
+        let left = ct::CtOption::new(left_value, left_presence);
+        let right = ct::CtOption::new(right_value, right_presence);
+
+        let and_selected = left.and(right).unwrap_or(&fallback);
+        let or_selected = left.or(right).unwrap_or(&fallback);
+
+        if left_presence.unwrap_u8() == 1 && right_presence.unwrap_u8() == 1 {
+            assert_eq!(and_selected, right_value);
+        } else {
+            assert_eq!(and_selected, fallback);
+        }
+
+        if left_presence.unwrap_u8() == 1 {
+            assert_eq!(or_selected, left_value);
+        } else if right_presence.unwrap_u8() == 1 {
+            assert_eq!(or_selected, right_value);
+        } else {
+            assert_eq!(or_selected, fallback);
+        }
+    }
+
+    #[kani::proof]
+    fn prove_ct_result_unwrap_or_and_maps_match_success_bit() {
+        let value: u8 = kani::any();
+        let error: u8 = kani::any();
+        let fallback: u8 = kani::any();
+        let success_byte: u8 = kani::any();
+        let success = ct::Choice::from_u8(success_byte);
+        let result = ct::CtResult::new(value, error, success);
+
+        let selected = result.unwrap_or(&fallback);
+        let mapped = result.map(|inner| inner.wrapping_add(1));
+        let mapped_error = result.map_err(|inner| inner.wrapping_add(1));
+
+        if success.unwrap_u8() == 1 {
+            assert_eq!(selected, value);
+            assert_eq!(
+                mapped.declassify("Kani exposes mapped success bit"),
+                Ok(value.wrapping_add(1))
+            );
+            assert_eq!(
+                mapped_error.declassify("Kani exposes mapped success bit"),
+                Ok(value)
+            );
+        } else {
+            assert_eq!(selected, fallback);
+            assert_eq!(
+                mapped.declassify("Kani exposes mapped error bit"),
+                Err(error)
+            );
+            assert_eq!(
+                mapped_error.declassify("Kani exposes mapped error bit"),
+                Err(error.wrapping_add(1))
+            );
+        }
+    }
+
+    #[kani::proof]
+    fn prove_ct_option_and_result_conditional_select_match_choice() {
+        let left_value: u8 = kani::any();
+        let right_value: u8 = kani::any();
+        let choice_byte: u8 = kani::any();
+        let choice = ct::Choice::from_u8(choice_byte);
+        let left_option = ct::CtOption::some(left_value);
+        let right_option = ct::CtOption::some(right_value);
+        let left_result = ct::CtResult::new(left_value, 11u8, ct::Choice::TRUE);
+        let right_result = ct::CtResult::new(right_value, 22u8, ct::Choice::TRUE);
+
+        let selected_option = <ct::CtOption<u8> as ct::ConditionallySelectable>::conditional_select(
+            &left_option,
+            &right_option,
+            choice,
+        );
+        let selected_result =
+            <ct::CtResult<u8, u8> as ct::ConditionallySelectable>::conditional_select(
+                &left_result,
+                &right_result,
+                choice,
+            );
+
+        if choice.unwrap_u8() == 1 {
+            assert_eq!(selected_option.unwrap_or(&0), right_value);
+            assert_eq!(selected_result.unwrap_or(&0), right_value);
+        } else {
+            assert_eq!(selected_option.unwrap_or(&0), left_value);
+            assert_eq!(selected_result.unwrap_or(&0), left_value);
+        }
+    }
+
+    #[kani::proof]
     fn prove_constant_time_eq_rejects_length_mismatch() {
         let left: [u8; 4] = kani::any();
         let right: [u8; 3] = kani::any();

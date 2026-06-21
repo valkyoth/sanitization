@@ -99,6 +99,10 @@
     "prove_ct_public_length_equality_rejects_mismatch",
     "prove_ct_conditional_copy_matches_choice",
     "prove_ct_select_slice_matches_choice",
+    "prove_ct_option_unwrap_or_matches_presence",
+    "prove_ct_option_and_or_match_presence_bits",
+    "prove_ct_result_unwrap_or_and_maps_match_success_bit",
+    "prove_ct_option_and_result_conditional_select_match_choice",
     "prove_constant_time_eq_rejects_length_mismatch",
     "prove_next_secret_capacity_never_under_allocates"
   ],
