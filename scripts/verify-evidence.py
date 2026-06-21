@@ -50,6 +50,17 @@ def kani_proofs() -> set[str]:
     return set(re.findall(r"fn\s+(prove_[A-Za-z0-9_]+)\s*\(", source))
 
 
+def require_check_coverage(checks: list[dict[str, Any]], name: str, needles: list[str]) -> None:
+    for check in checks:
+        if check.get("name") == name:
+            coverage = " ".join(check.get("coverage", []))
+            for needle in needles:
+                if needle not in coverage:
+                    fail(f"checks[{name}].coverage must mention {needle!r}")
+            return
+    fail(f"missing required check entry: {name}")
+
+
 def main() -> int:
     try:
         data = json.loads(EVIDENCE.read_text(encoding="utf-8"))
@@ -102,6 +113,20 @@ def main() -> int:
         require_string(check.get("name"), f"checks[{index}].name")
         require_string(check.get("command"), f"checks[{index}].command")
         require_string_list(check.get("coverage"), f"checks[{index}].coverage")
+
+    require_check_coverage(
+        checks,
+        "codegen",
+        [
+            "release LLVM IR",
+            "native ct",
+            "optimizer-barrier",
+            "mask-generation",
+            "memcmp/bcmp",
+        ],
+    )
+    require_check_coverage(checks, "kani", ["clearing", "equality", "ordering"])
+    require_check_coverage(checks, "miri", ["safe and unsafe-boundary"])
 
     listed_proofs = data["proofs"]
     require_string_list(listed_proofs, "proofs")

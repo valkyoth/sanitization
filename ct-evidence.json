@@ -84,7 +84,13 @@
     {
       "name": "codegen",
       "command": "scripts/verify-codegen.sh",
-      "coverage": ["release LLVM IR wipe checks", "x86_64 assembly backend checks when run on x86_64"]
+      "coverage": [
+        "release LLVM IR wipe checks",
+        "native ct helper symbol checks",
+        "native ct optimizer-barrier and mask-generation checks",
+        "memcmp/bcmp absence checks",
+        "x86_64 assembly backend checks when run on x86_64"
+      ]
     }
   ],
   "proofs": [
