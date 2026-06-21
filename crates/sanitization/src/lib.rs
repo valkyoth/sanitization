@@ -7499,6 +7499,10 @@ pub mod ct {
         /// through the public lossy normalizing constructor.
         #[inline]
         const fn from_normalized_bits(less: Choice, equal: Choice, greater: Choice) -> Self {
+            debug_assert!(
+                (less.0 & 1) + (equal.0 & 1) + (greater.0 & 1) == 1,
+                "from_normalized_bits: caller must supply exactly one true bit"
+            );
             Self {
                 less,
                 equal,
