@@ -65,6 +65,9 @@
   all-feature tests/clippy, and package listings for all published crates.
 - Added `scripts/verify-derive-failures.sh` so release checks assert the
   security-sensitive derive rejection paths remain compile failures.
+- Changed permanent documentation links in the crates.io-facing README to
+  GitHub URLs so threat-model, guarantees, safety, and roadmap links resolve
+  outside the repository checkout.
 - Added a checked `ct_primitives` example covering native equality, ordering,
   selection, `CtOption`, `CtResult`, oblivious lookup, slice selection, and
   conditional swap.

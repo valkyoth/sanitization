@@ -6,15 +6,15 @@
 <div align="center">
   <a href="https://docs.rs/sanitization">Docs.rs</a>
   |
-  <a href="THREAT_MODEL.md">Threat Model</a>
+  <a href="https://github.com/valkyoth/sanitization/blob/main/THREAT_MODEL.md">Threat Model</a>
   |
-  <a href="GUARANTEES.md">Guarantees</a>
+  <a href="https://github.com/valkyoth/sanitization/blob/main/GUARANTEES.md">Guarantees</a>
   |
-  <a href="NON_GUARANTEES.md">Non-Guarantees</a>
+  <a href="https://github.com/valkyoth/sanitization/blob/main/NON_GUARANTEES.md">Non-Guarantees</a>
   |
-  <a href="SAFETY.md">Safety</a>
+  <a href="https://github.com/valkyoth/sanitization/blob/main/SAFETY.md">Safety</a>
   |
-  <a href="SECURITY.md">Security</a>
+  <a href="https://github.com/valkyoth/sanitization/blob/main/SECURITY.md">Security</a>
 </div>
 
 <br>
@@ -112,13 +112,17 @@ Implemented now:
 | Main guarantee | narrow ownership, redaction, and clear-on-drop hygiene |
 | Out of scope | stack-history wiping, global cache secrecy, crash dumps, privileged reads |
 
-Read [GUARANTEES.md](GUARANTEES.md), [NON_GUARANTEES.md](NON_GUARANTEES.md),
-[THREAT_MODEL.md](THREAT_MODEL.md), [BARRIERS.md](BARRIERS.md),
-[TARGETS.md](TARGETS.md), and [SAFETY.md](SAFETY.md) before using this crate
-for high-assurance secret handling.
+Read [GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/GUARANTEES.md),
+[NON_GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/NON_GUARANTEES.md),
+[THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/THREAT_MODEL.md),
+[BARRIERS.md](https://github.com/valkyoth/sanitization/blob/main/BARRIERS.md),
+[TARGETS.md](https://github.com/valkyoth/sanitization/blob/main/TARGETS.md),
+and [SAFETY.md](https://github.com/valkyoth/sanitization/blob/main/SAFETY.md)
+before using this crate for high-assurance secret handling.
 
-Read [ROADMAP.md](ROADMAP.md) for the implemented architecture direction and
-remaining high-assurance feature work.
+Read [ROADMAP.md](https://github.com/valkyoth/sanitization/blob/main/ROADMAP.md)
+for the implemented architecture direction and remaining high-assurance feature
+work.
 
 ## Rust Version Support
 
@@ -1671,5 +1675,7 @@ Important limits:
   `/proc/<pid>/mem`, kernel compromise, DMA, firmware compromise, or copies made
   by third-party libraries.
 
-See [THREAT_MODEL.md](THREAT_MODEL.md), [SAFETY.md](SAFETY.md), and
-[SECURITY.md](SECURITY.md) for the security model and maintenance policy.
+See [THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/THREAT_MODEL.md),
+[SAFETY.md](https://github.com/valkyoth/sanitization/blob/main/SAFETY.md), and
+[SECURITY.md](https://github.com/valkyoth/sanitization/blob/main/SECURITY.md)
+for the security model and maintenance policy.
