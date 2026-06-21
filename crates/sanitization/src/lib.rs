@@ -144,6 +144,26 @@ mod canary_random {
 
     #[cfg(target_os = "windows")]
     const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x0000_0002;
+    #[cfg(all(
+        any(target_os = "linux", target_os = "android"),
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    const ERRNO_NO_PROGRESS: i32 = -2;
+    #[cfg(all(
+        any(target_os = "linux", target_os = "android"),
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    const EINTR: i32 = 4;
+    #[cfg(all(
+        any(target_os = "linux", target_os = "android"),
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    const EAGAIN: i32 = 11;
+    #[cfg(all(
+        any(target_os = "linux", target_os = "android"),
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    const MAX_GETRANDOM_RETRIES: usize = 16;
 
     #[cfg(any(
         target_os = "macos",
@@ -268,7 +288,8 @@ mod canary_random {
         all(target_os = "wasi", target_env = "p1"),
     )))]
     fn fill_inner(_bytes: &mut [u8]) -> Result<(), i32> {
-        Err(0)
+        const ERRNO_UNSUPPORTED_PLATFORM: i32 = -1;
+        Err(ERRNO_UNSUPPORTED_PLATFORM)
     }
 
     #[cfg(all(
@@ -277,13 +298,18 @@ mod canary_random {
     ))]
     fn fill_with_getrandom_syscall(bytes: &mut [u8]) -> Result<(), i32> {
         let mut filled = 0;
+        let mut retries = 0;
         while filled < bytes.len() {
             let ptr = bytes[filled..].as_mut_ptr() as usize;
             let len = bytes.len() - filled;
             let ret = raw_syscall3(SYS_GETRANDOM, ptr, len, 0);
             if syscall_failed(ret) {
                 let errno = (-ret) as i32;
-                if errno == 4 || errno == 11 {
+                if errno == EINTR || errno == EAGAIN {
+                    retries += 1;
+                    if retries > MAX_GETRANDOM_RETRIES {
+                        return Err(errno);
+                    }
                     continue;
                 }
 
@@ -291,9 +317,10 @@ mod canary_random {
             }
 
             if ret == 0 {
-                return Err(0);
+                return Err(ERRNO_NO_PROGRESS);
             }
 
+            retries = 0;
             filled += ret as usize;
         }
 
@@ -378,6 +405,7 @@ mod linux_aarch64_page_size {
     const SYS_OPENAT: usize = 56;
     const SYS_CLOSE: usize = 57;
     const SYS_READ: usize = 63;
+    const EINTR_RET: isize = -4;
 
     static DETECTED_PAGE_GRANULE: AtomicUsize = AtomicUsize::new(0);
 
@@ -406,7 +434,7 @@ mod linux_aarch64_page_size {
 
         loop {
             let read = raw_syscall3(SYS_READ, fd, buffer.as_mut_ptr() as usize, buffer.len());
-            if read == -4 {
+            if read == EINTR_RET {
                 continue;
             }
 
@@ -1571,12 +1599,13 @@ mod memory_lock {
         }
 
         /// Allocate one unused slot from the pool.
+        ///
+        /// With `random-canary`, operating-system CSPRNG failure is reported as
+        /// `None`. Use [`SecretPool::try_allocate`] when the caller needs to
+        /// distinguish pool exhaustion from random-canary setup failure.
         #[inline]
         pub fn allocate(&self) -> Option<SecretPoolSlot<'_, N, SLOTS>> {
-            match self.try_allocate() {
-                Ok(slot) => slot,
-                Err(_) => panic!("random canary generation failed"),
-            }
+            self.try_allocate().unwrap_or_default()
         }
 
         /// Allocate one unused slot and report random-canary setup errors.
@@ -1904,7 +1933,7 @@ mod memory_lock {
         #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
         #[inline]
         fn canary_value(&self) -> [u8; CANARY_SIZE] {
-            ((self.slot_index as u64) ^ CANARY_MASK).to_ne_bytes()
+            ((self.storage().bytes.as_ptr() as u64) ^ CANARY_MASK).to_ne_bytes()
         }
 
         #[cfg(feature = "random-canary")]
@@ -3769,12 +3798,14 @@ mod memory_lock {
         /// Returns `None` when every slot is currently allocated. The returned
         /// slot starts zeroed if it has never been used before, or freshly
         /// zeroed from the previous slot drop.
+        ///
+        /// With `random-canary`, operating-system CSPRNG failure is also
+        /// reported as `None`. Use [`SecretPool::try_allocate`] when the caller
+        /// needs to distinguish pool exhaustion from random-canary setup
+        /// failure.
         #[inline]
         pub fn allocate(&self) -> Option<SecretPoolSlot<'_, N, SLOTS>> {
-            match self.try_allocate() {
-                Ok(slot) => slot,
-                Err(_) => panic!("random canary generation failed"),
-            }
+            self.try_allocate().unwrap_or_default()
         }
 
         /// Allocate one unused slot from the pool and report random-canary
@@ -7434,13 +7465,20 @@ pub mod ct {
             greater: Choice::TRUE,
         };
 
-        /// Construct an ordering from its hidden choice bits.
+        /// Construct an ordering from hidden choice bits.
+        ///
+        /// If multiple bits are supplied, the value is normalized to one
+        /// public ordering using `less`, then `greater`, then `equal`
+        /// precedence. If no bit is supplied, the value normalizes to
+        /// [`CtOrdering::EQUAL`].
         #[inline]
-        pub const fn new(less: Choice, equal: Choice, greater: Choice) -> Self {
-            Self {
-                less,
-                equal,
-                greater,
+        pub const fn new(less: Choice, _equal: Choice, greater: Choice) -> Self {
+            if less.0 & 1 == 1 {
+                Self::LESS
+            } else if greater.0 & 1 == 1 {
+                Self::GREATER
+            } else {
+                Self::EQUAL
             }
         }
 
@@ -7469,6 +7507,11 @@ pub mod ct {
         #[inline]
         pub fn declassify(self, reason: &'static str) -> Ordering {
             black_box(reason);
+            debug_assert_eq!(
+                (self.less.0 & 1) + (self.equal.0 & 1) + (self.greater.0 & 1),
+                1,
+                "CtOrdering must have exactly one bit set"
+            );
             if self.less.unwrap_u8() == 1 {
                 Ordering::Less
             } else if self.greater.unwrap_u8() == 1 {
@@ -7963,6 +8006,10 @@ pub mod ct {
     /// The table length is public. Every table entry is visited exactly once
     /// for the public length, and an out-of-range secret index returns
     /// `fallback`.
+    ///
+    /// The returned value is selected by a secret index. If the value remains
+    /// secret-controlled, prefer [`oblivious_lookup_secret`] so the type system
+    /// keeps that boundary visible to reviewers.
     #[inline(never)]
     pub fn oblivious_lookup<T>(table: &[T], secret_index: Secret<usize>, fallback: &T) -> T
     where
@@ -7980,6 +8027,24 @@ pub mod ct {
             index += 1;
         }
         black_box(output)
+    }
+
+    /// Look up one table entry by a secret index and keep the selected value
+    /// wrapped as secret-controlled.
+    ///
+    /// This is the audit-friendly variant of [`oblivious_lookup`] for call
+    /// sites where the selected value must not immediately drive ordinary
+    /// control flow or memory access.
+    #[inline(never)]
+    pub fn oblivious_lookup_secret<T>(
+        table: &[T],
+        secret_index: Secret<usize>,
+        fallback: &T,
+    ) -> Secret<T>
+    where
+        T: ConditionallySelectable,
+    {
+        Secret::new(oblivious_lookup(table, secret_index, fallback))
     }
 
     /// Conditionally copy `source` into `destination`.
@@ -8107,9 +8172,9 @@ pub mod ct {
             let right_byte = black_box(right[index]);
             let left_less = byte_lt_bit(left_byte, right_byte);
             let right_less = byte_lt_bit(right_byte, left_byte);
-            less |= equal_so_far & left_less;
-            greater |= equal_so_far & right_less;
-            equal_so_far &= byte_eq_bit(left_byte, right_byte);
+            less = black_box(less | (equal_so_far & left_less));
+            greater = black_box(greater | (equal_so_far & right_less));
+            equal_so_far = black_box(equal_so_far & byte_eq_bit(left_byte, right_byte));
             index += 1;
         }
 
@@ -11642,6 +11707,22 @@ mod tests {
     }
 
     #[test]
+    fn ct_ordering_constructor_normalizes_invalid_states() {
+        assert_eq!(
+            ct::CtOrdering::new(ct::Choice::TRUE, ct::Choice::TRUE, ct::Choice::FALSE),
+            ct::CtOrdering::LESS
+        );
+        assert_eq!(
+            ct::CtOrdering::new(ct::Choice::FALSE, ct::Choice::TRUE, ct::Choice::TRUE),
+            ct::CtOrdering::GREATER
+        );
+        assert_eq!(
+            ct::CtOrdering::new(ct::Choice::FALSE, ct::Choice::FALSE, ct::Choice::FALSE),
+            ct::CtOrdering::EQUAL
+        );
+    }
+
+    #[test]
     fn ct_arrays_and_public_len_slices_compare() {
         use ct::{ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd};
 
@@ -11669,6 +11750,9 @@ mod tests {
 
         let fallback = ct::oblivious_lookup(&table, ct::Secret::new(7usize), &99);
         assert_eq!(fallback, 99);
+
+        let secret_selected = ct::oblivious_lookup_secret(&table, ct::Secret::new(1usize), &99);
+        assert_eq!(*secret_selected.expose_secret(), 20);
     }
 
     #[test]

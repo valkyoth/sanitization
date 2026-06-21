@@ -108,11 +108,18 @@ The harness:
 - builds in release mode with the exact feature set under review;
 - records rustc, OS, architecture, git commit, configured samples, and enabled
   harness features;
+- uses architecture cycle counters on x86/x86_64 and AArch64 for measurement
+  resolution;
 - collects two timing distributions per case;
 - computes an absolute Welch's t statistic;
 - exits non-zero when the configured threshold is exceeded;
 - emits a machine-readable result that can be referenced from
   `ct-evidence.json`.
+
+Some hardened VMs, containers, or kernels can trap `rdtsc` or `cntvct_el0`.
+Those environments are not suitable for this harness. Use a host that exposes
+the counter, or keep the target tier at a level that does not cite measured
+timing evidence.
 
 For a release-candidate evidence run, the operator should separately record
 whether the process was pinned to a CPU and whether CPU frequency scaling,

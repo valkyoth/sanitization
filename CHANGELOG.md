@@ -74,6 +74,11 @@
 - Tightened native `ct::cmp_fixed` internals to keep raw normalized masks in
   the lexicographic loop and construct `CtOrdering` only at the output boundary,
   reducing barrier noise in AArch64 leakage evidence runs.
+- Addressed final 1.2 pentest feedback by normalizing invalid `CtOrdering`
+  construction, restoring accumulator barriers in ordering comparison loops,
+  deriving deterministic pool canaries from slot addresses, bounding
+  `getrandom` retry loops, making `SecretPool::allocate` fail closed on
+  random-canary setup failure, and adding `ct::oblivious_lookup_secret`.
 - Added a checked `ct_primitives` example covering native equality, ordering,
   selection, `CtOption`, `CtResult`, oblivious lookup, slice selection, and
   conditional swap.

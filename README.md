@@ -309,6 +309,9 @@ let table = [10u8, 20, 30, 40];
 let value = ct::oblivious_lookup(&table, Secret::new(2usize), &0);
 assert_eq!(value, 30);
 
+let secret_value = ct::oblivious_lookup_secret(&table, Secret::new(1usize), &0);
+assert_eq!(*secret_value.expose_secret(), 20);
+
 let mut destination = [0u8; 4];
 let left = [1u8, 2, 3, 4];
 let right = [9u8, 8, 7, 6];
@@ -318,9 +321,11 @@ assert_eq!(destination, right);
 ```
 
 `oblivious_lookup` scans the full public table length and returns the fallback
-for an out-of-range secret index. `conditional_copy`, `conditional_swap`, and
-`select_slice` treat slice lengths as public metadata and return `LengthError`
-on mismatch.
+for an out-of-range secret index. Its selected value is secret-index-derived;
+use `oblivious_lookup_secret` when the output should remain wrapped in
+`ct::Secret<T>` until an explicit review boundary. `conditional_copy`,
+`conditional_swap`, and `select_slice` treat slice lengths as public metadata
+and return `LengthError` on mismatch.
 
 Secret containers also implement the native `ct` traits where the operation can
 preserve their lifecycle model. `SecretBytes<N>` implements native

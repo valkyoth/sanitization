@@ -7,6 +7,12 @@ This is not a proof of identical wall-clock timing. It is a dudect-style
 statistical smoke test that tries to falsify the crate's narrower claim for a
 specific machine, compiler, feature set, and release profile.
 
+The harness uses architecture cycle counters on x86/x86_64 (`rdtsc`) and
+AArch64 (`cntvct_el0`) so release evidence has useful resolution. Hardened
+VMs, containers, or kernels that trap those instructions are not supported by
+this tool; collect evidence on a host that permits the counter or record the
+target as missing measured timing evidence.
+
 Run from the repository root:
 
 ```bash
