@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Added the initial native `sanitization::ct` data-oblivious API skeleton with
+  `Choice`, explicit `Choice::declassify`, native equality/select traits,
+  `CtOption`, `CtResult`, public/secret marker wrappers, masks, and fixed or
+  public-length byte equality helpers.
+
 ## 1.1.1
 
 - Updated crate metadata, README links, and package examples after the GitHub

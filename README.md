@@ -210,6 +210,36 @@ sanitization-bytes = "1.1.1"
 
 Default builds are dependency-free and `no_std`.
 
+## Data-Oblivious Primitives
+
+The native `sanitization::ct` module provides dependency-free primitives for
+operations that should avoid secret-dependent branches and secret-dependent
+memory access. It is intentionally documented as a data-oblivious API rather
+than a promise of identical wall-clock timing on every CPU, compiler backend,
+or runtime.
+
+```rust
+use sanitization::ct::{Choice, ConditionallySelectable, ConstantTimeEq};
+
+let left = [7u8; 32];
+let right = [7u8; 32];
+
+let equal = left.ct_eq(&right);
+assert!(equal.declassify("authentication comparison result is public"));
+
+let selected = u32::conditional_select(&10, &20, Choice::TRUE);
+assert_eq!(selected, 20);
+```
+
+The declassification step is explicit on purpose. Reviewers can search for
+`declassify(` to find every place where a secret-derived value becomes a normal
+public branch or decision.
+
+Slice equality through `ct::eq_public_len` treats length as public metadata.
+Equal-length byte comparisons scan every byte and do not stop at the first
+difference. For x86_64 builds that need a stronger compiler boundary for
+existing secret-container comparisons, enable `asm-compare`.
+
 ## WASM Support
 
 The base containers (`SecretBytes`, `Secret`, `ReadOnceSecret`, and with
