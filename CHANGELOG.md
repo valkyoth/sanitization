@@ -22,6 +22,9 @@
   locked constructors that must reject platforms without fork-inheritance
   exclusion. The `asm-compare` backend now supports AArch64 in addition to
   x86_64.
+- Added native `ct` memory-access helpers: `oblivious_lookup`,
+  `conditional_copy`, `conditional_swap`, and `select_slice`, with public
+  length-mismatch errors and full public-length scans where applicable.
 
 ## 1.1.1
 

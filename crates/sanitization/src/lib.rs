@@ -7625,6 +7625,114 @@ pub mod ct {
         bytes_eq_equal_len(left, right)
     }
 
+    /// Look up one table entry by a secret index using a full-table scan.
+    ///
+    /// The table length is public. Every table entry is visited exactly once
+    /// for the public length, and an out-of-range secret index returns
+    /// `fallback`.
+    #[inline]
+    pub fn oblivious_lookup<T>(table: &[T], secret_index: Secret<usize>, fallback: &T) -> T
+    where
+        T: ConditionallySelectable,
+    {
+        let mut output = T::conditional_select(fallback, fallback, Choice::FALSE);
+        let wanted = *secret_index.expose_secret();
+        let mut index = 0usize;
+        while index < table.len() {
+            let selected = wanted.ct_eq(&index);
+            output = T::conditional_select(&output, &table[index], selected);
+            index += 1;
+        }
+        output
+    }
+
+    /// Conditionally copy `source` into `destination`.
+    ///
+    /// Lengths are public metadata. When `choice` is false, `destination` is
+    /// rewritten with its existing bytes; when true, it is rewritten with
+    /// `source`.
+    #[inline]
+    pub fn conditional_copy(
+        destination: &mut [u8],
+        source: &[u8],
+        choice: Choice,
+    ) -> Result<(), crate::LengthError> {
+        if destination.len() != source.len() {
+            return Err(crate::LengthError {
+                expected: destination.len(),
+                actual: source.len(),
+            });
+        }
+
+        let mut index = 0usize;
+        while index < destination.len() {
+            destination[index] =
+                u8::conditional_select(&destination[index], &source[index], choice);
+            index += 1;
+        }
+        Ok(())
+    }
+
+    /// Conditionally swap two equal-length byte slices.
+    ///
+    /// Lengths are public metadata. Both slices are visited for the full public
+    /// length regardless of `choice`.
+    #[inline]
+    pub fn conditional_swap(
+        left: &mut [u8],
+        right: &mut [u8],
+        choice: Choice,
+    ) -> Result<(), crate::LengthError> {
+        if left.len() != right.len() {
+            return Err(crate::LengthError {
+                expected: left.len(),
+                actual: right.len(),
+            });
+        }
+
+        let mask = Mask::<u8>::from_choice(choice).expose();
+        let mut index = 0usize;
+        while index < left.len() {
+            let swap = (left[index] ^ right[index]) & mask;
+            left[index] ^= swap;
+            right[index] ^= swap;
+            index += 1;
+        }
+        Ok(())
+    }
+
+    /// Select between two equal-length source slices into `destination`.
+    ///
+    /// Lengths are public metadata. All three slices must have the same public
+    /// length. Every byte is selected without branching on `choice`.
+    #[inline]
+    pub fn select_slice(
+        destination: &mut [u8],
+        left: &[u8],
+        right: &[u8],
+        choice: Choice,
+    ) -> Result<(), crate::LengthError> {
+        if left.len() != right.len() {
+            return Err(crate::LengthError {
+                expected: left.len(),
+                actual: right.len(),
+            });
+        }
+        if destination.len() != left.len() {
+            return Err(crate::LengthError {
+                expected: left.len(),
+                actual: destination.len(),
+            });
+        }
+
+        let mut index = 0usize;
+        while index < destination.len() {
+            destination[index] = u8::conditional_select(&left[index], &right[index], choice);
+            index += 1;
+        }
+        Ok(())
+    }
+
     #[inline]
     fn bytes_eq_equal_len(left: &[u8], right: &[u8]) -> Choice {
         debug_assert_eq!(left.len(), right.len());
@@ -10664,6 +10772,75 @@ mod tests {
 
         let selected = <[u8; 4]>::conditional_select(&left, &different, ct::Choice::TRUE);
         assert_eq!(selected, different);
+    }
+
+    #[test]
+    fn ct_oblivious_lookup_scans_public_table() {
+        let table = [10u8, 20, 30, 40];
+
+        let selected = ct::oblivious_lookup(&table, ct::Secret::new(2usize), &99);
+        assert_eq!(selected, 30);
+
+        let fallback = ct::oblivious_lookup(&table, ct::Secret::new(7usize), &99);
+        assert_eq!(fallback, 99);
+    }
+
+    #[test]
+    fn ct_conditional_copy_swap_and_select_slice() {
+        let mut destination = [1u8, 2, 3, 4];
+        let source = [9u8, 8, 7, 6];
+
+        ct::conditional_copy(&mut destination, &source, ct::Choice::FALSE).unwrap();
+        assert_eq!(destination, [1, 2, 3, 4]);
+
+        ct::conditional_copy(&mut destination, &source, ct::Choice::TRUE).unwrap();
+        assert_eq!(destination, source);
+
+        let mut left = [1u8, 2, 3];
+        let mut right = [7u8, 8, 9];
+        ct::conditional_swap(&mut left, &mut right, ct::Choice::FALSE).unwrap();
+        assert_eq!(left, [1, 2, 3]);
+        assert_eq!(right, [7, 8, 9]);
+
+        ct::conditional_swap(&mut left, &mut right, ct::Choice::TRUE).unwrap();
+        assert_eq!(left, [7, 8, 9]);
+        assert_eq!(right, [1, 2, 3]);
+
+        let mut selected = [0u8; 3];
+        ct::select_slice(&mut selected, &left, &right, ct::Choice::FALSE).unwrap();
+        assert_eq!(selected, left);
+        ct::select_slice(&mut selected, &left, &right, ct::Choice::TRUE).unwrap();
+        assert_eq!(selected, right);
+    }
+
+    #[test]
+    fn ct_memory_helpers_report_public_length_errors() {
+        let mut destination = [0u8; 4];
+        assert_eq!(
+            ct::conditional_copy(&mut destination, &[1, 2], ct::Choice::TRUE),
+            Err(LengthError {
+                expected: 4,
+                actual: 2,
+            })
+        );
+
+        let mut left = [1u8, 2, 3];
+        let mut right = [4u8, 5];
+        assert_eq!(
+            ct::conditional_swap(&mut left, &mut right, ct::Choice::TRUE),
+            Err(LengthError {
+                expected: 3,
+                actual: 2,
+            })
+        );
+
+        assert_eq!(
+            ct::select_slice(&mut destination, &[1, 2, 3], &[4, 5], ct::Choice::TRUE),
+            Err(LengthError {
+                expected: 3,
+                actual: 2,
+            })
+        );
     }
 
     #[test]

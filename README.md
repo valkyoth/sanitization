@@ -241,8 +241,31 @@ public branch or decision.
 
 Slice equality through `ct::eq_public_len` treats length as public metadata.
 Equal-length byte comparisons scan every byte and do not stop at the first
-difference. For x86_64 builds that need a stronger compiler boundary for
-existing secret-container comparisons, enable `asm-compare`.
+difference. For x86_64 or AArch64 builds that need a stronger compiler
+boundary for existing secret-container comparisons, enable `asm-compare`.
+
+The same module includes memory-access helpers for secret-controlled choices
+and indexes:
+
+```rust
+use sanitization::ct::{self, Choice, Secret};
+
+let table = [10u8, 20, 30, 40];
+let value = ct::oblivious_lookup(&table, Secret::new(2usize), &0);
+assert_eq!(value, 30);
+
+let mut destination = [0u8; 4];
+let left = [1u8, 2, 3, 4];
+let right = [9u8, 8, 7, 6];
+
+ct::select_slice(&mut destination, &left, &right, Choice::TRUE).unwrap();
+assert_eq!(destination, right);
+```
+
+`oblivious_lookup` scans the full public table length and returns the fallback
+for an out-of-range secret index. `conditional_copy`, `conditional_swap`, and
+`select_slice` treat slice lengths as public metadata and return `LengthError`
+on mismatch.
 
 ## WASM Support
 
