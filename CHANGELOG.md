@@ -13,6 +13,10 @@
   volatile-cleared before exposure.
 - Added `LockedSecretVecFillError<E>` for distinguishing memory-lock setup
   failures, fill closure failures, and invalid reported output lengths.
+- Hardened locked fill error paths with explicit pre-return clearing, pre-fill
+  compiler fences, canary integrity checks before fixed-size locked
+  replacements, and release-build capacity assertions for dynamic locked and
+  guarded storage initialization.
 
 ## 1.2.0
 

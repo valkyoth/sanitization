@@ -1178,6 +1178,7 @@ mod memory_lock {
         #[inline]
         pub fn from_fn(mut make_byte: impl FnMut(usize) -> u8) -> Result<Self, MemoryLockError> {
             let mut secret = Self::zeroed()?;
+            compiler_fence(Ordering::SeqCst);
             let mut index = 0;
             while index < N {
                 secret.as_mut_slice()[index] = make_byte(index);
@@ -1193,13 +1194,43 @@ mod memory_lock {
             mut make_byte: impl FnMut(usize) -> Result<u8, E>,
         ) -> Result<Self, LockedSecretBytesGenerateError<E>> {
             let mut secret = Self::zeroed()?;
+            compiler_fence(Ordering::SeqCst);
             let mut index = 0;
             while index < N {
                 match make_byte(index) {
                     Ok(byte) => secret.as_mut_slice()[index] = byte,
-                    Err(error) => return Err(LockedSecretBytesGenerateError::Generate(error)),
+                    Err(error) => {
+                        secret.secure_clear();
+                        return Err(LockedSecretBytesGenerateError::Generate(error));
+                    }
                 }
                 index += 1;
+            }
+            compiler_fence(Ordering::SeqCst);
+            Ok(secret)
+        }
+
+        /// Allocate WASM-owned storage and fill the fixed-size payload in
+        /// place.
+        #[inline]
+        pub fn from_fill(fill: impl FnOnce(&mut [u8; N])) -> Result<Self, MemoryLockError> {
+            let mut secret = Self::zeroed()?;
+            compiler_fence(Ordering::SeqCst);
+            fill(secret.as_mut_array());
+            compiler_fence(Ordering::SeqCst);
+            Ok(secret)
+        }
+
+        /// Fallible variant of [`LockedSecretBytes::from_fill`].
+        #[inline]
+        pub fn try_from_fill<E>(
+            fill: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
+        ) -> Result<Self, LockedSecretBytesGenerateError<E>> {
+            let mut secret = Self::zeroed()?;
+            compiler_fence(Ordering::SeqCst);
+            if let Err(error) = fill(secret.as_mut_array()) {
+                secret.secure_clear();
+                return Err(LockedSecretBytesGenerateError::Generate(error));
             }
             compiler_fence(Ordering::SeqCst);
             Ok(secret)
@@ -1238,6 +1269,7 @@ mod memory_lock {
         /// Replace all secret bytes from a same-length slice.
         #[inline]
         pub fn replace_from_slice(&mut self, source: &[u8]) -> Result<(), LockedSecretBytesError> {
+            self.assert_canaries_intact();
             let mut replacement = Self::from_slice(source)?;
             self.secure_clear();
             core::mem::swap(self, &mut replacement);
@@ -1247,6 +1279,7 @@ mod memory_lock {
         /// Replace all secret bytes from an owned array, then clear the input.
         #[inline]
         pub fn replace_from_array(&mut self, bytes: [u8; N]) -> Result<(), MemoryLockError> {
+            self.assert_canaries_intact();
             let mut replacement = Self::from_array(bytes)?;
             self.secure_clear();
             core::mem::swap(self, &mut replacement);
@@ -1259,6 +1292,7 @@ mod memory_lock {
             &mut self,
             make_byte: impl FnMut(usize) -> u8,
         ) -> Result<(), MemoryLockError> {
+            self.assert_canaries_intact();
             let mut replacement = Self::from_fn(make_byte)?;
             self.secure_clear();
             core::mem::swap(self, &mut replacement);
@@ -1271,7 +1305,34 @@ mod memory_lock {
             &mut self,
             make_byte: impl FnMut(usize) -> Result<u8, E>,
         ) -> Result<(), LockedSecretBytesGenerateError<E>> {
+            self.assert_canaries_intact();
             let mut replacement = Self::try_from_fn(make_byte)?;
+            self.secure_clear();
+            core::mem::swap(self, &mut replacement);
+            Ok(())
+        }
+
+        /// Replace all secret bytes by filling fresh WASM-owned storage.
+        #[inline]
+        pub fn replace_from_fill(
+            &mut self,
+            fill: impl FnOnce(&mut [u8; N]),
+        ) -> Result<(), MemoryLockError> {
+            self.assert_canaries_intact();
+            let mut replacement = Self::from_fill(fill)?;
+            self.secure_clear();
+            core::mem::swap(self, &mut replacement);
+            Ok(())
+        }
+
+        /// Fallible variant of [`LockedSecretBytes::replace_from_fill`].
+        #[inline]
+        pub fn try_replace_from_fill<E>(
+            &mut self,
+            fill: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
+        ) -> Result<(), LockedSecretBytesGenerateError<E>> {
+            self.assert_canaries_intact();
+            let mut replacement = Self::try_from_fill(fill)?;
             self.secure_clear();
             core::mem::swap(self, &mut replacement);
             Ok(())
@@ -1390,6 +1451,11 @@ mod memory_lock {
 
         #[inline]
         fn as_mut_slice(&mut self) -> &mut [u8] {
+            &mut self.storage.get_mut().bytes
+        }
+
+        #[inline]
+        fn as_mut_array(&mut self) -> &mut [u8; N] {
             &mut self.storage.get_mut().bytes
         }
 
@@ -2638,6 +2704,7 @@ mod memory_lock {
         #[inline]
         pub fn from_fn(mut make_byte: impl FnMut(usize) -> u8) -> Result<Self, MemoryLockError> {
             let mut secret = Self::zeroed()?;
+            compiler_fence(Ordering::SeqCst);
             let mut index = 0;
             while index < N {
                 secret.as_mut_slice()[index] = make_byte(index);
@@ -2659,11 +2726,15 @@ mod memory_lock {
             mut make_byte: impl FnMut(usize) -> Result<u8, E>,
         ) -> Result<Self, LockedSecretBytesGenerateError<E>> {
             let mut secret = Self::zeroed()?;
+            compiler_fence(Ordering::SeqCst);
             let mut index = 0;
             while index < N {
                 match make_byte(index) {
                     Ok(byte) => secret.as_mut_slice()[index] = byte,
-                    Err(error) => return Err(LockedSecretBytesGenerateError::Generate(error)),
+                    Err(error) => {
+                        secret.secure_clear();
+                        return Err(LockedSecretBytesGenerateError::Generate(error));
+                    }
                 }
                 index += 1;
             }
@@ -2682,6 +2753,7 @@ mod memory_lock {
         #[inline]
         pub fn from_fill(fill: impl FnOnce(&mut [u8; N])) -> Result<Self, MemoryLockError> {
             let mut secret = Self::zeroed()?;
+            compiler_fence(Ordering::SeqCst);
             fill(secret.as_mut_array());
             compiler_fence(Ordering::SeqCst);
             Ok(secret)
@@ -2696,7 +2768,11 @@ mod memory_lock {
             fill: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
         ) -> Result<Self, LockedSecretBytesGenerateError<E>> {
             let mut secret = Self::zeroed()?;
-            fill(secret.as_mut_array()).map_err(LockedSecretBytesGenerateError::Generate)?;
+            compiler_fence(Ordering::SeqCst);
+            if let Err(error) = fill(secret.as_mut_array()) {
+                secret.secure_clear();
+                return Err(LockedSecretBytesGenerateError::Generate(error));
+            }
             compiler_fence(Ordering::SeqCst);
             Ok(secret)
         }
@@ -2738,6 +2814,7 @@ mod memory_lock {
         /// the old locked value remains unchanged.
         #[inline]
         pub fn replace_from_slice(&mut self, source: &[u8]) -> Result<(), LockedSecretBytesError> {
+            self.assert_canaries_intact();
             let mut replacement = Self::from_slice(source)?;
             self.secure_clear();
             core::mem::swap(self, &mut replacement);
@@ -2753,6 +2830,7 @@ mod memory_lock {
         /// remains unchanged.
         #[inline]
         pub fn replace_from_array(&mut self, bytes: [u8; N]) -> Result<(), MemoryLockError> {
+            self.assert_canaries_intact();
             let mut replacement = Self::from_array(bytes)?;
             self.secure_clear();
             core::mem::swap(self, &mut replacement);
@@ -2770,6 +2848,7 @@ mod memory_lock {
             &mut self,
             make_byte: impl FnMut(usize) -> u8,
         ) -> Result<(), MemoryLockError> {
+            self.assert_canaries_intact();
             let mut replacement = Self::from_fn(make_byte)?;
             self.secure_clear();
             core::mem::swap(self, &mut replacement);
@@ -2787,6 +2866,7 @@ mod memory_lock {
             &mut self,
             make_byte: impl FnMut(usize) -> Result<u8, E>,
         ) -> Result<(), LockedSecretBytesGenerateError<E>> {
+            self.assert_canaries_intact();
             let mut replacement = Self::try_from_fn(make_byte)?;
             self.secure_clear();
             core::mem::swap(self, &mut replacement);
@@ -2804,6 +2884,7 @@ mod memory_lock {
             &mut self,
             fill: impl FnOnce(&mut [u8; N]),
         ) -> Result<(), MemoryLockError> {
+            self.assert_canaries_intact();
             let mut replacement = Self::from_fill(fill)?;
             self.secure_clear();
             core::mem::swap(self, &mut replacement);
@@ -2820,6 +2901,7 @@ mod memory_lock {
             &mut self,
             fill: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
         ) -> Result<(), LockedSecretBytesGenerateError<E>> {
+            self.assert_canaries_intact();
             let mut replacement = Self::try_from_fill(fill)?;
             self.secure_clear();
             core::mem::swap(self, &mut replacement);
@@ -3384,6 +3466,7 @@ mod memory_lock {
             fill: impl FnOnce(&mut [u8]),
         ) -> Result<Self, MemoryLockError> {
             let mut secret = Self::with_capacity(len)?;
+            compiler_fence(Ordering::SeqCst);
             fill(&mut secret.as_mut_capacity_slice()[..len]);
             secret.finish_initialization(len);
             Ok(secret)
@@ -3398,8 +3481,11 @@ mod memory_lock {
             fill: impl FnOnce(&mut [u8]) -> Result<(), E>,
         ) -> Result<Self, LockedSecretVecGenerateError<E>> {
             let mut secret = Self::with_capacity(len)?;
-            fill(&mut secret.as_mut_capacity_slice()[..len])
-                .map_err(LockedSecretVecGenerateError::Generate)?;
+            compiler_fence(Ordering::SeqCst);
+            if let Err(error) = fill(&mut secret.as_mut_capacity_slice()[..len]) {
+                secret.clear_secret();
+                return Err(LockedSecretVecGenerateError::Generate(error));
+            }
             secret.finish_initialization(len);
             Ok(secret)
         }
@@ -3431,9 +3517,16 @@ mod memory_lock {
             fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
         ) -> Result<Self, LockedSecretVecFillError<E>> {
             let mut secret = Self::with_capacity(capacity)?;
-            let len =
-                fill(secret.as_mut_capacity_slice()).map_err(LockedSecretVecFillError::Fill)?;
+            compiler_fence(Ordering::SeqCst);
+            let len = match fill(secret.as_mut_capacity_slice()) {
+                Ok(len) => len,
+                Err(error) => {
+                    secret.clear_secret();
+                    return Err(LockedSecretVecFillError::Fill(error));
+                }
+            };
             if len > capacity {
+                // Explicit pre-return clear; Drop also wipes on return.
                 secret.clear_secret();
                 return Err(crate::LengthError {
                     expected: capacity,
@@ -3702,11 +3795,14 @@ mod memory_lock {
         }
 
         fn fill_from_fn(&mut self, len: usize, make_byte: &mut impl FnMut(usize) -> u8) {
-            debug_assert!(len <= self.data_capacity);
-            let capacity = self.as_mut_capacity_slice();
+            assert!(
+                len <= self.data_capacity,
+                "locked dynamic secret length exceeds capacity"
+            );
+            compiler_fence(Ordering::SeqCst);
             let mut index = 0;
             while index < len {
-                capacity[index] = make_byte(index);
+                self.as_mut_capacity_slice()[index] = make_byte(index);
                 index += 1;
             }
             self.finish_initialization(len);
@@ -3717,11 +3813,21 @@ mod memory_lock {
             len: usize,
             make_byte: &mut impl FnMut(usize) -> Result<u8, E>,
         ) -> Result<(), E> {
-            debug_assert!(len <= self.data_capacity);
-            let capacity = self.as_mut_capacity_slice();
+            assert!(
+                len <= self.data_capacity,
+                "locked dynamic secret length exceeds capacity"
+            );
+            compiler_fence(Ordering::SeqCst);
             let mut index = 0;
             while index < len {
-                capacity[index] = make_byte(index)?;
+                let byte = match make_byte(index) {
+                    Ok(byte) => byte,
+                    Err(error) => {
+                        self.clear_secret();
+                        return Err(error);
+                    }
+                };
+                self.as_mut_capacity_slice()[index] = byte;
                 index += 1;
             }
             self.finish_initialization(len);
@@ -3730,7 +3836,10 @@ mod memory_lock {
 
         #[inline]
         fn finish_initialization(&mut self, len: usize) {
-            debug_assert!(len <= self.data_capacity);
+            assert!(
+                len <= self.data_capacity,
+                "locked dynamic secret length exceeds capacity"
+            );
             self.len = len;
             self.write_canaries();
             compiler_fence(Ordering::SeqCst);
@@ -6646,12 +6755,15 @@ mod guard_pages {
         }
 
         fn fill_from_fn(&mut self, len: usize, make_byte: &mut impl FnMut(usize) -> u8) {
-            debug_assert!(len <= self.data_capacity);
+            assert!(
+                len <= self.data_capacity,
+                "guarded secret length exceeds capacity"
+            );
+            compiler_fence(Ordering::SeqCst);
 
-            let capacity = self.as_mut_capacity_slice();
             let mut index = 0;
             while index < len {
-                capacity[index] = make_byte(index);
+                self.as_mut_capacity_slice()[index] = make_byte(index);
                 index += 1;
             }
 
@@ -6663,12 +6775,22 @@ mod guard_pages {
             len: usize,
             make_byte: &mut impl FnMut(usize) -> Result<u8, E>,
         ) -> Result<(), E> {
-            debug_assert!(len <= self.data_capacity);
+            assert!(
+                len <= self.data_capacity,
+                "guarded secret length exceeds capacity"
+            );
+            compiler_fence(Ordering::SeqCst);
 
-            let capacity = self.as_mut_capacity_slice();
             let mut index = 0;
             while index < len {
-                capacity[index] = make_byte(index)?;
+                let byte = match make_byte(index) {
+                    Ok(byte) => byte,
+                    Err(error) => {
+                        self.clear_secret();
+                        return Err(error);
+                    }
+                };
+                self.as_mut_capacity_slice()[index] = byte;
                 index += 1;
             }
 
@@ -6678,7 +6800,10 @@ mod guard_pages {
 
         #[inline]
         fn finish_initialization(&mut self, len: usize) {
-            debug_assert!(len <= self.data_capacity);
+            assert!(
+                len <= self.data_capacity,
+                "guarded secret length exceeds capacity"
+            );
             self.len = len;
             self.write_canaries();
             compiler_fence(Ordering::SeqCst);
