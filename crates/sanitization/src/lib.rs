@@ -354,7 +354,12 @@ mod canary_random {
     }
 }
 
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#[cfg(all(
+    target_os = "linux",
+    target_arch = "aarch64",
+    not(miri),
+    any(feature = "memory-lock", feature = "guard-pages")
+))]
 #[allow(unsafe_code)]
 mod linux_aarch64_page_size {
     use core::{
