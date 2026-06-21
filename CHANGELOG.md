@@ -61,6 +61,8 @@
 - Wired the evidence-report script into `scripts/checks.sh` as a smoke check.
 - Updated `scripts/release_crates.py` to write
   `target/release-evidence-<version>.json` during preflight before publishing.
+- Tightened `scripts/checks.sh` to exercise `strict-enum-derive`, workspace
+  all-feature tests/clippy, and package listings for all published crates.
 - Added a checked `ct_primitives` example covering native equality, ordering,
   selection, `CtOption`, `CtResult`, oblivious lookup, slice selection, and
   conditional swap.

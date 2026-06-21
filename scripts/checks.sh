@@ -8,6 +8,7 @@ cargo test --features alloc
 cargo test --features std
 cargo test --features memory-lock
 cargo test --features derive
+cargo test --features strict-enum-derive
 cargo test --features asm-compare
 cargo test --features cache-flush
 cargo test --features guard-pages
@@ -15,6 +16,7 @@ cargo test --features multi-pass-clear
 cargo test --features unsafe-wipe
 cargo test --features unsafe-wipe,alloc
 cargo test --all-features
+cargo test --workspace --all-features
 cargo check --examples
 cargo check --examples --features alloc
 cargo check --examples --features std
@@ -28,6 +30,7 @@ cargo check --examples --features unsafe-wipe
 cargo check --examples --all-features
 cargo clippy --all-targets --no-default-features -- -D warnings
 cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy -p sanitization-derive --all-targets -- -D warnings
 scripts/verify-evidence.py
 scripts/evidence-report.py >/dev/null
@@ -87,3 +90,5 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc -p sanitization-derive --no-deps
 cargo package -p sanitization-derive --allow-dirty --list >/dev/null
 cargo package -p sanitization --allow-dirty --list >/dev/null
+cargo package -p sanitization-arrayvec --allow-dirty --list >/dev/null
+cargo package -p sanitization-bytes --allow-dirty --list >/dev/null
