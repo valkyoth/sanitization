@@ -32,8 +32,10 @@
 //!   through the explicit `canary-check` feature on supported targets.
 //! - OS-CSPRNG canary generation is available only through the explicit
 //!   `random-canary` feature.
-//! - x86_64 assembly-backed comparison is available only through the explicit
+//! - x86_64/AArch64 assembly-backed comparison is available only through the explicit
 //!   `asm-compare` feature.
+//! - High-assurance fail-closed profiles are available through `strict-ct`,
+//!   `strict-canary-check`, and `require-fork-exclusion`.
 //! - x86_64 cache-line eviction is available only through the explicit
 //!   `cache-flush` feature.
 //! - Proc-macro derives are available only through the explicit `derive`
@@ -73,6 +75,20 @@ compile_error!(
 ))]
 compile_error!(
     "sanitization: canary-check on wasm32 requires random-canary because deterministic WASM canaries have no ASLR-backed entropy"
+);
+
+#[cfg(all(
+    feature = "strict-ct",
+    not(any(target_arch = "x86_64", target_arch = "aarch64")),
+    not(miri)
+))]
+compile_error!(
+    "sanitization: strict-ct requires an assembly comparison backend; currently supported on x86_64 and aarch64"
+);
+
+#[cfg(all(feature = "require-fork-exclusion", target_arch = "wasm32"))]
+compile_error!(
+    "sanitization: require-fork-exclusion is not supported on wasm32 because WASM has no fork inheritance policy"
 );
 
 #[cfg(feature = "alloc")]
@@ -2801,8 +2817,8 @@ mod memory_lock {
         ///
         /// The portable fallback is intended to avoid data-dependent early
         /// exit, but it is not a formal hardware-level constant-time
-        /// guarantee. On x86_64, enable `asm-compare` for a stronger compiler
-        /// boundary.
+        /// guarantee. On x86_64 or AArch64, enable `asm-compare` for a
+        /// stronger compiler boundary.
         #[must_use]
         #[inline]
         pub fn constant_time_eq(&self, other: &[u8]) -> bool {
@@ -4668,10 +4684,19 @@ mod memory_lock {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(not(target_os = "linux"), not(feature = "require-fork-exclusion")))]
     #[inline]
     fn mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
         Ok(())
+    }
+
+    #[cfg(all(not(target_os = "linux"), feature = "require-fork-exclusion"))]
+    #[inline]
+    fn mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
+        Err(MemoryLockError {
+            operation: MemoryLockOperation::DontFork,
+            errno: 0,
+        })
     }
 
     #[cfg(target_os = "linux")]
@@ -4902,13 +4927,31 @@ pub use memory_lock::{LockedSecretVec, LockedSecretVecGenerateError};
 ))]
 pub use memory_lock::{CanaryCorruptedError, LockedSecretBytesCheckedCopyError};
 
-#[cfg(all(feature = "asm-compare", target_arch = "x86_64", not(miri)))]
+#[cfg(all(
+    feature = "asm-compare",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
 #[allow(unsafe_code)]
 mod compare_asm {
     use core::arch::asm;
 
     #[inline(never)]
     pub(crate) fn constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
+        #[cfg(target_arch = "x86_64")]
+        {
+            constant_time_eq_equal_len_x86_64(left, right)
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            constant_time_eq_equal_len_aarch64(left, right)
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[inline(never)]
+    fn constant_time_eq_equal_len_x86_64(left: &[u8], right: &[u8]) -> bool {
         debug_assert_eq!(left.len(), right.len());
 
         let mut left_ptr = left.as_ptr();
@@ -4948,6 +4991,46 @@ mod compare_asm {
         // The assembly loop ORs byte differences into the low accumulator byte.
         // Mask explicitly so the observable Rust contract does not depend on
         // readers inferring that the full register was zeroed before the loop.
+        core::hint::black_box(diff & 0xFF) == 0
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[inline(never)]
+    fn constant_time_eq_equal_len_aarch64(left: &[u8], right: &[u8]) -> bool {
+        debug_assert_eq!(left.len(), right.len());
+
+        let mut left_ptr = left.as_ptr();
+        let mut right_ptr = right.as_ptr();
+        let mut remaining = left.len();
+        let mut diff: u32 = 0;
+        let tmp_left: u32;
+        let tmp_right: u32;
+
+        // SAFETY: The public caller checks that both slices have the same
+        // length. The loop reads exactly `remaining` bytes from each valid
+        // slice, never writes memory, and does not expose the raw pointers.
+        unsafe {
+            asm!(
+                "cbz {remaining}, 3f",
+                "2:",
+                "ldrb {tmp_left:w}, [{left_ptr}], #1",
+                "ldrb {tmp_right:w}, [{right_ptr}], #1",
+                "eor {tmp_left:w}, {tmp_left:w}, {tmp_right:w}",
+                "orr {diff:w}, {diff:w}, {tmp_left:w}",
+                "subs {remaining}, {remaining}, #1",
+                "b.ne 2b",
+                "3:",
+                left_ptr = inout(reg) left_ptr,
+                right_ptr = inout(reg) right_ptr,
+                remaining = inout(reg) remaining,
+                diff = inout(reg) diff,
+                tmp_left = lateout(reg) tmp_left,
+                tmp_right = lateout(reg) tmp_right,
+                options(nostack, readonly)
+            );
+        }
+
+        let _ = (left_ptr, right_ptr, remaining, tmp_left, tmp_right);
         core::hint::black_box(diff & 0xFF) == 0
     }
 }
@@ -6158,8 +6241,8 @@ mod guard_pages {
         ///
         /// The portable fallback is intended to avoid data-dependent early
         /// exit, but it is not a formal hardware-level constant-time
-        /// guarantee. On x86_64, enable `asm-compare` for a stronger compiler
-        /// boundary.
+        /// guarantee. On x86_64 or AArch64, enable `asm-compare` for a
+        /// stronger compiler boundary.
         #[must_use]
         #[inline]
         pub fn constant_time_eq(&self, other: &[u8]) -> bool {
@@ -6801,10 +6884,27 @@ mod guard_pages {
         }
     }
 
-    #[cfg(all(feature = "memory-lock", not(target_os = "linux")))]
+    #[cfg(all(
+        feature = "memory-lock",
+        not(target_os = "linux"),
+        not(feature = "require-fork-exclusion")
+    ))]
     #[inline]
     fn mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
         Ok(())
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        not(target_os = "linux"),
+        feature = "require-fork-exclusion"
+    ))]
+    #[inline]
+    fn mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
+        Err(GuardPageError {
+            operation: GuardPageOperation::DontFork,
+            errno: 0,
+        })
     }
 
     #[cfg(all(feature = "memory-lock", target_os = "linux"))]
@@ -7588,12 +7688,20 @@ fn constant_time_eq_slices(left: &[u8], right: &[u8]) -> bool {
 fn constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
     debug_assert_eq!(left.len(), right.len());
 
-    #[cfg(all(feature = "asm-compare", target_arch = "x86_64", not(miri)))]
+    #[cfg(all(
+        feature = "asm-compare",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
     {
         compare_asm::constant_time_eq_equal_len(left, right)
     }
 
-    #[cfg(not(all(feature = "asm-compare", target_arch = "x86_64", not(miri))))]
+    #[cfg(not(all(
+        feature = "asm-compare",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    )))]
     {
         portable_constant_time_eq_equal_len(left, right)
     }
@@ -7601,7 +7709,11 @@ fn constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
 
 #[inline]
 #[cfg_attr(
-    all(feature = "asm-compare", target_arch = "x86_64", not(miri)),
+    all(
+        feature = "asm-compare",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ),
     allow(dead_code)
 )]
 fn portable_constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
@@ -10863,7 +10975,11 @@ mod tests {
         assert!(!left.constant_time_eq_secret(&different));
     }
 
-    #[cfg(all(feature = "asm-compare", target_arch = "x86_64", not(miri)))]
+    #[cfg(all(
+        feature = "asm-compare",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
     #[test]
     fn assembly_comparison_matches_portable_path() {
         let left = [1_u8, 2, 3, 4, 5, 6, 7, 8];

@@ -16,6 +16,12 @@
   replacement path.
 - Aligned `ExpiringSecretBytes::replace_from_array` and the monotonic expiring
   slice/array replacement methods with the same build-clear-install path.
+- Added high-assurance strict profiles: `strict-ct` for fail-closed
+  assembly-backed comparisons on supported targets, `strict-canary-check` for
+  OS-random canary-only integrity checks, and `require-fork-exclusion` for
+  locked constructors that must reject platforms without fork-inheritance
+  exclusion. The `asm-compare` backend now supports AArch64 in addition to
+  x86_64.
 
 ## 1.1.1
 

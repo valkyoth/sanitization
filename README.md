@@ -200,10 +200,13 @@ sanitization-bytes = "1.1.1"
 | `wasm-compat` | no | Explicitly enables reduced-guarantee WASM compatibility backends for `memory-lock` APIs. This does not provide `mlock`, `mprotect`, dump exclusion, or guard pages. |
 | `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty locked byte mappings, pooled slots, and guarded dynamic mappings. On WASM this must be paired with `wasm-compat` and `random-canary`. |
 | `random-canary` | no | Enables `canary-check` and generates canary words from the OS CSPRNG instead of deriving them from mapping addresses. WASI preview1 uses `random_get`; other bare WASM targets report random generation failure. On WASM it also needs `wasm-compat`. |
-| `asm-compare` | no | Uses an x86_64 inline-assembly loop for equal-length byte comparison. |
+| `strict-canary-check` | no | Enables `random-canary`; use this profile when deterministic address-derived canaries are not acceptable. |
+| `asm-compare` | no | Uses an x86_64/AArch64 inline-assembly loop for equal-length byte comparison. |
+| `strict-ct` | no | Enables `asm-compare` and rejects non-Miri targets without a supported assembly comparison backend. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
 | `register-scrub` | no | Enables explicit best-effort SIMD/vector register scrubbing helpers on x86_64 and AArch64. |
 | `guard-pages` | no | Enables `GuardedSecretVec` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. This feature is rejected at compile time on WASM. |
+| `require-fork-exclusion` | no | Enables `memory-lock` and makes locked constructors fail when fork-inheritance exclusion cannot be applied. Currently this is a Linux-only hardening guarantee. |
 | `multi-pass-clear` | no | Enables explicit three-pass volatile overwrite helpers for policy or audit compatibility. |
 | `hardware-secrets` | no | Enables dependency-free traits for external hardware-backed secret provider crates. |
 | `split-secret` | no | Enables `SplitSecretBytes<N, SHARES>` N-of-N XOR split storage. |
@@ -532,6 +535,19 @@ API-compatible volatile-only storage without host memory locking.
 | Windows | `VirtualAlloc`/`VirtualLock` | no crate-level dump/fork exclusion |
 | WASM `wasm32-*` | inline WASM-owned storage | API compatibility only; no host memory lock, dump exclusion, or page protection |
 
+Enable `require-fork-exclusion` when inheriting locked mappings across `fork`
+must be a hard failure rather than a documented platform limitation:
+
+```toml
+[dependencies]
+sanitization = { version = "1.1.1", features = ["require-fork-exclusion"] }
+```
+
+With this profile, locked constructors and locked guarded constructors return a
+`DontFork` platform error on non-Linux targets instead of silently accepting a
+backend that can only lock resident memory. Linux continues to use
+`MADV_DONTFORK`.
+
 ```rust
 use sanitization::LockedSecretBytes;
 
@@ -684,6 +700,16 @@ locked and guarded constructors return a `Random` operation error. For pooled
 slots, use `SecretPool::try_allocate` when callers need explicit RNG error
 handling; legacy pool allocation helpers panic on RNG failure rather than
 silently falling back to deterministic canaries.
+
+For profiles where deterministic address-derived canaries are not acceptable,
+enable `strict-canary-check`. It is a named high-assurance profile that enables
+`random-canary`, so canary construction fails if the target has no supported
+dependency-free random backend:
+
+```toml
+[dependencies]
+sanitization = { version = "1.1.1", features = ["strict-canary-check"] }
+```
 
 For many same-size locked secrets on native targets, use
 `SecretPool<N, SLOTS>` to amortize page-granule memory-locking overhead. This
@@ -1193,8 +1219,8 @@ live.
 
 ## Assembly Comparison
 
-Enable `asm-compare` on x86_64 when you want equal-length secret comparisons to
-cross an explicit compiler boundary:
+Enable `asm-compare` on x86_64 or AArch64 when you want equal-length secret
+comparisons to cross an explicit compiler boundary:
 
 ```toml
 [dependencies]
@@ -1209,6 +1235,18 @@ The portable fallback is designed to avoid data-dependent early exit, but it is
 not a formal hardware-level constant-time guarantee. Use `asm-compare` where it
 is available, or pair this crate with a dedicated constant-time comparison
 library when a protocol requires externally audited timing guarantees.
+
+For high-assurance builds that should fail instead of silently using the
+portable fallback, enable `strict-ct`:
+
+```toml
+[dependencies]
+sanitization = { version = "1.1.1", features = ["strict-ct"] }
+```
+
+`strict-ct` currently accepts x86_64 and AArch64 non-Miri builds, where the
+assembly backend is available. Other deployment targets fail at compile time
+instead of making a stronger timing claim than the crate can support there.
 
 ## Register Scrubbing
 
@@ -1383,7 +1421,7 @@ Allocate the maximum expected size up front with `SecretBytesMut::with_capacity`
 | Custom struct, custom drop | `secure_sanitize_struct!` |
 | Existing ordinary buffer | `unsafe_wipe::volatile_sanitize_*` |
 | Generic clear-on-drop wrapper | `Secret<T>` |
-| Explicit x86_64 comparison compiler boundary | `asm-compare` feature |
+| Explicit x86_64/AArch64 comparison compiler boundary | `asm-compare` feature |
 | Explicit x86_64 cache-line eviction after clearing | `cache-flush` feature |
 | Explicit SIMD/vector register clearing boundary | `register-scrub` feature |
 | N-of-N fixed-size split storage | `SplitSecretBytes<N, SHARES>` with `split-secret` |

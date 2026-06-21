@@ -9,8 +9,8 @@ Unsafe code is allowed only inside narrow `src/lib.rs` modules:
 - `memory_lock`, available with the `memory-lock` feature on supported native
   Linux, Android, macOS, iOS, Windows, and BSD targets, and as a volatile-only
   compatibility backend on WASM only when `wasm-compat` is also enabled.
-- `compare_asm`, available only with the `asm-compare` feature on x86_64
-  outside Miri.
+- `compare_asm`, available only with the `asm-compare` feature on x86_64 and
+  AArch64 outside Miri.
 - `cache_flush`, available only with the `cache-flush` feature on x86_64
   outside Miri.
 - `register_scrub`, available with the `register-scrub` feature. It emits
@@ -226,12 +226,12 @@ Invariant:
   compiler spills, unrelated registers outside the implemented set, kernel
   context-switch buffers, other threads, or memory copies.
 
-### x86_64 inline assembly comparison
+### x86_64/AArch64 inline assembly comparison
 
 Location: `compare_asm`
 
 Purpose: provide an optional compiler boundary for equal-length byte comparison
-on x86_64.
+on x86_64 and AArch64.
 
 Operation:
 

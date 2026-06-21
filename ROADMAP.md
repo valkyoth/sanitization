@@ -147,8 +147,8 @@ Design rules:
 - do not make `black_box` the sole security argument;
 - document that `core::hint::black_box` is a best-effort optimization boundary,
   not a formal hardware timing guarantee;
-- keep the optional `asm-compare` backend as the stronger x86_64 equal-length
-  byte-comparison path;
+- keep the optional `asm-compare` backend as the stronger x86_64/AArch64
+  equal-length byte-comparison path;
 - avoid secret-dependent branching and secret-dependent memory access inside
   the native constant-time operations;
 - treat slice length, allocation behavior, page faults, panics, scheduling, and
@@ -533,19 +533,19 @@ Current implementation:
 
 Remaining work:
 
-- evaluate non-x86_64 support separately;
+- evaluate additional non-x86_64/AArch64 support separately;
 - review cache-line sizing assumptions during future target expansion;
 - keep guard-page allocation as a separate design.
 
 ### 4. Assembly-Backed Constant-Time Comparison
 
-Status: implemented for x86_64 behind the `asm-compare` feature.
+Status: implemented for x86_64 and AArch64 behind the `asm-compare` feature.
 
 Priority: optional hardening for major targets.
 
 The current Rust comparison path remains the portable fallback. A target-specific
 assembly implementation provides a stronger compiler boundary for equal-length
-comparisons on x86_64 when the `asm-compare` feature is enabled.
+comparisons on x86_64 and AArch64 when the `asm-compare` feature is enabled.
 
 Design requirements:
 

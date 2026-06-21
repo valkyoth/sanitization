@@ -155,6 +155,10 @@ operating-system CSPRNG using dependency-free platform backends. Random canaries
 improve blind overwrite detection and audit posture, but they still do not
 authenticate memory against an attacker who can read and rewrite both the owner
 metadata and mapped canary bytes.
+`strict-canary-check` is a named profile for environments where deterministic
+canaries are not acceptable; it enables `random-canary` and therefore fails
+construction on targets without a supported dependency-free random backend
+instead of falling back to address-derived canaries.
 On WASM, deterministic canaries are rejected at compile time because fallback
 storage lives inline with the Rust value or pool and has no ASLR-backed mapping
 address. `canary-check` on WASM must be paired with both `wasm-compat` and
@@ -163,10 +167,14 @@ address. `canary-check` on WASM must be paired with both `wasm-compat` and
 return a `Random` operation error for random canary generation in this
 dependency-free implementation.
 
-With the `asm-compare` feature on x86_64, equal-length comparisons use an
-inline-assembly loop. This gives the comparison body a stronger compiler
+With the `asm-compare` feature on x86_64 and AArch64, equal-length comparisons
+use an inline-assembly loop. This gives the comparison body a stronger compiler
 boundary, but it does not hide length metadata and does not claim protection
-against all microarchitectural side channels.
+against all microarchitectural side channels. With `strict-ct`, unsupported
+non-Miri targets fail at compile time instead of using the portable Rust
+fallback. The portable fallback remains available without `strict-ct`, but it
+relies on source-level data-oblivious structure plus optimizer barriers rather
+than a target-specific assembly boundary.
 
 With the `cache-flush` feature on x86_64, explicit clear-and-flush helpers
 volatile-clear the target storage and then execute `clflush` over the covered
@@ -223,6 +231,10 @@ loaded, or use Linux if `MADV_DONTFORK`-style fork isolation is required.
 FreeBSD requests core-dump exclusion with `MADV_NOCORE`; Android, macOS, iOS,
 OpenBSD, NetBSD, and DragonFly BSD currently only lock resident memory and do
 not apply crate-level dump exclusion.
+With `require-fork-exclusion`, locked native constructors and locked guarded
+constructors return a `DontFork` platform error on non-Linux targets instead of
+accepting this reduced guarantee. This feature is intended for deployments
+where accidental fork inheritance is an audit blocker.
 
 `SecretBytes::expose_secret_volatile` makes the volatile temporary-copy cleanup
 explicit at the call site. It clears on normal return and unwinding paths, but
