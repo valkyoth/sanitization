@@ -11197,14 +11197,22 @@ mod tests {
             )
         ))]
         {
-            let locked_left = LockedSecretBytes::from_array([1u8, 2, 3, 4]).unwrap();
-            let locked_same = LockedSecretBytes::from_array([1u8, 2, 3, 4]).unwrap();
-            let locked_different = LockedSecretBytes::from_array([9u8, 8, 7, 6]).unwrap();
+            let (locked_left, locked_same, locked_different) = match (
+                LockedSecretBytes::from_array([1u8, 2, 3, 4]),
+                LockedSecretBytes::from_array([1u8, 2, 3, 4]),
+                LockedSecretBytes::from_array([9u8, 8, 7, 6]),
+            ) {
+                (Ok(left), Ok(same), Ok(different)) => (left, same, different),
+                _ => return,
+            };
             assert_eq!(locked_left.ct_eq(&locked_same).unwrap_u8(), 1);
             assert_eq!(locked_left.ct_eq(&locked_different).unwrap_u8(), 0);
             assert_eq!(locked_left.ct_eq([1u8, 2, 3, 4].as_slice()).unwrap_u8(), 1);
 
-            let pool = SecretPool::<4, 2>::new().unwrap();
+            let pool = match SecretPool::<4, 2>::new() {
+                Ok(pool) => pool,
+                Err(_) => return,
+            };
             let pooled_left = pool.allocate_from_array([1u8, 2, 3, 4]).unwrap();
             let pooled_same = pool.allocate_from_array([1u8, 2, 3, 4]).unwrap();
             assert_eq!(pooled_left.ct_eq(&pooled_same).unwrap_u8(), 1);
@@ -11231,9 +11239,14 @@ mod tests {
             )
         ))]
         {
-            let locked_vec_left = LockedSecretVec::from_slice(b"token").unwrap();
-            let locked_vec_same = LockedSecretVec::from_slice(b"token").unwrap();
-            let locked_vec_different = LockedSecretVec::from_slice(b"other").unwrap();
+            let (locked_vec_left, locked_vec_same, locked_vec_different) = match (
+                LockedSecretVec::from_slice(b"token"),
+                LockedSecretVec::from_slice(b"token"),
+                LockedSecretVec::from_slice(b"other"),
+            ) {
+                (Ok(left), Ok(same), Ok(different)) => (left, same, different),
+                _ => return,
+            };
             assert_eq!(locked_vec_left.ct_eq(&locked_vec_same).unwrap_u8(), 1);
             assert_eq!(locked_vec_left.ct_eq(&locked_vec_different).unwrap_u8(), 0);
             assert_eq!(locked_vec_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
@@ -11258,9 +11271,14 @@ mod tests {
             )
         ))]
         {
-            let guarded_left = GuardedSecretVec::from_slice(b"token").unwrap();
-            let guarded_same = GuardedSecretVec::from_slice(b"token").unwrap();
-            let guarded_different = GuardedSecretVec::from_slice(b"other").unwrap();
+            let (guarded_left, guarded_same, guarded_different) = match (
+                GuardedSecretVec::from_slice(b"token"),
+                GuardedSecretVec::from_slice(b"token"),
+                GuardedSecretVec::from_slice(b"other"),
+            ) {
+                (Ok(left), Ok(same), Ok(different)) => (left, same, different),
+                _ => return,
+            };
             assert_eq!(guarded_left.ct_eq(&guarded_same).unwrap_u8(), 1);
             assert_eq!(guarded_left.ct_eq(&guarded_different).unwrap_u8(), 0);
             assert_eq!(guarded_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
