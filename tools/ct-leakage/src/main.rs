@@ -3,6 +3,7 @@ use sanitization::SecretBytes;
 use std::env;
 use std::fs;
 use std::hint::black_box;
+use std::path::Path;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -236,7 +237,7 @@ fn main() {
     let report = render_report(&config, seed, passed, &results);
 
     if let Some(path) = &config.output {
-        if let Err(error) = fs::write(path, &report) {
+        if let Err(error) = write_report(path, &report) {
             eprintln!("failed to write {path}: {error}");
             std::process::exit(1);
         }
@@ -248,6 +249,14 @@ fn main() {
         std::process::exit(0);
     }
     std::process::exit(1);
+}
+
+fn write_report(path: &str, report: &str) -> std::io::Result<()> {
+    let path = Path::new(path);
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, report)
 }
 
 fn parse_args() -> Result<Config, String> {
@@ -660,5 +669,29 @@ mod tests {
         assert_eq!(config.warmup, 3);
         assert_eq!(config.threshold, 9.5);
         assert_eq!(config.output.as_deref(), Some("target/ct-leakage.json"));
+    }
+
+    #[test]
+    fn write_report_creates_parent_directories() {
+        let base = std::env::temp_dir().join(format!(
+            "ct-leakage-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock should be after unix epoch")
+                .as_nanos()
+        ));
+        let output = base.join("target").join("ct-leakage.json");
+
+        write_report(
+            output.to_str().expect("temporary path should be valid UTF-8"),
+            "{}\n",
+        )
+        .expect("nested output path should be created");
+
+        let written = fs::read_to_string(&output).expect("report should be readable");
+        assert_eq!(written, "{}\n");
+
+        fs::remove_dir_all(base).expect("temporary directory should be removable");
     }
 }
