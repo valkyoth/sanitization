@@ -8084,30 +8084,40 @@ pub mod ct {
     }
 
     #[inline]
-    fn byte_lt(left: u8, right: u8) -> Choice {
-        Choice::from_u8(((left as u16).wrapping_sub(right as u16) >> 8) as u8)
+    fn byte_lt_bit(left: u8, right: u8) -> u8 {
+        ((left as u16).wrapping_sub(right as u16) >> 8) as u8
+    }
+
+    #[inline]
+    fn byte_eq_bit(left: u8, right: u8) -> u8 {
+        let diff = left ^ right;
+        (((diff | diff.wrapping_neg()) >> 7) ^ 1) & 1
     }
 
     #[inline]
     fn ct_cmp_be_bytes(left: &[u8], right: &[u8]) -> CtOrdering {
         debug_assert_eq!(left.len(), right.len());
 
-        let mut less = Choice::FALSE;
-        let mut greater = Choice::FALSE;
-        let mut equal_so_far = Choice::TRUE;
+        let mut less = 0u8;
+        let mut greater = 0u8;
+        let mut equal_so_far = 1u8;
         let mut index = 0usize;
         while index < left.len() {
             let left_byte = black_box(left[index]);
             let right_byte = black_box(right[index]);
-            let left_less = byte_lt(left_byte, right_byte);
-            let right_less = byte_lt(right_byte, left_byte);
-            less = less | (equal_so_far & left_less);
-            greater = greater | (equal_so_far & right_less);
-            equal_so_far = equal_so_far & left_byte.ct_eq(&right_byte);
+            let left_less = byte_lt_bit(left_byte, right_byte);
+            let right_less = byte_lt_bit(right_byte, left_byte);
+            less |= equal_so_far & left_less;
+            greater |= equal_so_far & right_less;
+            equal_so_far &= byte_eq_bit(left_byte, right_byte);
             index += 1;
         }
 
-        CtOrdering::new(less, equal_so_far, greater)
+        CtOrdering::new(
+            Choice(black_box(less & 1)),
+            Choice(black_box(equal_so_far & 1)),
+            Choice(black_box(greater & 1)),
+        )
     }
 
     impl<const N: usize> ConstantTimeEq for [u8; N] {

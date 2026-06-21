@@ -71,6 +71,9 @@
 - Added the unpublished `tools/ct-leakage` dudect-style Welch t-test harness
   plus `scripts/verify-leakage-smoke.sh` for release-evidence collection on
   x86_64, Apple Silicon, and AArch64 machines.
+- Tightened native `ct::cmp_fixed` internals to keep raw normalized masks in
+  the lexicographic loop and construct `CtOrdering` only at the output boundary,
+  reducing barrier noise in AArch64 leakage evidence runs.
 - Added a checked `ct_primitives` example covering native equality, ordering,
   selection, `CtOption`, `CtResult`, oblivious lookup, slice selection, and
   conditional swap.
