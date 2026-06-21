@@ -267,6 +267,14 @@ for an out-of-range secret index. `conditional_copy`, `conditional_swap`, and
 `select_slice` treat slice lengths as public metadata and return `LengthError`
 on mismatch.
 
+Secret containers also implement the native `ct` traits where the operation can
+preserve their lifecycle model. `SecretBytes<N>` implements native
+`ConstantTimeEq`, byte-slice equality, and `ConditionallySelectable`.
+`SecretVec`, `SecretString`, `LockedSecretBytes<N>`, `LockedSecretVec`,
+`SecretPoolSlot<N, SLOTS>`, and `GuardedSecretVec` implement native
+`ConstantTimeEq` behind their normal feature gates. Existing
+`constant_time_eq` methods remain available and source-compatible.
+
 ## WASM Support
 
 The base containers (`SecretBytes`, `Secret`, `ReadOnceSecret`, and with

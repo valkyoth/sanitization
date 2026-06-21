@@ -8352,6 +8352,38 @@ impl<const N: usize> fmt::Debug for SecretBytes<N> {
     }
 }
 
+impl<const N: usize> ct::ConstantTimeEq for SecretBytes<N> {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> ct::Choice {
+        ct::eq_fixed(&self.bytes, &other.bytes)
+    }
+}
+
+impl<const N: usize> ct::ConstantTimeEq<[u8]> for SecretBytes<N> {
+    #[inline]
+    fn ct_eq(&self, other: &[u8]) -> ct::Choice {
+        ct::eq_public_len(self.bytes.as_slice(), other)
+    }
+}
+
+impl<const N: usize> ct::ConditionallySelectable for SecretBytes<N> {
+    #[inline]
+    fn conditional_select(left: &Self, right: &Self, choice: ct::Choice) -> Self {
+        let mut output = Self::zeroed();
+        let mut index = 0usize;
+        while index < N {
+            output.bytes[index] = <u8 as ct::ConditionallySelectable>::conditional_select(
+                &left.bytes[index],
+                &right.bytes[index],
+                choice,
+            );
+            index += 1;
+        }
+        output.after_secret_write();
+        output
+    }
+}
+
 /// Error returned by split-secret construction.
 #[cfg(feature = "split-secret")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -9569,6 +9601,22 @@ impl fmt::Debug for SecretVec {
     }
 }
 
+#[cfg(feature = "alloc")]
+impl ct::ConstantTimeEq for SecretVec {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> ct::Choice {
+        ct::eq_public_len(self.inner.as_slice(), other.inner.as_slice())
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl ct::ConstantTimeEq<[u8]> for SecretVec {
+    #[inline]
+    fn ct_eq(&self, other: &[u8]) -> ct::Choice {
+        ct::eq_public_len(self.inner.as_slice(), other)
+    }
+}
+
 /// Heap-allocated secret UTF-8 text with clear-on-drop behavior.
 ///
 /// This type is available with the `alloc` feature. Use it for bearer tokens,
@@ -9914,6 +9962,22 @@ impl fmt::Debug for SecretString {
     }
 }
 
+#[cfg(feature = "alloc")]
+impl ct::ConstantTimeEq for SecretString {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> ct::Choice {
+        ct::eq_public_len(self.inner.as_slice(), other.inner.as_slice())
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl ct::ConstantTimeEq<str> for SecretString {
+    #[inline]
+    fn ct_eq(&self, other: &str) -> ct::Choice {
+        ct::eq_public_len(self.inner.as_slice(), other.as_bytes())
+    }
+}
+
 /// Clear-on-drop wrapper for non-byte secret types.
 ///
 /// This is useful for structs that implement [`SecureSanitize`] by clearing
@@ -10147,6 +10211,112 @@ mod read_once {
 }
 
 pub use read_once::{AlreadyConsumedError, ReadOnceSecret};
+
+#[cfg(all(
+    feature = "memory-lock",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+        all(target_arch = "wasm32", feature = "wasm-compat"),
+    )
+))]
+mod native_ct_memory_lock_impls {
+    use super::*;
+
+    impl<const N: usize> ct::ConstantTimeEq for LockedSecretBytes<N> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> ct::Choice {
+            self.with_secret(|left| other.with_secret(|right| ct::eq_fixed(left, right)))
+        }
+    }
+
+    impl<const N: usize> ct::ConstantTimeEq<[u8]> for LockedSecretBytes<N> {
+        #[inline]
+        fn ct_eq(&self, other: &[u8]) -> ct::Choice {
+            self.with_secret(|left| ct::eq_public_len(left, other))
+        }
+    }
+
+    impl<'pool, const N: usize, const SLOTS: usize> ct::ConstantTimeEq
+        for SecretPoolSlot<'pool, N, SLOTS>
+    {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> ct::Choice {
+            self.with_secret(|left| other.with_secret(|right| ct::eq_fixed(left, right)))
+        }
+    }
+
+    impl<'pool, const N: usize, const SLOTS: usize> ct::ConstantTimeEq<[u8]>
+        for SecretPoolSlot<'pool, N, SLOTS>
+    {
+        #[inline]
+        fn ct_eq(&self, other: &[u8]) -> ct::Choice {
+            self.with_secret(|left| ct::eq_public_len(left, other))
+        }
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(miri)))]
+    impl ct::ConstantTimeEq for LockedSecretVec {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> ct::Choice {
+            self.with_secret(|left| other.with_secret(|right| ct::eq_public_len(left, right)))
+        }
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(miri)))]
+    impl ct::ConstantTimeEq<[u8]> for LockedSecretVec {
+        #[inline]
+        fn ct_eq(&self, other: &[u8]) -> ct::Choice {
+            self.with_secret(|left| ct::eq_public_len(left, other))
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+mod native_ct_guard_page_impls {
+    use super::*;
+
+    impl ct::ConstantTimeEq for GuardedSecretVec {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> ct::Choice {
+            self.with_secret(|left| other.with_secret(|right| ct::eq_public_len(left, right)))
+        }
+    }
+
+    impl ct::ConstantTimeEq<[u8]> for GuardedSecretVec {
+        #[inline]
+        fn ct_eq(&self, other: &[u8]) -> ct::Choice {
+            self.with_secret(|left| ct::eq_public_len(left, other))
+        }
+    }
+}
 
 #[cfg(feature = "zeroize-interop")]
 mod zeroize_interop {
@@ -10841,6 +11011,127 @@ mod tests {
                 actual: 2,
             })
         );
+    }
+
+    #[test]
+    fn ct_secret_containers_expose_native_traits() {
+        use ct::{ConditionallySelectable, ConstantTimeEq};
+
+        let left = SecretBytes::from_array([1u8, 2, 3, 4]);
+        let same = SecretBytes::from_array([1u8, 2, 3, 4]);
+        let different = SecretBytes::from_array([9u8, 8, 7, 6]);
+
+        assert_eq!(left.ct_eq(&same).unwrap_u8(), 1);
+        assert_eq!(left.ct_eq(&different).unwrap_u8(), 0);
+        assert_eq!(left.ct_eq([1u8, 2, 3, 4].as_slice()).unwrap_u8(), 1);
+
+        let selected = SecretBytes::conditional_select(&left, &different, ct::Choice::TRUE);
+        assert!(selected.constant_time_eq(&[9, 8, 7, 6]));
+
+        #[cfg(feature = "alloc")]
+        {
+            let vec_left = SecretVec::from_slice(b"token");
+            let vec_same = SecretVec::from_slice(b"token");
+            let vec_different = SecretVec::from_slice(b"other");
+            assert_eq!(vec_left.ct_eq(&vec_same).unwrap_u8(), 1);
+            assert_eq!(vec_left.ct_eq(&vec_different).unwrap_u8(), 0);
+            assert_eq!(vec_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+
+            let string_left = SecretString::from_secret_str("token");
+            let string_same = SecretString::from_secret_str("token");
+            let string_different = SecretString::from_secret_str("other");
+            assert_eq!(string_left.ct_eq(&string_same).unwrap_u8(), 1);
+            assert_eq!(string_left.ct_eq(&string_different).unwrap_u8(), 0);
+            assert_eq!(string_left.ct_eq("token").unwrap_u8(), 1);
+        }
+
+        #[cfg(all(
+            feature = "memory-lock",
+            any(
+                all(
+                    target_os = "linux",
+                    any(target_arch = "x86_64", target_arch = "aarch64")
+                ),
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "android",
+                target_os = "windows",
+                target_os = "freebsd",
+                target_os = "openbsd",
+                target_os = "netbsd",
+                target_os = "dragonfly",
+                all(target_arch = "wasm32", feature = "wasm-compat"),
+            )
+        ))]
+        {
+            let locked_left = LockedSecretBytes::from_array([1u8, 2, 3, 4]).unwrap();
+            let locked_same = LockedSecretBytes::from_array([1u8, 2, 3, 4]).unwrap();
+            let locked_different = LockedSecretBytes::from_array([9u8, 8, 7, 6]).unwrap();
+            assert_eq!(locked_left.ct_eq(&locked_same).unwrap_u8(), 1);
+            assert_eq!(locked_left.ct_eq(&locked_different).unwrap_u8(), 0);
+            assert_eq!(locked_left.ct_eq([1u8, 2, 3, 4].as_slice()).unwrap_u8(), 1);
+
+            let pool = SecretPool::<4, 2>::new().unwrap();
+            let pooled_left = pool.allocate_from_array([1u8, 2, 3, 4]).unwrap();
+            let pooled_same = pool.allocate_from_array([1u8, 2, 3, 4]).unwrap();
+            assert_eq!(pooled_left.ct_eq(&pooled_same).unwrap_u8(), 1);
+            assert_eq!(pooled_left.ct_eq([1u8, 2, 3, 4].as_slice()).unwrap_u8(), 1);
+        }
+
+        #[cfg(all(
+            feature = "memory-lock",
+            not(target_arch = "wasm32"),
+            not(miri),
+            any(
+                all(
+                    target_os = "linux",
+                    any(target_arch = "x86_64", target_arch = "aarch64")
+                ),
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "android",
+                target_os = "windows",
+                target_os = "freebsd",
+                target_os = "openbsd",
+                target_os = "netbsd",
+                target_os = "dragonfly",
+            )
+        ))]
+        {
+            let locked_vec_left = LockedSecretVec::from_slice(b"token").unwrap();
+            let locked_vec_same = LockedSecretVec::from_slice(b"token").unwrap();
+            let locked_vec_different = LockedSecretVec::from_slice(b"other").unwrap();
+            assert_eq!(locked_vec_left.ct_eq(&locked_vec_same).unwrap_u8(), 1);
+            assert_eq!(locked_vec_left.ct_eq(&locked_vec_different).unwrap_u8(), 0);
+            assert_eq!(locked_vec_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+        }
+
+        #[cfg(all(
+            feature = "guard-pages",
+            not(miri),
+            any(
+                all(
+                    target_os = "linux",
+                    any(target_arch = "x86_64", target_arch = "aarch64")
+                ),
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "android",
+                target_os = "windows",
+                target_os = "freebsd",
+                target_os = "openbsd",
+                target_os = "netbsd",
+                target_os = "dragonfly",
+            )
+        ))]
+        {
+            let guarded_left = GuardedSecretVec::from_slice(b"token").unwrap();
+            let guarded_same = GuardedSecretVec::from_slice(b"token").unwrap();
+            let guarded_different = GuardedSecretVec::from_slice(b"other").unwrap();
+            assert_eq!(guarded_left.ct_eq(&guarded_same).unwrap_u8(), 1);
+            assert_eq!(guarded_left.ct_eq(&guarded_different).unwrap_u8(), 0);
+            assert_eq!(guarded_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+        }
     }
 
     #[test]

@@ -25,6 +25,9 @@
 - Added native `ct` memory-access helpers: `oblivious_lookup`,
   `conditional_copy`, `conditional_swap`, and `select_slice`, with public
   length-mismatch errors and full public-length scans where applicable.
+- Added native `ct::ConstantTimeEq` integrations for secret containers and
+  `ct::ConditionallySelectable` for fixed-size `SecretBytes<N>`, while keeping
+  existing `constant_time_eq` methods source-compatible.
 
 ## 1.1.1
 
