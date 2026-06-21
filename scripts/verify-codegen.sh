@@ -44,6 +44,32 @@ if ! grep -q 'sanitize_bytes_best_effort' "${ir_file}"; then
     exit 1
 fi
 
+for symbol in \
+    'sanitization::ct::conditional_copy' \
+    'sanitization::ct::conditional_swap' \
+    'sanitization::ct::select_slice'
+do
+    if ! grep -q "${symbol}" "${ir_file}"; then
+        echo "native ct helper ${symbol} missing from LLVM IR" >&2
+        exit 1
+    fi
+done
+
+if ! grep -q 'asm sideeffect "", "r,~{memory}"' "${ir_file}"; then
+    echo "native ct optimizer barrier missing from LLVM IR" >&2
+    exit 1
+fi
+
+if ! grep -q 'sub i8 0' "${ir_file}"; then
+    echo "native ct mask-generation pattern missing from LLVM IR" >&2
+    exit 1
+fi
+
+if grep -Eq '\b(memcmp|bcmp)\b' "${ir_file}" "${asm_file}"; then
+    echo "memcmp/bcmp call found in release codegen" >&2
+    exit 1
+fi
+
 host="$(
     rustc -vV \
         | awk '/^host:/ { print $2 }'
@@ -76,3 +102,4 @@ else
 fi
 
 echo "verified volatile wipe codegen in ${ir_file}"
+echo "verified native ct helper codegen in ${ir_file}"

@@ -132,6 +132,10 @@ The script checks:
 - the volatile wipe function is present in LLVM IR;
 - volatile byte-zero stores are present in LLVM IR;
 - the compatibility clear alias remains present;
+- native `ct` slice helper symbols are present in LLVM IR;
+- the native `ct` optimizer barrier and mask-generation patterns remain present
+  in LLVM IR;
+- no `memcmp` or `bcmp` call is emitted in the checked release IR or assembly;
 - on x86_64 hosts, the assembly comparison symbol and byte-load instructions
   are present;
 - on x86_64 hosts, cache-flush instructions and fences are present.

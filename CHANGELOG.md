@@ -52,6 +52,8 @@
   combinator semantics.
 - Added bounded Kani proof coverage for `Choice` boolean algebra,
   `ct::oblivious_lookup`, and `ct::conditional_swap`.
+- Expanded release codegen verification to cover native `ct` helper symbols,
+  optimizer-barrier/mask patterns, and absence of `memcmp`/`bcmp` calls.
 - Added a draft machine-readable `ct-evidence.json` describing 1.2 target
   tiers, claims, non-claims, proof harnesses, and release-candidate evidence
   requirements.
