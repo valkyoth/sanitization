@@ -63,6 +63,8 @@
   `target/release-evidence-<version>.json` during preflight before publishing.
 - Tightened `scripts/checks.sh` to exercise `strict-enum-derive`, workspace
   all-feature tests/clippy, and package listings for all published crates.
+- Added `scripts/verify-derive-failures.sh` so release checks assert the
+  security-sensitive derive rejection paths remain compile failures.
 - Added a checked `ct_primitives` example covering native equality, ordering,
   selection, `CtOption`, `CtResult`, oblivious lookup, slice selection, and
   conditional swap.

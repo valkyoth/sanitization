@@ -125,6 +125,16 @@ def main() -> int:
             "memcmp/bcmp",
         ],
     )
+    require_check_coverage(
+        checks,
+        "workspace-checks",
+        ["derive macro tests", "derive rejection checks", "package listing"],
+    )
+    require_check_coverage(
+        checks,
+        "derive-failures",
+        ["enum native ct", "skipped conditionally selectable", "strict enum"],
+    )
     require_check_coverage(checks, "kani", ["clearing", "equality", "ordering"])
     require_check_coverage(checks, "miri", ["safe and unsafe-boundary"])
 

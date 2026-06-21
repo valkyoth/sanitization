@@ -73,11 +73,21 @@
         "formatting",
         "feature matrix",
         "derive macro tests",
+        "derive rejection checks",
         "clippy",
         "docs",
         "package listing",
         "release codegen",
         "optional Kani"
+      ]
+    },
+    {
+      "name": "derive-failures",
+      "command": "scripts/verify-derive-failures.sh",
+      "coverage": [
+        "compile-fail checks for enum native ct derives",
+        "compile-fail checks for skipped conditionally selectable fields",
+        "compile-fail checks for strict enum sanitization acknowledgement"
       ]
     },
     {

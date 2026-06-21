@@ -65,6 +65,16 @@ documentation with warnings denied, and package listing.
 The derive test target covers `SecureSanitize`, `SecureSanitizeOnDrop`, and the
 native `ct` struct derives.
 
+Run derive rejection checks directly:
+
+```bash
+scripts/verify-derive-failures.sh
+```
+
+This builds temporary downstream crates and asserts that native `ct` enum
+derives, skipped `ConditionallySelectable` fields, and strict enum sanitization
+without inactive-variant acknowledgement remain compile failures.
+
 Run Miri separately when a nightly toolchain with Miri is installed:
 
 ```bash
