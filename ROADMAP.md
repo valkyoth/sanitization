@@ -218,8 +218,9 @@ Verification work for `1.2.0`:
   release;
 - documentation pages for guarantees, non-guarantees, barriers, target tiers,
   WASM limits, and leakage-test expectations. Initial guarantee,
-  non-guarantee, barrier, and target-tier pages now exist as `GUARANTEES.md`,
-  `NON_GUARANTEES.md`, `BARRIERS.md`, and `TARGETS.md`.
+  non-guarantee, barrier, target-tier, and leakage-test pages now exist as
+  `GUARANTEES.md`, `NON_GUARANTEES.md`, `BARRIERS.md`, `TARGETS.md`, and
+  `LEAKAGE_TESTS.md`.
 
 The stable `1.2.0` release should not claim complete hardware-level
 constant-time behavior across all targets. The claim should be narrower:

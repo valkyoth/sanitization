@@ -144,13 +144,16 @@ Permanent documentation that constrains the claims:
 - `BARRIERS.md`: volatile wipe, optimizer, assembly, cache, register, and
   release-evidence barrier strategy;
 - `TARGETS.md`: human-readable target tiers and feature availability matrix;
+- `LEAKAGE_TESTS.md`: expectations and metadata requirements for future
+  dudect-style timing/leakage harnesses;
 - `THREAT_MODEL.md`: guarantees, residual risks, WASM limits, canary limits;
 - `SAFETY.md`: unsafe boundaries and invariants;
 - `ROADMAP.md`: 1.2 target tiers and release checkpoint gates.
 
 ## Open Evidence Gaps
 
-- No dudect or equivalent leakage-test harness is shipped yet.
+- No dudect or equivalent leakage-test harness is shipped yet; see
+  `LEAKAGE_TESTS.md` for the intended release-evidence shape.
 - AArch64 release assembly is compile-checked when the target is installed, but
   is not yet scanned by `scripts/verify-codegen.sh` on non-AArch64 hosts.
 - WASM JIT behavior remains a documented non-guarantee.

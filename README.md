@@ -1528,6 +1528,8 @@ release LLVM IR/assembly verification, optional bounded Kani verification when
 `EVIDENCE.md` records the current target tiers, proof scope, codegen checks,
 and non-guarantees for the native `ct` work. `ct-evidence.json` mirrors the
 same evidence in a machine-readable draft format for release review.
+`LEAKAGE_TESTS.md` records the metadata and scope expected for future
+dudect-style timing/leakage runs.
 
 When a nightly toolchain with Miri is available, run the interpreter-based
 unsafe-boundary check separately:

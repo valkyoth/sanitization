@@ -53,6 +53,8 @@
   Kani proof harness names.
 - Added explicit 1.2 evidence documentation pages for guarantees,
   non-guarantees, barrier strategy, and target tiers.
+- Added `LEAKAGE_TESTS.md` to define the scope, metadata, and release policy
+  for future dudect-style timing/leakage evidence.
 
 ## 1.1.1
 
