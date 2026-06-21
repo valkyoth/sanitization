@@ -28,6 +28,9 @@
 - Added native `ct::ConstantTimeEq` integrations for secret containers and
   `ct::ConditionallySelectable` for fixed-size `SecretBytes<N>`, while keeping
   existing `constant_time_eq` methods source-compatible.
+- Added `EVIDENCE.md` and expanded bounded Kani harness coverage for native
+  `ct` choice normalization, fixed equality, public-length mismatch,
+  conditional copy, and slice selection behavior.
 
 ## 1.1.1
 

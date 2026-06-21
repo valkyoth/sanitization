@@ -7878,6 +7878,72 @@ mod kani_verification {
     }
 
     #[kani::proof]
+    fn prove_ct_choice_is_normalized() {
+        let value: u8 = kani::any();
+        let choice = ct::Choice::from_u8(value);
+        let unwrapped = choice.unwrap_u8();
+
+        assert!(unwrapped == 0 || unwrapped == 1);
+    }
+
+    #[kani::proof]
+    fn prove_ct_fixed_equality_matches_byte_equality() {
+        let left: [u8; 4] = kani::any();
+        let right: [u8; 4] = kani::any();
+
+        let mut expected = true;
+        let mut index = 0;
+        while index < 4 {
+            expected &= left[index] == right[index];
+            index += 1;
+        }
+
+        assert_eq!(ct::eq_fixed(&left, &right).unwrap_u8() == 1, expected);
+    }
+
+    #[kani::proof]
+    fn prove_ct_public_length_equality_rejects_mismatch() {
+        let left: [u8; 4] = kani::any();
+        let right: [u8; 3] = kani::any();
+
+        assert_eq!(ct::eq_public_len(&left, &right).unwrap_u8(), 0);
+    }
+
+    #[kani::proof]
+    fn prove_ct_conditional_copy_matches_choice() {
+        let initial: [u8; 4] = kani::any();
+        let source: [u8; 4] = kani::any();
+        let choice_byte: u8 = kani::any();
+        let choice = ct::Choice::from_u8(choice_byte);
+        let mut destination = initial;
+
+        assert!(ct::conditional_copy(&mut destination, &source, choice).is_ok());
+
+        if choice.unwrap_u8() == 1 {
+            assert_eq!(destination, source);
+        } else {
+            assert_eq!(destination, initial);
+        }
+    }
+
+    #[kani::proof]
+    fn prove_ct_select_slice_matches_choice() {
+        let left: [u8; 4] = kani::any();
+        let right: [u8; 4] = kani::any();
+        let choice_byte: u8 = kani::any();
+        let choice = ct::Choice::from_u8(choice_byte);
+        let mut destination = [0u8; 4];
+
+        assert!(ct::select_slice(&mut destination, &left, &right, choice).is_ok());
+
+        if choice.unwrap_u8() == 1 {
+            assert_eq!(destination, right);
+        } else {
+            assert_eq!(destination, left);
+        }
+    }
+
+    #[kani::proof]
     fn prove_constant_time_eq_rejects_length_mismatch() {
         let left: [u8; 4] = kani::any();
         let right: [u8; 3] = kani::any();
