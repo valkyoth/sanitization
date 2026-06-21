@@ -1263,8 +1263,11 @@ assert!(reconstructed.constant_time_eq(&[7; 32]));
 This is not Shamir secret sharing and it is not threshold cryptography. Every
 share is required to reconstruct the secret. The generator closure must produce
 cryptographically random bytes for all mask shares; deterministic examples are
-only for documentation and tests. Debug builds reject trivially constant mask
-shares as a misuse guardrail, but this heuristic does not validate entropy.
+only for documentation and tests. Construction rejects trivially constant mask
+shares in every build profile as a misuse guardrail, but this heuristic does
+not validate entropy. Use `from_secret_consuming_with_generator` when the
+source `SecretBytes<N>` should be cleared as part of moving the secret into the
+split representation.
 
 ## Hardware Secret Traits
 

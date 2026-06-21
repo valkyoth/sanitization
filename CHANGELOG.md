@@ -9,6 +9,11 @@
 - Added `secure_replace` for sanitizing a value before replacement, documented
   enum derive inactive-variant byte limits, and added `strict-enum-derive` for
   opt-in compile-time acknowledgment of enum derive risk.
+- Hardened split-secret construction by returning `SplitSecretError::TrivialMask`
+  for trivially constant mask shares in all build profiles, added a consuming
+  split constructor that clears the source `SecretBytes`, and aligned
+  `ExpiringSecretBytes::replace_from_slice` with the build-clear-install
+  replacement path.
 
 ## 1.1.1
 

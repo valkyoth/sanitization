@@ -8138,6 +8138,11 @@ impl<const N: usize> fmt::Debug for SecretBytes<N> {
 pub enum SplitSecretError {
     /// XOR split storage requires at least two shares.
     TooFewShares,
+    /// The generated mask shares were trivially constant.
+    ///
+    /// This usually means the caller passed a stub, deterministic test
+    /// generator, all-zero generator, or otherwise unsuitable random source.
+    TrivialMask,
 }
 
 #[cfg(feature = "split-secret")]
@@ -8145,6 +8150,9 @@ impl fmt::Display for SplitSecretError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TooFewShares => formatter.write_str("split secrets require at least two shares"),
+            Self::TrivialMask => formatter.write_str(
+                "split-secret mask shares are trivially constant; use cryptographically random mask bytes",
+            ),
         }
     }
 }
@@ -8162,10 +8170,10 @@ impl std::error::Error for SplitSecretError {}
 ///
 /// # Security
 ///
-/// The generator is trusted. Passing a deterministic, constant, low-entropy, or
-/// reused generator can make the split provide no confidentiality. Debug builds
-/// include a cheap heuristic that rejects trivially constant mask shares, but
-/// that is not a substitute for a CSPRNG.
+/// The generator is trusted. Passing a deterministic, low-entropy, or reused
+/// generator can make the split provide no confidentiality. Construction
+/// rejects trivially constant mask shares in all build profiles, but that cheap
+/// heuristic is not a substitute for a CSPRNG.
 #[cfg(feature = "split-secret")]
 pub struct SplitSecretBytes<const N: usize, const SHARES: usize> {
     shares: [SecretBytes<N>; SHARES],
@@ -8189,7 +8197,7 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
             return Err(SplitSecretError::TooFewShares);
         }
 
-        let split = Self::from_secret_bytes_with_generator(guard.bytes, &mut make_mask_byte);
+        let split = Self::from_secret_bytes_with_generator(guard.bytes, &mut make_mask_byte)?;
         sanitize_bytes(guard.bytes);
         Ok(split)
     }
@@ -8207,10 +8215,18 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
             return Err(SplitSecretError::TooFewShares);
         }
 
-        Ok(Self::from_secret_bytes_with_generator(
-            &secret.bytes,
-            &mut make_mask_byte,
-        ))
+        Self::from_secret_bytes_with_generator(&secret.bytes, &mut make_mask_byte)
+    }
+
+    /// Split an owned [`SecretBytes`] value into `SHARES` XOR shares, then clear
+    /// the source secret before returning.
+    pub fn from_secret_consuming_with_generator(
+        mut secret: SecretBytes<N>,
+        mut make_mask_byte: impl FnMut(usize, usize) -> u8,
+    ) -> Result<Self, SplitSecretError> {
+        let split = Self::from_secret_bytes_with_generator(&secret.bytes, &mut make_mask_byte)?;
+        secret.secure_clear();
+        Ok(split)
     }
 
     /// Reconstruct all shares into a new [`SecretBytes`] value.
@@ -8256,7 +8272,11 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
     fn from_secret_bytes_with_generator(
         secret: &[u8; N],
         make_mask_byte: &mut impl FnMut(usize, usize) -> u8,
-    ) -> Self {
+    ) -> Result<Self, SplitSecretError> {
+        if SHARES < 2 {
+            return Err(SplitSecretError::TooFewShares);
+        }
+
         let mut shares = core::array::from_fn(|_| SecretBytes::<N>::zeroed());
 
         let mut byte_index = 0;
@@ -8274,16 +8294,16 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
             byte_index += 1;
         }
 
-        debug_assert!(
-            !Self::mask_shares_are_trivially_constant(&shares),
-            "split-secret mask shares are constant; use cryptographically random mask bytes"
-        );
+        if Self::mask_shares_are_trivially_constant(&shares) {
+            shares.secure_sanitize();
+            return Err(SplitSecretError::TrivialMask);
+        }
 
         for share in shares.iter() {
             share.after_secret_write();
         }
 
-        Self { shares }
+        Ok(Self { shares })
     }
 
     #[inline]
@@ -8832,15 +8852,24 @@ impl<const N: usize> ExpiringSecretBytes<N> {
 
     /// Replace all bytes and restart the lifetime window.
     ///
-    /// If the previous value has already expired, it is cleared before the new
-    /// value is copied in.
+    /// The replacement is validated and staged first. The old value is then
+    /// volatile-cleared before the replacement is installed.
     #[inline]
     pub fn replace_from_slice(&mut self, source: &[u8]) -> Result<(), LengthError> {
-        if self.is_expired() {
-            self.inner.secure_clear();
+        if source.len() != N {
+            if self.is_expired() {
+                self.inner.secure_clear();
+            }
+            return Err(LengthError {
+                expected: N,
+                actual: source.len(),
+            });
         }
 
-        self.inner.copy_from_slice(source)?;
+        let mut replacement = SecretBytes::<N>::zeroed();
+        replacement.copy_from_slice(source)?;
+        self.inner.secure_clear();
+        self.inner = replacement;
         self.created_at = std::time::Instant::now();
         Ok(())
     }
@@ -11158,6 +11187,30 @@ mod tests {
             .reconstruct()
             .constant_time_eq_secret(&SecretBytes::from_array([9, 8, 7, 6])));
         assert!(std::format!("{split:?}").contains("redacted"));
+    }
+
+    #[cfg(feature = "split-secret")]
+    #[test]
+    fn split_secret_rejects_trivially_constant_masks() {
+        assert!(matches!(
+            SplitSecretBytes::<4, 3>::from_array_with_generator([9, 8, 7, 6], |_, _| 0),
+            Err(SplitSecretError::TrivialMask)
+        ));
+    }
+
+    #[cfg(feature = "split-secret")]
+    #[test]
+    fn split_secret_can_consume_source_secret() {
+        let secret = SecretBytes::from_array([9, 8, 7, 6]);
+        let split = SplitSecretBytes::<4, 3>::from_secret_consuming_with_generator(
+            secret,
+            |share, index| ((share as u8) << 4) ^ (index as u8),
+        )
+        .unwrap();
+
+        assert!(split
+            .reconstruct()
+            .constant_time_eq_secret(&SecretBytes::from_array([9, 8, 7, 6])));
     }
 
     #[cfg(feature = "split-secret")]
