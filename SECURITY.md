@@ -1,6 +1,6 @@
 # Security Policy
 
-This crate is published as stable `1.1.1` on crates.io.
+This crate is published as stable `1.2.0` on crates.io.
 
 Do not publish exploitable details publicly before a fix is available. Report
 security issues privately to the repository owner.

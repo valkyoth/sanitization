@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - Added the initial native `sanitization::ct` data-oblivious API skeleton with
   `Choice`, explicit `Choice::declassify`, native equality/select traits,
