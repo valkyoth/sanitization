@@ -197,7 +197,7 @@ sanitization-bytes = "1.1.1"
 | --- | --- | --- |
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
-| `derive` | no | Re-exports `sanitization-derive` proc macros for `#[derive(SecureSanitize)]` and `#[derive(SecureSanitizeOnDrop)]`. Pulls in proc-macro dependencies only when explicitly enabled. |
+| `derive` | no | Re-exports `sanitization-derive` proc macros for `#[derive(SecureSanitize)]`, `#[derive(SecureSanitizeOnDrop)]`, and conservative struct-only native `ct` derives for `ConstantTimeEq` and `ConditionallySelectable`. Pulls in proc-macro dependencies only when explicitly enabled. |
 | `strict-enum-derive` | no | Enables `derive` and rejects enum derives unless the inactive-variant byte risk is explicitly acknowledged. |
 | `serde` | no | Implements serde deserialization for secret loading and redacted serialization for secret-owning wrappers. |
 | `zeroize-interop` | no | Implements `zeroize::Zeroize` and `zeroize::ZeroizeOnDrop` for crate-owned secret containers. |
@@ -1515,6 +1515,8 @@ Allocate the maximum expected size up front with `SecretBytesMut::with_capacity`
 | One-time access secret | `ReadOnceSecret<T>` |
 | Custom struct or enum with compiler-generated sanitization | `#[derive(SecureSanitize)]` with `derive` |
 | Custom struct or enum with compiler-generated drop clearing | `#[derive(SecureSanitize, SecureSanitizeOnDrop)]` with `derive` |
+| Custom struct with compiler-generated native `ct` equality | `#[derive(ConstantTimeEq)]` with `derive` |
+| Custom struct with compiler-generated native `ct` selection | `#[derive(ConditionallySelectable)]` with `derive` |
 | Custom struct, macro-owned drop | `secure_drop_struct!` |
 | Custom struct, custom drop | `secure_sanitize_struct!` |
 | Existing ordinary buffer | `unsafe_wipe::volatile_sanitize_*` |
