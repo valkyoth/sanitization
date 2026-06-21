@@ -1016,9 +1016,33 @@ high-assurance state machines. Enable `strict-enum-derive` to make enum derives
 require `#[sanitization(enum_inactive_variant_bytes = "acknowledged")]`.
 
 The derive crate is a code generator only. It does not duplicate the wipe
-backend or secret containers; generated code calls this crate's
-`SecureSanitize` trait. Default builds do not depend on `sanitization-derive`,
-`syn`, `quote`, or `proc-macro2`.
+backend, comparison logic, selection logic, or secret containers; generated code
+calls this crate's traits. Default builds do not depend on
+`sanitization-derive`, `syn`, `quote`, or `proc-macro2`.
+
+The same `derive` feature also re-exports conservative native `ct` derives for
+structs:
+
+```rust
+use sanitization::ct::{ConditionallySelectable as _, ConstantTimeEq as _};
+use sanitization::{ConditionallySelectable, ConstantTimeEq};
+
+#[derive(ConstantTimeEq, ConditionallySelectable)]
+struct TagPair {
+    left: [u8; 16],
+    right: [u8; 16],
+}
+```
+
+`ConstantTimeEq` derives compare fields through each field's own
+`sanitization::ct::ConstantTimeEq` implementation and combine the hidden
+choices. `ConditionallySelectable` derives select every field through
+`sanitization::ct::ConditionallySelectable`. These derives do not compare raw
+struct bytes and do not read padding. They reject enums and unions; use explicit
+struct wrappers or hand-written reviewed code for active-variant semantics.
+`#[sanitization(skip)]` is accepted for `ConstantTimeEq` public fields but is
+rejected for `ConditionallySelectable`, because the selected output must
+construct every field.
 
 Supported derive attributes are `#[sanitization(skip)]` on fields,
 `#[sanitization(bound = "...")]` on fields or containers for explicit generated

@@ -63,6 +63,41 @@ pub fn derive_secure_sanitize_on_drop(input: TokenStream) -> TokenStream {
         .into()
 }
 
+/// Derive `sanitization::ct::ConstantTimeEq` for structs.
+///
+/// The generated implementation compares each non-skipped field through that
+/// field's own `ConstantTimeEq` implementation and combines the hidden
+/// `sanitization::ct::Choice` bits. It never compares raw struct bytes, so
+/// padding and representation details are not read.
+///
+/// Enums and unions are rejected. For enums, inactive variant bytes cannot be
+/// reached safely and comparing only the active variant can hide residual
+/// secret bytes from previous variants.
+#[proc_macro_derive(ConstantTimeEq, attributes(sanitization))]
+pub fn derive_constant_time_eq(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    expand_constant_time_eq(&input)
+        .unwrap_or_else(Error::into_compile_error)
+        .into()
+}
+
+/// Derive `sanitization::ct::ConditionallySelectable` for structs.
+///
+/// The generated implementation selects every field through that field's own
+/// `ConditionallySelectable` implementation. `#[sanitization(skip)]` is
+/// intentionally rejected for this derive because the output must be a complete
+/// selection between `left` and `right`.
+///
+/// Enums and unions are rejected. Field-wise struct selection avoids raw
+/// representation reads and does not inspect padding bytes.
+#[proc_macro_derive(ConditionallySelectable, attributes(sanitization))]
+pub fn derive_conditionally_selectable(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    expand_conditionally_selectable(&input)
+        .unwrap_or_else(Error::into_compile_error)
+        .into()
+}
+
 #[derive(Default)]
 struct ContainerOptions {
     crate_path: Option<Path>,
@@ -141,6 +176,88 @@ fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
     })
 }
 
+fn expand_constant_time_eq(input: &DeriveInput) -> Result<TokenStream2> {
+    let options = parse_container_options(&input.attrs)?;
+    let crate_path = crate_path(&options);
+    let body = match &input.data {
+        Data::Struct(data) => expand_ct_eq_struct_body(data, &crate_path)?,
+        Data::Enum(_) => {
+            return Err(Error::new_spanned(
+                input,
+                "ConstantTimeEq cannot be derived for enums; compare explicit struct wrappers or implement the active-variant semantics manually",
+            ))
+        }
+        Data::Union(_) => {
+            return Err(Error::new_spanned(
+                input,
+                "ConstantTimeEq cannot be derived for unions; implement it manually using documented unsafe code for the active field",
+            ))
+        }
+    };
+    let trait_path: TokenStream2 = quote!(#crate_path::ct::ConstantTimeEq);
+    let generics = add_trait_bounds(
+        input.generics.clone(),
+        &input.data,
+        &trait_path,
+        &options,
+        SkipPolicy::Allow,
+    )?;
+    let name = &input.ident;
+    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+
+    Ok(quote! {
+        impl #impl_generics #crate_path::ct::ConstantTimeEq for #name #type_generics #where_clause {
+            #[inline]
+            fn ct_eq(&self, other: &Self) -> #crate_path::ct::Choice {
+                #body
+            }
+        }
+    })
+}
+
+fn expand_conditionally_selectable(input: &DeriveInput) -> Result<TokenStream2> {
+    let options = parse_container_options(&input.attrs)?;
+    let crate_path = crate_path(&options);
+    let body = match &input.data {
+        Data::Struct(data) => expand_ct_select_struct_body(data, &crate_path)?,
+        Data::Enum(_) => {
+            return Err(Error::new_spanned(
+                input,
+                "ConditionallySelectable cannot be derived for enums; select explicit struct wrappers or implement the active-variant semantics manually",
+            ))
+        }
+        Data::Union(_) => {
+            return Err(Error::new_spanned(
+                input,
+                "ConditionallySelectable cannot be derived for unions; implement it manually using documented unsafe code for the active field",
+            ))
+        }
+    };
+    let trait_path: TokenStream2 = quote!(#crate_path::ct::ConditionallySelectable);
+    let generics = add_trait_bounds(
+        input.generics.clone(),
+        &input.data,
+        &trait_path,
+        &options,
+        SkipPolicy::Reject,
+    )?;
+    let name = &input.ident;
+    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+
+    Ok(quote! {
+        impl #impl_generics #crate_path::ct::ConditionallySelectable for #name #type_generics #where_clause {
+            #[inline]
+            fn conditional_select(
+                left: &Self,
+                right: &Self,
+                choice: #crate_path::ct::Choice,
+            ) -> Self {
+                #body
+            }
+        }
+    })
+}
+
 fn crate_path(options: &ContainerOptions) -> Path {
     options
         .crate_path
@@ -180,6 +297,49 @@ fn add_sanitize_bounds(
     Ok(generics)
 }
 
+#[derive(Clone, Copy)]
+enum SkipPolicy {
+    Allow,
+    Reject,
+}
+
+fn add_trait_bounds(
+    mut generics: Generics,
+    data: &Data,
+    trait_path: &TokenStream2,
+    options: &ContainerOptions,
+    skip_policy: SkipPolicy,
+) -> Result<Generics> {
+    let where_clause = generics.make_where_clause();
+
+    if let Some(bounds) = &options.bound_override {
+        where_clause.predicates.extend(bounds.iter().cloned());
+        return Ok(generics);
+    }
+
+    for field in sanitized_fields(data)? {
+        let field_options = parse_field_options(&field.attrs)?;
+        if field_options.skip {
+            if matches!(skip_policy, SkipPolicy::Reject) {
+                return Err(Error::new_spanned(
+                    field,
+                    "#[sanitization(skip)] is not supported for this derive because every output field must be constructed",
+                ));
+            }
+            continue;
+        }
+
+        if let Some(bounds) = field_options.bound_override {
+            where_clause.predicates.extend(bounds);
+        } else {
+            let ty = &field.ty;
+            where_clause.predicates.push(parse_quote!(#ty: #trait_path));
+        }
+    }
+
+    Ok(generics)
+}
+
 fn sanitized_fields(data: &Data) -> Result<Vec<&syn::Field>> {
     let mut fields = Vec::new();
     match data {
@@ -197,6 +357,79 @@ fn sanitized_fields(data: &Data) -> Result<Vec<&syn::Field>> {
 fn expand_struct_body(data: &DataStruct, crate_path: &Path) -> Result<TokenStream2> {
     let calls = field_calls_for_struct(&data.fields, crate_path)?;
     Ok(quote!(#(#calls)*))
+}
+
+fn expand_ct_eq_struct_body(data: &DataStruct, crate_path: &Path) -> Result<TokenStream2> {
+    let mut calls = Vec::new();
+
+    for (index, field) in data.fields.iter().enumerate() {
+        if parse_field_options(&field.attrs)?.skip {
+            continue;
+        }
+
+        let (left, right) = match &field.ident {
+            Some(ident) => (quote!(&self.#ident), quote!(&other.#ident)),
+            None => {
+                let index = syn::Index::from(index);
+                (quote!(&self.#index), quote!(&other.#index))
+            }
+        };
+        calls.push(quote! {
+            result = result & #crate_path::ct::ConstantTimeEq::ct_eq(#left, #right);
+        });
+    }
+
+    Ok(quote! {
+        let mut result = #crate_path::ct::Choice::TRUE;
+        #(#calls)*
+        result
+    })
+}
+
+fn expand_ct_select_struct_body(data: &DataStruct, crate_path: &Path) -> Result<TokenStream2> {
+    match &data.fields {
+        Fields::Named(fields) => {
+            let mut selected = Vec::new();
+            for field in &fields.named {
+                if parse_field_options(&field.attrs)?.skip {
+                    return Err(Error::new_spanned(
+                        field,
+                        "#[sanitization(skip)] is not supported for ConditionallySelectable derives",
+                    ));
+                }
+                let ident = field.ident.as_ref().expect("named field");
+                selected.push(quote! {
+                    #ident: #crate_path::ct::ConditionallySelectable::conditional_select(
+                        &left.#ident,
+                        &right.#ident,
+                        choice,
+                    )
+                });
+            }
+            Ok(quote!(Self { #(#selected),* }))
+        }
+        Fields::Unnamed(fields) => {
+            let mut selected = Vec::new();
+            for (index, field) in fields.unnamed.iter().enumerate() {
+                if parse_field_options(&field.attrs)?.skip {
+                    return Err(Error::new_spanned(
+                        field,
+                        "#[sanitization(skip)] is not supported for ConditionallySelectable derives",
+                    ));
+                }
+                let index = syn::Index::from(index);
+                selected.push(quote! {
+                    #crate_path::ct::ConditionallySelectable::conditional_select(
+                        &left.#index,
+                        &right.#index,
+                        choice,
+                    )
+                });
+            }
+            Ok(quote!(Self(#(#selected),*)))
+        }
+        Fields::Unit => Ok(quote!(Self)),
+    }
 }
 
 fn field_calls_for_struct(fields: &Fields, crate_path: &Path) -> Result<Vec<TokenStream2>> {

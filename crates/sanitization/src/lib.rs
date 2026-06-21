@@ -110,7 +110,9 @@ use core::{
 };
 
 #[cfg(feature = "derive")]
-pub use sanitization_derive::{SecureSanitize, SecureSanitizeOnDrop};
+pub use sanitization_derive::{
+    ConditionallySelectable, ConstantTimeEq, SecureSanitize, SecureSanitizeOnDrop,
+};
 
 #[cfg(feature = "random-canary")]
 #[allow(unsafe_code)]

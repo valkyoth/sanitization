@@ -8,8 +8,34 @@ Use through the main crate:
 sanitization = { version = "1.1.1", features = ["derive"] }
 ```
 
-The derive crate only generates calls to `sanitization::SecureSanitize`; it does
-not implement memory wiping itself.
+The derive crate only generates calls to traits from `sanitization`; it does
+not implement memory wiping, comparison, or selection logic itself.
+
+Available derives:
+
+- `SecureSanitize`
+- `SecureSanitizeOnDrop`
+- `ConstantTimeEq`
+- `ConditionallySelectable`
+
+`ConstantTimeEq` and `ConditionallySelectable` are conservative field-wise
+derives for structs. They never compare raw struct bytes, so they do not read
+padding or representation details.
+
+```rust
+use sanitization::ct::{ConditionallySelectable as _, ConstantTimeEq as _};
+use sanitization::{ConditionallySelectable, ConstantTimeEq};
+
+#[derive(ConstantTimeEq, ConditionallySelectable)]
+struct Tag {
+    left: [u8; 16],
+    right: [u8; 16],
+}
+```
+
+`#[sanitization(skip)]` is supported for `ConstantTimeEq` when a field is public
+or intentionally ignored. It is rejected for `ConditionallySelectable` because
+constructing the selected output requires every field.
 
 ## Enum Derives
 
@@ -33,6 +59,10 @@ enum KeyMaterial {
     Empty,
 }
 ```
+
+`ConstantTimeEq` and `ConditionallySelectable` reject enums. Use explicit struct
+wrappers or a hand-written implementation when active-variant semantics are
+intentional and reviewed.
 
 ## Generic `SecureSanitizeOnDrop`
 

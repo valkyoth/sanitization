@@ -64,6 +64,8 @@
 - Added a checked `ct_primitives` example covering native equality, ordering,
   selection, `CtOption`, `CtResult`, oblivious lookup, slice selection, and
   conditional swap.
+- Added optional `derive` support for conservative field-wise
+  `ConstantTimeEq` and `ConditionallySelectable` struct derives.
 - Added a draft machine-readable `ct-evidence.json` describing 1.2 target
   tiers, claims, non-claims, proof harnesses, and release-candidate evidence
   requirements.
