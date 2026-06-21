@@ -30,6 +30,7 @@ cargo clippy --all-targets --no-default-features -- -D warnings
 cargo clippy --all-targets --all-features -- -D warnings
 cargo clippy -p sanitization-derive --all-targets -- -D warnings
 scripts/verify-evidence.py
+scripts/evidence-report.py >/dev/null
 
 target_installed() {
     rustup target list --installed | grep -Fxq "$1"

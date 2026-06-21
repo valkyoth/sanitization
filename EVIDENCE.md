@@ -89,6 +89,16 @@ scripts/verify-evidence.py
 This verifies that `ct-evidence.json` has the expected schema and that its
 listed Kani proof names match the proof harnesses in `src/lib.rs`.
 
+Generate local release-evidence metadata for reviewer or release notes:
+
+```bash
+scripts/evidence-report.py
+```
+
+This records the current commit, dirty state, rustc host/version, installed
+targets, and optional Kani/Miri tool availability. It does not replace the
+checks above; it captures the environment in which they were run.
+
 ## Kani Harnesses
 
 The crate includes bounded proof harnesses behind `#[cfg(kani)]`. They are not

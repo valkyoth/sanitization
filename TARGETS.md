@@ -52,6 +52,8 @@ A stable `1.2.0` candidate should attach or cite:
 - Miri result when available;
 - any known target-specific residual risks.
 
+Use `scripts/evidence-report.py` to capture the local commit, rustc host,
+installed targets, and optional Kani/Miri tool availability for this evidence.
+
 Targets without this evidence should remain Tier B or Tier C rather than being
 promoted by assumption.
-

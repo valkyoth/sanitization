@@ -1533,6 +1533,7 @@ bash scripts/checks.sh
 ```
 
 The check script covers formatting, feature-matrix tests, examples, clippy,
+machine-readable evidence validation, local evidence-report smoke testing,
 release LLVM IR/assembly verification, optional bounded Kani verification when
 `cargo-kani` is installed, docs with warnings denied, and package listing.
 `EVIDENCE.md` records the current target tiers, proof scope, codegen checks,
@@ -1557,6 +1558,16 @@ scripts/verify-kani.sh
 These harnesses prove selected fixed-size properties for the volatile clearing
 path, secret clearing visibility, constant-time equality correctness, and
 capacity arithmetic. They are not a replacement for external review.
+
+To capture local release-evidence metadata for an alpha, RC, or pentest handoff:
+
+```bash
+scripts/evidence-report.py
+```
+
+The report records the current commit, dirty state, rustc host/version,
+installed targets, and optional Kani/Miri tool availability. It is meant to be
+attached to release notes or reviewer notes, not published as a crate artifact.
 
 ## Workspace Layout
 

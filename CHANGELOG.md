@@ -56,6 +56,9 @@
   optimizer-barrier/mask patterns, and absence of `memcmp`/`bcmp` calls.
 - Updated machine-readable evidence validation so native `ct` codegen coverage
   cannot silently drift out of `ct-evidence.json`.
+- Added `scripts/evidence-report.py` to capture local release-evidence metadata
+  for alpha, RC, and pentest handoffs.
+- Wired the evidence-report script into `scripts/checks.sh` as a smoke check.
 - Added a draft machine-readable `ct-evidence.json` describing 1.2 target
   tiers, claims, non-claims, proof harnesses, and release-candidate evidence
   requirements.
