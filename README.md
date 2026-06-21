@@ -39,7 +39,7 @@ internal unsafe boundary.
 
 ## Current Status
 
-The crate is published as stable `1.2.0` on crates.io. It is intended for
+The crate is published as stable `1.2.1` on crates.io. It is intended for
 projects that want dependency-free secret ownership and sanitization by
 default, with stronger platform hardening available through explicit feature
 flags.
@@ -153,14 +153,14 @@ Compatibility evidence:
 
 ```toml
 [dependencies]
-sanitization = "1.2.0"
+sanitization = "1.2.1"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["alloc"] }
+sanitization = { version = "1.2.1", features = ["alloc"] }
 ```
 
 The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
@@ -170,28 +170,28 @@ For memory-locked fixed-size secrets on supported native platforms:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["memory-lock"] }
+sanitization = { version = "1.2.1", features = ["memory-lock"] }
 ```
 
 For derive macros:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["derive"] }
+sanitization = { version = "1.2.1", features = ["derive"] }
 ```
 
 For optional ecosystem interop:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["zeroize-interop", "subtle-interop"] }
+sanitization = { version = "1.2.1", features = ["zeroize-interop", "subtle-interop"] }
 ```
 
 For serde-based config loading:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["serde", "alloc"] }
+sanitization = { version = "1.2.1", features = ["serde", "alloc"] }
 ```
 
 For optional ecosystem wrappers, depend on the separate sister crates only when
@@ -199,8 +199,8 @@ you already use those external libraries:
 
 ```toml
 [dependencies]
-sanitization-arrayvec = "1.2.0"
-sanitization-bytes = "1.2.0"
+sanitization-arrayvec = "1.2.1"
+sanitization-bytes = "1.2.1"
 ```
 
 ## Features
@@ -348,7 +348,7 @@ those host-kernel facilities directly.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["memory-lock", "wasm-compat"] }
+sanitization = { version = "1.2.1", features = ["memory-lock", "wasm-compat"] }
 ```
 
 `memory-lock` without `wasm-compat` is rejected at compile time on WASM so
@@ -458,7 +458,7 @@ Enable `std` when you want the convenience wrapper backed by
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["std"] }
+sanitization = { version = "1.2.1", features = ["std"] }
 ```
 
 ```rust
@@ -631,7 +631,7 @@ must be a hard failure rather than a documented platform limitation:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["require-fork-exclusion"] }
+sanitization = { version = "1.2.1", features = ["require-fork-exclusion"] }
 ```
 
 With this profile, locked constructors and locked guarded constructors return a
@@ -645,9 +645,15 @@ use sanitization::LockedSecretBytes;
 let mut key = LockedSecretBytes::<32>::from_fn(|_| 7).unwrap();
 let fallible_key =
     LockedSecretBytes::<32>::try_from_fn(|_| Ok::<u8, &'static str>(7)).unwrap();
+let decoded_key = LockedSecretBytes::<32>::try_from_fill(|output| {
+    output.copy_from_slice(&[7; 32]);
+    Ok::<(), &'static str>(())
+})
+.unwrap();
 
 assert!(key.constant_time_eq(&[7; 32]));
 assert!(fallible_key.constant_time_eq(&[7; 32]));
+assert!(decoded_key.constant_time_eq(&[7; 32]));
 
 key.with_secret(|bytes| {
     assert_eq!(bytes.len(), 32);
@@ -658,6 +664,11 @@ key.replace_from_array([9; 32]).unwrap();
 key.replace_from_fn(|index| index as u8).unwrap();
 key.try_replace_from_fn(|index| Ok::<u8, &'static str>(index as u8))
     .unwrap();
+key.try_replace_from_fill(|output| {
+    output.copy_from_slice(&[3; 32]);
+    Ok::<(), &'static str>(())
+})
+.unwrap();
 
 key.secure_clear();
 assert!(key.constant_time_eq(&[0; 32]));
@@ -679,10 +690,14 @@ compatibility storage. Use
 `try_from_fn` for fallible generators such as RNG or KDF APIs. Use `from_slice`
 when loading bytes from an existing runtime buffer. `from_array` is still
 available for fixed arrays and clears its owned input array before returning.
+Use `from_fill` or `try_from_fill` when an encoder, decoder, KDF, or RNG can
+write into a caller-provided `&mut [u8; N]`; this avoids staging plaintext in
+an unlocked temporary buffer before moving it into locked storage.
 Use `replace_from_array`, `replace_from_slice`, `replace_from_fn`, or
-`try_replace_from_fn` when rotating the whole locked value. Array replacement
-clears its owned input array. Fallible generated replacement keeps the old
-locked value unchanged on generator error.
+`try_replace_from_fn` when rotating the whole locked value. Use
+`replace_from_fill` or `try_replace_from_fill` for in-place decoder-style
+replacement. Array replacement clears its owned input array. Fallible generated
+or filled replacement keeps the old locked value unchanged on error.
 
 Use `LockedSecretVec` when the secret length is known only at runtime and you
 want native memory-locking without guard pages:
@@ -695,15 +710,27 @@ let generated = LockedSecretVec::try_from_fn(11, |index| {
     Ok::<u8, &'static str>(b"session-key"[index])
 })
 .unwrap();
+let decoded = LockedSecretVec::try_from_capacity(16, |output| {
+    output[..11].copy_from_slice(b"session-key");
+    Ok::<usize, &'static str>(11)
+})
+.unwrap();
 
 assert!(token.constant_time_eq(b"session-key"));
 assert!(generated.constant_time_eq(b"session-key"));
+assert!(decoded.constant_time_eq(b"session-key"));
 
 token.extend_from_slice(b"-v2").unwrap();
 token.replace_from_slice(b"rotated-session-key").unwrap();
 token.replace_from_fn(16, |index| index as u8).unwrap();
 token
     .try_replace_from_fn(16, |index| Ok::<u8, &'static str>(index as u8))
+    .unwrap();
+token
+    .try_replace_from_capacity(32, |output| {
+        output[..7].copy_from_slice(b"decoded");
+        Ok::<usize, &'static str>(7)
+    })
     .unwrap();
 
 token.clear_secret();
@@ -716,6 +743,15 @@ lower overhead than `GuardedSecretVec` because it does not reserve guard pages.
 Use `GuardedSecretVec` instead when page-boundary fault detection matters more
 than allocation footprint. `LockedSecretVec` is native-only; WASM has no
 host-kernel memory-lock facility and does not expose this dynamic locked type.
+For companion crates such as parsers or base64 decoders, prefer
+`from_exact_len`, `try_from_exact_len`, `from_capacity`, or
+`try_from_capacity` so decoded plaintext is written directly into the locked
+mapping. The capacity-based APIs are useful when the caller can calculate a
+maximum decoded length up front and returns the actual initialized byte count
+after decoding. If the reported length exceeds capacity, the temporary locked
+mapping is cleared and an error is returned. If the reported length is smaller
+than capacity, spare payload bytes are volatile-cleared before the value is
+exposed.
 
 Enable `canary-check` when locked or guarded secrets should detect corruption
 that reaches either side of the secret data while staying inside the writable
@@ -723,7 +759,7 @@ mapping or pooled slot.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["canary-check"] }
+sanitization = { version = "1.2.1", features = ["canary-check"] }
 ```
 
 ```rust
@@ -775,7 +811,7 @@ system CSPRNG instead of the deterministic address-derived fallback:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["random-canary"] }
+sanitization = { version = "1.2.1", features = ["random-canary"] }
 ```
 
 `random-canary` uses direct platform backends without additional crates: Linux
@@ -799,7 +835,7 @@ dependency-free random backend:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["strict-canary-check"] }
+sanitization = { version = "1.2.1", features = ["strict-canary-check"] }
 ```
 
 For many same-size locked secrets on native targets, use
@@ -857,7 +893,7 @@ pages on supported Linux, Android, macOS, iOS, Windows, and BSD targets:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["guard-pages"] }
+sanitization = { version = "1.2.1", features = ["guard-pages"] }
 ```
 
 ```rust
@@ -912,7 +948,7 @@ can also lock their writable data pages:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["guard-pages", "memory-lock"] }
+sanitization = { version = "1.2.1", features = ["guard-pages", "memory-lock"] }
 ```
 
 ```rust
@@ -993,7 +1029,7 @@ the explicit proc-macro dependency tradeoff:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["derive"] }
+sanitization = { version = "1.2.1", features = ["derive"] }
 ```
 
 ```rust
@@ -1094,7 +1130,7 @@ downstream API already requires these ecosystem traits:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["zeroize-interop", "subtle-interop"] }
+sanitization = { version = "1.2.1", features = ["zeroize-interop", "subtle-interop"] }
 ```
 
 ```rust
@@ -1124,7 +1160,7 @@ do not leak secret material.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["serde", "alloc"] }
+sanitization = { version = "1.2.1", features = ["serde", "alloc"] }
 serde = { version = "1", features = ["derive"] }
 ```
 
@@ -1281,7 +1317,7 @@ evidence:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["multi-pass-clear"] }
+sanitization = { version = "1.2.1", features = ["multi-pass-clear"] }
 ```
 
 ```rust
@@ -1308,7 +1344,7 @@ clearing followed by `clflush`/`mfence` over the affected cache lines:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["cache-flush"] }
+sanitization = { version = "1.2.1", features = ["cache-flush"] }
 ```
 
 ```rust
@@ -1339,7 +1375,7 @@ comparisons to cross an explicit compiler boundary:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["asm-compare"] }
+sanitization = { version = "1.2.1", features = ["asm-compare"] }
 ```
 
 The public API does not change. `SecretBytes<N>`, `SecretVec`, `SecretString`,
@@ -1356,7 +1392,7 @@ portable fallback, enable `strict-ct`:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["strict-ct"] }
+sanitization = { version = "1.2.1", features = ["strict-ct"] }
 ```
 
 `strict-ct` currently accepts x86_64 and AArch64 non-Miri builds, where the
@@ -1370,7 +1406,7 @@ register clearing boundary after cryptographic code:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["register-scrub"] }
+sanitization = { version = "1.2.1", features = ["register-scrub"] }
 ```
 
 ```rust
@@ -1396,7 +1432,7 @@ Enable `split-secret` for fixed-size N-of-N XOR split storage:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["split-secret"] }
+sanitization = { version = "1.2.1", features = ["split-secret"] }
 ```
 
 ```rust
@@ -1429,7 +1465,7 @@ surface for hardware-backed secret providers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.0", features = ["hardware-secrets"] }
+sanitization = { version = "1.2.1", features = ["hardware-secrets"] }
 ```
 
 ```rust
@@ -1482,8 +1518,8 @@ buffer libraries:
 
 ```toml
 [dependencies]
-sanitization-arrayvec = "1.2.0"
-sanitization-bytes = "1.2.0"
+sanitization-arrayvec = "1.2.1"
+sanitization-bytes = "1.2.1"
 ```
 
 ```rust

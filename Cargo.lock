@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "sanitization"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "sanitization-derive",
  "serde",
@@ -57,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "sanitization-arrayvec"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "arrayvec",
  "sanitization",
@@ -65,7 +65,7 @@ dependencies = [
 
 [[package]]
 name = "sanitization-bytes"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "bytes",
  "sanitization",
@@ -73,7 +73,7 @@ dependencies = [
 
 [[package]]
 name = "sanitization-derive"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "proc-macro2",
  "quote",

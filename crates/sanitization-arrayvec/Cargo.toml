@@ -19,7 +19,7 @@ include = [
 
 [dependencies]
 arrayvec = { version = "0.7", default-features = false }
-sanitization = { version = "1.2.0", path = "../sanitization" }
+sanitization = { version = "1.2.1", path = "../sanitization" }
 
 [lib]
 path = "src/lib.rs"

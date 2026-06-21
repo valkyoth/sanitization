@@ -2671,6 +2671,36 @@ mod memory_lock {
             Ok(secret)
         }
 
+        /// Allocate locked storage and fill the full fixed-size payload in
+        /// place.
+        ///
+        /// This is intended for decoder, KDF, RNG, or protocol APIs that can
+        /// write into a caller-provided output buffer. The private mapping is
+        /// created, dump-excluded, fork-excluded where supported, and locked
+        /// before `fill` receives the mutable payload. No intermediate
+        /// unlocked `Vec` or stack array is required by this API.
+        #[inline]
+        pub fn from_fill(fill: impl FnOnce(&mut [u8; N])) -> Result<Self, MemoryLockError> {
+            let mut secret = Self::zeroed()?;
+            fill(secret.as_mut_array());
+            compiler_fence(Ordering::SeqCst);
+            Ok(secret)
+        }
+
+        /// Fallible variant of [`LockedSecretBytes::from_fill`].
+        ///
+        /// If `fill` returns an error, partial bytes already written into the
+        /// locked mapping are volatile-cleared before the error is returned.
+        #[inline]
+        pub fn try_from_fill<E>(
+            fill: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
+        ) -> Result<Self, LockedSecretBytesGenerateError<E>> {
+            let mut secret = Self::zeroed()?;
+            fill(secret.as_mut_array()).map_err(LockedSecretBytesGenerateError::Generate)?;
+            compiler_fence(Ordering::SeqCst);
+            Ok(secret)
+        }
+
         /// Number of secret bytes stored in the locked mapping.
         #[must_use]
         #[inline]
@@ -2758,6 +2788,39 @@ mod memory_lock {
             make_byte: impl FnMut(usize) -> Result<u8, E>,
         ) -> Result<(), LockedSecretBytesGenerateError<E>> {
             let mut replacement = Self::try_from_fn(make_byte)?;
+            self.secure_clear();
+            core::mem::swap(self, &mut replacement);
+            Ok(())
+        }
+
+        /// Replace all secret bytes by filling a fresh locked mapping in
+        /// place.
+        ///
+        /// The old locked value remains unchanged if mapping setup fails. If
+        /// `fill` panics, the old value also remains unchanged and partial
+        /// replacement bytes are cleared during unwinding.
+        #[inline]
+        pub fn replace_from_fill(
+            &mut self,
+            fill: impl FnOnce(&mut [u8; N]),
+        ) -> Result<(), MemoryLockError> {
+            let mut replacement = Self::from_fill(fill)?;
+            self.secure_clear();
+            core::mem::swap(self, &mut replacement);
+            Ok(())
+        }
+
+        /// Fallible variant of [`LockedSecretBytes::replace_from_fill`].
+        ///
+        /// The old locked value remains unchanged if mapping setup or `fill`
+        /// fails. Partial replacement bytes are cleared before the error is
+        /// returned.
+        #[inline]
+        pub fn try_replace_from_fill<E>(
+            &mut self,
+            fill: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
+        ) -> Result<(), LockedSecretBytesGenerateError<E>> {
+            let mut replacement = Self::try_from_fill(fill)?;
             self.secure_clear();
             core::mem::swap(self, &mut replacement);
             Ok(())
@@ -2917,6 +2980,13 @@ mod memory_lock {
             // SAFETY: `&mut self` gives exclusive access to the live mapping,
             // and the mapping is at least `N` bytes long when `N > 0`.
             unsafe { core::slice::from_raw_parts_mut(self.data_ptr(), N) }
+        }
+
+        #[inline]
+        fn as_mut_array(&mut self) -> &mut [u8; N] {
+            // SAFETY: `data_ptr` is valid for exactly `N` payload bytes owned
+            // by this value for the duration of `&mut self`.
+            unsafe { &mut *(self.data_ptr() as *mut [u8; N]) }
         }
 
         #[inline]
@@ -3154,6 +3224,57 @@ mod memory_lock {
         }
     }
 
+    /// Error returned when in-place locked dynamic byte filling fails.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum LockedSecretVecFillError<E> {
+        /// Platform memory-locking or mapping setup failed.
+        Memory(MemoryLockError),
+        /// The fill closure returned an error.
+        Fill(E),
+        /// The fill closure reported more initialized bytes than capacity.
+        Length(crate::LengthError),
+    }
+
+    impl<E: fmt::Display> fmt::Display for LockedSecretVecFillError<E> {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::Memory(error) => write!(formatter, "{error}"),
+                Self::Fill(error) => {
+                    write!(formatter, "locked dynamic secret fill failed: {error}")
+                }
+                Self::Length(error) => write!(formatter, "{error}"),
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl<E> std::error::Error for LockedSecretVecFillError<E>
+    where
+        E: std::error::Error + 'static,
+    {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::Memory(error) => Some(error),
+                Self::Fill(error) => Some(error),
+                Self::Length(error) => Some(error),
+            }
+        }
+    }
+
+    impl<E> From<MemoryLockError> for LockedSecretVecFillError<E> {
+        #[inline]
+        fn from(error: MemoryLockError) -> Self {
+            Self::Memory(error)
+        }
+    }
+
+    impl<E> From<crate::LengthError> for LockedSecretVecFillError<E> {
+        #[inline]
+        fn from(error: crate::LengthError) -> Self {
+            Self::Length(error)
+        }
+    }
+
     /// `LockedSecretVec` fills the gap between [`crate::SecretVec`] and
     /// [`crate::GuardedSecretVec`]. It supports runtime-length secret bytes in
     /// platform-locked memory without adding guard pages, which keeps memory
@@ -3247,6 +3368,85 @@ mod memory_lock {
             secret
                 .fill_from_try_fn(len, &mut make_byte)
                 .map_err(LockedSecretVecGenerateError::Generate)?;
+            Ok(secret)
+        }
+
+        /// Create locked dynamic storage and fill an exact-length payload in
+        /// place.
+        ///
+        /// This is intended for decoders, KDFs, RNGs, and protocol APIs that
+        /// can write into a caller-provided output buffer. The mapping is
+        /// created, dump-excluded, fork-excluded where supported, and locked
+        /// before `fill` receives the mutable payload. No intermediate
+        /// unlocked `Vec` is required by this API.
+        pub fn from_exact_len(
+            len: usize,
+            fill: impl FnOnce(&mut [u8]),
+        ) -> Result<Self, MemoryLockError> {
+            let mut secret = Self::with_capacity(len)?;
+            fill(&mut secret.as_mut_capacity_slice()[..len]);
+            secret.finish_initialization(len);
+            Ok(secret)
+        }
+
+        /// Fallible variant of [`LockedSecretVec::from_exact_len`].
+        ///
+        /// If `fill` returns an error, partial bytes already written into the
+        /// locked mapping are volatile-cleared before the error is returned.
+        pub fn try_from_exact_len<E>(
+            len: usize,
+            fill: impl FnOnce(&mut [u8]) -> Result<(), E>,
+        ) -> Result<Self, LockedSecretVecGenerateError<E>> {
+            let mut secret = Self::with_capacity(len)?;
+            fill(&mut secret.as_mut_capacity_slice()[..len])
+                .map_err(LockedSecretVecGenerateError::Generate)?;
+            secret.finish_initialization(len);
+            Ok(secret)
+        }
+
+        /// Create locked dynamic storage with `capacity` bytes and fill it in
+        /// place, returning the number of initialized bytes.
+        ///
+        /// This is the preferred constructor for base64 or protocol decoders
+        /// that can compute a maximum output size before decoding, but only
+        /// learn the exact decoded length after writing. If `fill` reports a
+        /// length greater than `capacity`, the mapping is cleared and
+        /// [`LockedSecretVecFillError::Length`] is returned.
+        pub fn from_capacity(
+            capacity: usize,
+            fill: impl FnOnce(&mut [u8]) -> usize,
+        ) -> Result<Self, LockedSecretVecFillError<core::convert::Infallible>> {
+            Self::try_from_capacity(capacity, |output| {
+                Ok::<usize, core::convert::Infallible>(fill(output))
+            })
+        }
+
+        /// Fallible variant of [`LockedSecretVec::from_capacity`].
+        ///
+        /// If `fill` returns an error or reports too many initialized bytes,
+        /// partial bytes already written into the locked mapping are
+        /// volatile-cleared before the error is returned.
+        pub fn try_from_capacity<E>(
+            capacity: usize,
+            fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+        ) -> Result<Self, LockedSecretVecFillError<E>> {
+            let mut secret = Self::with_capacity(capacity)?;
+            let len =
+                fill(secret.as_mut_capacity_slice()).map_err(LockedSecretVecFillError::Fill)?;
+            if len > capacity {
+                secret.clear_secret();
+                return Err(crate::LengthError {
+                    expected: capacity,
+                    actual: len,
+                }
+                .into());
+            }
+
+            if len < capacity {
+                let spare = &mut secret.as_mut_capacity_slice()[len..capacity];
+                crate::wipe::volatile_wipe(spare.as_mut_ptr(), spare.len());
+            }
+            secret.finish_initialization(len);
             Ok(secret)
         }
 
@@ -3365,6 +3565,73 @@ mod memory_lock {
             replacement
                 .fill_from_try_fn(len, &mut make_byte)
                 .map_err(LockedSecretVecGenerateError::Generate)?;
+            self.clear_secret();
+            core::mem::swap(self, &mut replacement);
+            Ok(())
+        }
+
+        /// Replace all initialized bytes by filling an exact-length fresh
+        /// locked mapping in place.
+        ///
+        /// The old locked value remains unchanged if mapping setup fails. If
+        /// `fill` panics, the old value also remains unchanged and partial
+        /// replacement bytes are cleared during unwinding.
+        pub fn replace_from_exact_len(
+            &mut self,
+            len: usize,
+            fill: impl FnOnce(&mut [u8]),
+        ) -> Result<(), MemoryLockError> {
+            self.assert_canaries_intact();
+            let mut replacement = Self::from_exact_len(len, fill)?;
+            self.clear_secret();
+            core::mem::swap(self, &mut replacement);
+            Ok(())
+        }
+
+        /// Fallible variant of [`LockedSecretVec::replace_from_exact_len`].
+        ///
+        /// The old locked value remains unchanged if mapping setup or `fill`
+        /// fails. Partial replacement bytes are cleared before the error is
+        /// returned.
+        pub fn try_replace_from_exact_len<E>(
+            &mut self,
+            len: usize,
+            fill: impl FnOnce(&mut [u8]) -> Result<(), E>,
+        ) -> Result<(), LockedSecretVecGenerateError<E>> {
+            self.assert_canaries_intact();
+            let mut replacement = Self::try_from_exact_len(len, fill)?;
+            self.clear_secret();
+            core::mem::swap(self, &mut replacement);
+            Ok(())
+        }
+
+        /// Replace all initialized bytes by filling a fresh locked mapping
+        /// with `capacity` bytes and returning the actual initialized length.
+        ///
+        /// The old locked value remains unchanged if mapping setup fails or if
+        /// `fill` reports a length greater than `capacity`.
+        pub fn replace_from_capacity(
+            &mut self,
+            capacity: usize,
+            fill: impl FnOnce(&mut [u8]) -> usize,
+        ) -> Result<(), LockedSecretVecFillError<core::convert::Infallible>> {
+            self.try_replace_from_capacity(capacity, |output| {
+                Ok::<usize, core::convert::Infallible>(fill(output))
+            })
+        }
+
+        /// Fallible variant of [`LockedSecretVec::replace_from_capacity`].
+        ///
+        /// The old locked value remains unchanged if mapping setup, filling, or
+        /// length validation fails. Partial replacement bytes are cleared
+        /// before the error is returned.
+        pub fn try_replace_from_capacity<E>(
+            &mut self,
+            capacity: usize,
+            fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+        ) -> Result<(), LockedSecretVecFillError<E>> {
+            self.assert_canaries_intact();
+            let mut replacement = Self::try_from_capacity(capacity, fill)?;
             self.clear_secret();
             core::mem::swap(self, &mut replacement);
             Ok(())
@@ -4955,7 +5222,7 @@ pub use memory_lock::{
     ),
     not(miri)
 ))]
-pub use memory_lock::{LockedSecretVec, LockedSecretVecGenerateError};
+pub use memory_lock::{LockedSecretVec, LockedSecretVecFillError, LockedSecretVecGenerateError};
 
 #[cfg(all(
     feature = "canary-check",
@@ -13457,6 +13724,49 @@ mod tests {
         not(miri)
     ))]
     #[test]
+    fn locked_secret_bytes_can_fill_in_place() {
+        let mut secret = match LockedSecretBytes::<4>::from_fill(|output| {
+            output.copy_from_slice(&[1, 2, 3, 4]);
+        }) {
+            Ok(secret) => secret,
+            Err(_) => return,
+        };
+
+        assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+        match LockedSecretBytes::<4>::try_from_fill(|output| {
+            output[..2].copy_from_slice(&[9, 8]);
+            Err("decode failed")
+        }) {
+            Ok(_) => panic!("fill should have failed"),
+            Err(LockedSecretBytesGenerateError::Memory(_)) => return,
+            Err(LockedSecretBytesGenerateError::Generate(error)) => {
+                assert_eq!(error, "decode failed");
+            }
+        }
+
+        secret
+            .replace_from_fill(|output| output.copy_from_slice(&[5, 6, 7, 8]))
+            .unwrap();
+        assert!(secret.constant_time_eq(&[5, 6, 7, 8]));
+
+        assert_eq!(
+            secret.try_replace_from_fill(|output| {
+                output[0] = 0;
+                Err("decode failed")
+            }),
+            Err(LockedSecretBytesGenerateError::Generate("decode failed"))
+        );
+        assert!(secret.constant_time_eq(&[5, 6, 7, 8]));
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
     fn locked_secret_vec_round_trip_grow_replace_and_clear() {
         let mut secret = match LockedSecretVec::from_slice(b"key") {
             Ok(secret) => secret,
@@ -13500,6 +13810,105 @@ mod tests {
 
         secret.extend_from_slice(b"next").unwrap();
         assert!(secret.constant_time_eq(b"next"));
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    #[test]
+    fn locked_secret_vec_can_fill_in_place() {
+        let mut exact = match LockedSecretVec::from_exact_len(4, |output| {
+            output.copy_from_slice(&[1, 2, 3, 4]);
+        }) {
+            Ok(secret) => secret,
+            Err(_) => return,
+        };
+        assert!(exact.constant_time_eq(&[1, 2, 3, 4]));
+
+        match LockedSecretVec::try_from_exact_len(4, |output| {
+            output[..2].copy_from_slice(&[9, 8]);
+            Err("decode failed")
+        }) {
+            Ok(_) => panic!("fill should have failed"),
+            Err(LockedSecretVecGenerateError::Memory(_)) => return,
+            Err(LockedSecretVecGenerateError::Generate(error)) => {
+                assert_eq!(error, "decode failed");
+            }
+        }
+
+        let mut bounded = match LockedSecretVec::from_capacity(8, |output| {
+            output[..5].copy_from_slice(b"token");
+            output[5..8].copy_from_slice(b"old");
+            5
+        }) {
+            Ok(secret) => secret,
+            Err(LockedSecretVecFillError::Memory(_)) => return,
+            Err(error) => panic!("unexpected capacity fill error: {error}"),
+        };
+        assert_eq!(bounded.len(), 5);
+        assert!(bounded.capacity() >= 8);
+        assert!(bounded.constant_time_eq(b"token"));
+
+        match LockedSecretVec::try_from_capacity(4, |output| {
+            output.copy_from_slice(b"abcd");
+            Ok::<usize, &'static str>(5)
+        }) {
+            Ok(_) => panic!("reported length should have failed"),
+            Err(LockedSecretVecFillError::Memory(_)) => return,
+            Err(error) => assert_eq!(
+                error,
+                LockedSecretVecFillError::Length(LengthError {
+                    expected: 4,
+                    actual: 5,
+                })
+            ),
+        }
+
+        exact
+            .replace_from_exact_len(3, |output| output.copy_from_slice(b"key"))
+            .unwrap();
+        assert!(exact.constant_time_eq(b"key"));
+
+        assert_eq!(
+            exact.try_replace_from_exact_len(4, |output| {
+                output[..2].copy_from_slice(&[9, 8]);
+                Err("decode failed")
+            }),
+            Err(LockedSecretVecGenerateError::Generate("decode failed"))
+        );
+        assert!(exact.constant_time_eq(b"key"));
+
+        assert_eq!(
+            exact.try_replace_from_exact_len(4, |output| {
+                output.copy_from_slice(b"fail");
+                Err("decode failed")
+            }),
+            Err(LockedSecretVecGenerateError::Generate("decode failed"))
+        );
+        assert!(exact.constant_time_eq(b"key"));
+
+        bounded
+            .replace_from_capacity(8, |output| {
+                output[..6].copy_from_slice(b"secret");
+                6
+            })
+            .unwrap();
+        assert!(bounded.constant_time_eq(b"secret"));
+
+        assert_eq!(
+            bounded.try_replace_from_capacity(4, |output| {
+                output.copy_from_slice(b"abcd");
+                Ok::<usize, &'static str>(5)
+            }),
+            Err(LockedSecretVecFillError::Length(LengthError {
+                expected: 4,
+                actual: 5,
+            }))
+        );
+        assert!(bounded.constant_time_eq(b"secret"));
     }
 
     #[cfg(all(

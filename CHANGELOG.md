@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.1
+
+- Added in-place locked fill constructors and replacement APIs for
+  `LockedSecretBytes<N>` and `LockedSecretVec`, allowing decoders, KDFs, RNGs,
+  and protocol parsers to write directly into OS-locked memory without staging
+  plaintext in an unlocked `Vec`.
+- Added capacity-based `LockedSecretVec` fill APIs for decoders that know a
+  maximum output size before decoding and return the actual initialized length
+  afterwards. Over-reported lengths fail closed and clear the temporary locked
+  mapping; spare payload bytes beyond the reported initialized length are
+  volatile-cleared before exposure.
+- Added `LockedSecretVecFillError<E>` for distinguishing memory-lock setup
+  failures, fill closure failures, and invalid reported output lengths.
+
 ## 1.2.0
 
 - Added the initial native `sanitization::ct` data-oblivious API skeleton with
