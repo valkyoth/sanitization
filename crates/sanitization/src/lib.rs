@@ -914,7 +914,9 @@ mod memory_lock {
         pub operation: MemoryLockOperation,
         /// Positive errno or platform error value when available.
         ///
-        /// This is `0` for local failures or unsupported host facilities.
+        /// This is `0` for local failures before a host operation. Negative
+        /// values are crate-internal sentinel failures, such as an unsupported
+        /// random-canary backend or a random backend that made no progress.
         pub errno: i32,
     }
 
@@ -1603,6 +1605,7 @@ mod memory_lock {
         /// With `random-canary`, operating-system CSPRNG failure is reported as
         /// `None`. Use [`SecretPool::try_allocate`] when the caller needs to
         /// distinguish pool exhaustion from random-canary setup failure.
+        #[must_use = "CSPRNG failure also returns None; use try_allocate() to distinguish failures from exhaustion"]
         #[inline]
         pub fn allocate(&self) -> Option<SecretPoolSlot<'_, N, SLOTS>> {
             self.try_allocate().unwrap_or_default()
@@ -2350,6 +2353,9 @@ mod memory_lock {
         /// Positive errno or Windows `GetLastError` value when available.
         ///
         /// This is `0` for local arithmetic failures before a syscall.
+        /// Negative values are crate-internal sentinel failures, such as an
+        /// unsupported random-canary backend or a random backend that made no
+        /// progress.
         pub errno: i32,
     }
 
@@ -3803,6 +3809,7 @@ mod memory_lock {
         /// reported as `None`. Use [`SecretPool::try_allocate`] when the caller
         /// needs to distinguish pool exhaustion from random-canary setup
         /// failure.
+        #[must_use = "CSPRNG failure also returns None; use try_allocate() to distinguish failures from exhaustion"]
         #[inline]
         pub fn allocate(&self) -> Option<SecretPoolSlot<'_, N, SLOTS>> {
             self.try_allocate().unwrap_or_default()
@@ -5876,6 +5883,9 @@ mod guard_pages {
         /// Positive errno or Windows `GetLastError` value when available.
         ///
         /// This is `0` for local arithmetic failures before a syscall.
+        /// Negative values are crate-internal sentinel failures, such as an
+        /// unsupported random-canary backend or a random backend that made no
+        /// progress.
         pub errno: i32,
     }
 
@@ -7482,6 +7492,20 @@ pub mod ct {
             }
         }
 
+        /// Construct an ordering from already-normalized internal bits.
+        ///
+        /// Callers must provide exactly one true bit. This preserves hidden
+        /// accumulators from internal comparison routines without passing them
+        /// through the public lossy normalizing constructor.
+        #[inline]
+        const fn from_normalized_bits(less: Choice, equal: Choice, greater: Choice) -> Self {
+            Self {
+                less,
+                equal,
+                greater,
+            }
+        }
+
         /// Return the hidden less-than bit.
         #[inline]
         pub const fn is_less(&self) -> Choice {
@@ -7507,6 +7531,8 @@ pub mod ct {
         #[inline]
         pub fn declassify(self, reason: &'static str) -> Ordering {
             black_box(reason);
+            // Fields are private and constructors normalize today. Keep this
+            // as a future-refactor guard for any internal constructors.
             debug_assert_eq!(
                 (self.less.0 & 1) + (self.equal.0 & 1) + (self.greater.0 & 1),
                 1,
@@ -8178,7 +8204,7 @@ pub mod ct {
             index += 1;
         }
 
-        CtOrdering::new(
+        CtOrdering::from_normalized_bits(
             Choice(black_box(less & 1)),
             Choice(black_box(equal_so_far & 1)),
             Choice(black_box(greater & 1)),
