@@ -33,6 +33,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy -p sanitization-derive --all-targets -- -D warnings
 scripts/verify-derive-failures.sh
+scripts/verify-leakage-smoke.sh
 scripts/verify-evidence.py
 scripts/evidence-report.py >/dev/null
 

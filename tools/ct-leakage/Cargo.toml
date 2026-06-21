@@ -1,0 +1,15 @@
+[package]
+name = "ct-leakage"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+sanitization = { path = "../../crates/sanitization" }
+
+[features]
+default = []
+asm-compare = ["sanitization/asm-compare"]
+strict-ct = ["sanitization/strict-ct"]

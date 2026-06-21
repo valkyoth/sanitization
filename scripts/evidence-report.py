@@ -99,6 +99,7 @@ def main() -> int:
             "scripts/checks.sh",
             "scripts/verify-codegen.sh",
             "scripts/verify-derive-failures.sh",
+            "scripts/verify-leakage-smoke.sh",
             "scripts/verify-kani.sh",
             "scripts/verify-miri.sh",
             "scripts/verify-evidence.py",

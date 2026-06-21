@@ -1,9 +1,10 @@
 # Leakage Testing
 
 This document describes the leakage-test expectations for the native
-`sanitization::ct` work. The repository does not currently ship a dudect-style
-statistical timing harness. Until it does, target tiers must not imply measured
-hardware constant-time behavior.
+`sanitization::ct` work. The repository ships an unpublished dudect-style
+statistical timing harness in `tools/ct-leakage`. Until target-specific runs
+are collected and attached to a release candidate, target tiers must not imply
+measured hardware constant-time behavior.
 
 ## Claim Under Test
 
@@ -82,17 +83,44 @@ include either:
 Until then, keep the target at Tier B or Tier C and document the missing
 measurement in `EVIDENCE.md` and `ct-evidence.json`.
 
-## Future Tooling
+## Harness
 
-A future `scripts/verify-leakage.sh` or dedicated test crate should:
+Run a portable release-profile leakage pass from the repository root:
 
-- build in release mode with the exact feature set under review;
-- pin the benchmark process to a CPU where the OS supports it;
-- collect enough samples for dudect-style Welch's t-test analysis;
-- fail closed when the configured threshold is exceeded;
-- emit a machine-readable result that can be referenced from
+```bash
+cargo run --release --manifest-path tools/ct-leakage/Cargo.toml -- \
+  --samples 200000 \
+  --inner 500 \
+  --output target/ct-leakage-portable.json
+```
+
+Run the same harness against the assembly comparison backend:
+
+```bash
+cargo run --release --manifest-path tools/ct-leakage/Cargo.toml --features asm-compare -- \
+  --samples 200000 \
+  --inner 500 \
+  --output target/ct-leakage-asm-compare.json
+```
+
+The harness:
+
+- builds in release mode with the exact feature set under review;
+- records rustc, OS, architecture, git commit, configured samples, and enabled
+  harness features;
+- collects two timing distributions per case;
+- computes an absolute Welch's t statistic;
+- exits non-zero when the configured threshold is exceeded;
+- emits a machine-readable result that can be referenced from
   `ct-evidence.json`.
+
+For a release-candidate evidence run, the operator should separately record
+whether the process was pinned to a CPU and whether CPU frequency scaling,
+turbo/boost, SMT, or scheduler affinity were controlled. Those settings are
+machine-specific and are not changed by the harness itself.
+
+`scripts/verify-leakage-smoke.sh` runs a tiny high-threshold smoke check to keep
+the tool compiling and emitting valid JSON. It is not release timing evidence.
 
 This tooling should remain optional for ordinary users. It is release evidence,
 not a runtime dependency.
-

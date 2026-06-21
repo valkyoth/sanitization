@@ -1,4 +1,5 @@
 /target/
+tools/*/target/
 PENTEST.md
 pentest.md
 MORE.md

@@ -128,12 +128,22 @@ def main() -> int:
     require_check_coverage(
         checks,
         "workspace-checks",
-        ["derive macro tests", "derive rejection checks", "package listing"],
+        [
+            "derive macro tests",
+            "derive rejection checks",
+            "leakage-harness smoke testing",
+            "package listing",
+        ],
     )
     require_check_coverage(
         checks,
         "derive-failures",
         ["enum native ct", "skipped conditionally selectable", "strict enum"],
+    )
+    require_check_coverage(
+        checks,
+        "leakage-smoke",
+        ["ct leakage harness", "JSON output", "not release timing evidence"],
     )
     require_check_coverage(checks, "kani", ["clearing", "equality", "ordering"])
     require_check_coverage(checks, "miri", ["safe and unsafe-boundary"])

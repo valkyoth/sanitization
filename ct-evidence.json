@@ -74,6 +74,7 @@
         "feature matrix",
         "derive macro tests",
         "derive rejection checks",
+        "leakage-harness smoke testing",
         "clippy",
         "docs",
         "package listing",
@@ -88,6 +89,15 @@
         "compile-fail checks for enum native ct derives",
         "compile-fail checks for skipped conditionally selectable fields",
         "compile-fail checks for strict enum sanitization acknowledgement"
+      ]
+    },
+    {
+      "name": "leakage-smoke",
+      "command": "scripts/verify-leakage-smoke.sh",
+      "coverage": [
+        "ct leakage harness compile check",
+        "ct leakage harness JSON output check",
+        "not release timing evidence"
       ]
     },
     {

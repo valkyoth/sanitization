@@ -68,6 +68,9 @@
 - Changed permanent documentation links in the crates.io-facing README to
   GitHub URLs so threat-model, guarantees, safety, and roadmap links resolve
   outside the repository checkout.
+- Added the unpublished `tools/ct-leakage` dudect-style Welch t-test harness
+  plus `scripts/verify-leakage-smoke.sh` for release-evidence collection on
+  x86_64, Apple Silicon, and AArch64 machines.
 - Added a checked `ct_primitives` example covering native equality, ordering,
   selection, `CtOption`, `CtResult`, oblivious lookup, slice selection, and
   conditional swap.
