@@ -98,6 +98,7 @@ def main() -> int:
         "recommended_checks": [
             "scripts/checks.sh",
             "scripts/verify-codegen.sh",
+            "scripts/verify-derive-failures.sh",
             "scripts/verify-kani.sh",
             "scripts/verify-miri.sh",
             "scripts/verify-evidence.py",

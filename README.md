@@ -1559,9 +1559,10 @@ bash scripts/checks.sh
 ```
 
 The check script covers formatting, feature-matrix tests, examples, clippy,
-machine-readable evidence validation, local evidence-report smoke testing,
-release LLVM IR/assembly verification, optional bounded Kani verification when
-`cargo-kani` is installed, docs with warnings denied, and package listing.
+derive rejection checks, machine-readable evidence validation, local
+evidence-report smoke testing, release LLVM IR/assembly verification, optional
+bounded Kani verification when `cargo-kani` is installed, docs with warnings
+denied, and package listing.
 `EVIDENCE.md` records the current target tiers, proof scope, codegen checks,
 and non-guarantees for the native `ct` work. `ct-evidence.json` mirrors the
 same evidence in a machine-readable draft format for release review.
