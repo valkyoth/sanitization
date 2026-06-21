@@ -251,6 +251,14 @@ fn main() {
 }
 
 fn parse_args() -> Result<Config, String> {
+    parse_args_from(env::args().skip(1))
+}
+
+fn parse_args_from<I, S>(args: I) -> Result<Config, String>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
     let mut config = Config {
         samples: 20_000,
         inner: 200,
@@ -260,7 +268,7 @@ fn parse_args() -> Result<Config, String> {
         output: None,
     };
 
-    let mut args = env::args().skip(1);
+    let mut args = args.into_iter().map(|arg| normalize_cli_arg(arg.into()));
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--samples" => config.samples = parse_usize("--samples", args.next())?,
@@ -282,6 +290,13 @@ fn parse_args() -> Result<Config, String> {
     }
 
     Ok(config)
+}
+
+fn normalize_cli_arg(arg: String) -> String {
+    arg.trim_matches(|character: char| {
+        character.is_whitespace() || matches!(character, '\u{00a0}' | '\u{feff}')
+    })
+    .to_owned()
 }
 
 fn required_value(flag: &str, value: Option<String>) -> Result<String, String> {
@@ -617,5 +632,33 @@ fn enabled_features() -> String {
         "default".to_owned()
     } else {
         features.join(",")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_args_accepts_pasted_unicode_spacing() {
+        let config = parse_args_from([
+            "\u{00a0}\u{00a0}--samples",
+            "\u{00a0}10\u{00a0}",
+            "\u{00a0}--inner",
+            "2",
+            "\u{00a0}--warmup",
+            "3",
+            "\u{00a0}--threshold",
+            "9.5",
+            "\u{00a0}--output",
+            "target/ct-leakage.json\u{00a0}",
+        ])
+        .expect("unicode-spaced arguments should parse");
+
+        assert_eq!(config.samples, 10);
+        assert_eq!(config.inner, 2);
+        assert_eq!(config.warmup, 3);
+        assert_eq!(config.threshold, 9.5);
+        assert_eq!(config.output.as_deref(), Some("target/ct-leakage.json"));
     }
 }
