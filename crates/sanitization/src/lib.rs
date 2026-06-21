@@ -11180,6 +11180,7 @@ mod tests {
 
         #[cfg(all(
             feature = "memory-lock",
+            not(miri),
             any(
                 all(
                     target_os = "linux",
