@@ -44,10 +44,11 @@ crates.
 ### Planned: 1.2.0 Native Data-Oblivious API
 
 Status: in development. `v1.2.0-alpha.1` and `v1.2.0-alpha.2` are tagged as
-GitHub-only checkpoints. The current tree contains draft implementations for
-the alpha.3 memory helpers, alpha.4 secret-container integrations, and alpha.5
-evidence work; those later checkpoints still need their own final review/tag
-passes before the first release candidate.
+GitHub-only checkpoints. The current tree contains the planned alpha.3 memory
+helpers, alpha.4 secret-container integrations, alpha.5 verification/evidence
+work, and conservative native `ct` derive support. Those later checkpoint tags
+still need the usual final CI/pentest review before moving to the first release
+candidate.
 
 The `1.2.0` line should add a first-class dependency-free data-oblivious
 primitive module:
