@@ -1520,7 +1520,8 @@ The check script covers formatting, feature-matrix tests, examples, clippy,
 release LLVM IR/assembly verification, optional bounded Kani verification when
 `cargo-kani` is installed, docs with warnings denied, and package listing.
 `EVIDENCE.md` records the current target tiers, proof scope, codegen checks,
-and non-guarantees for the native `ct` work.
+and non-guarantees for the native `ct` work. `ct-evidence.json` mirrors the
+same evidence in a machine-readable draft format for release review.
 
 When a nightly toolchain with Miri is available, run the interpreter-based
 unsafe-boundary check separately:

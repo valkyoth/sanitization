@@ -4,6 +4,10 @@ This document records the current verification evidence for the `sanitization`
 crate. It is not a blanket claim of identical wall-clock timing or complete
 microarchitectural side-channel resistance.
 
+The same information is also summarized in machine-readable form in
+`ct-evidence.json`. That file is a draft until a release candidate attaches
+exact CI run URLs, rustc versions, target triples, and feature sets.
+
 ## Scope
 
 The 1.2 development line adds a native `sanitization::ct` module. Its claim is:
@@ -25,6 +29,8 @@ The crate does not claim:
 - protection for copies made outside crate-owned containers.
 
 ## Target Tiers
+
+`ct-evidence.json` mirrors these tiers for tooling and release review.
 
 | Target/profile | Tier | Evidence |
 | --- | --- | --- |
