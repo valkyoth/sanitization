@@ -4,6 +4,10 @@
 This script intentionally pauses after publishing dependency crates so crates.io
 has time to index them before publishing dependents.
 
+During preflight it also writes a local release-evidence snapshot to:
+
+    target/release-evidence-<version>.json
+
 Publish order:
 1. sanitization-derive
 2. wait for crates.io indexing
@@ -145,6 +149,23 @@ def publish(package: str, args: argparse.Namespace) -> None:
     run(command, dry_run=args.dry_run)
 
 
+def write_release_evidence(version: str, *, dry_run: bool) -> None:
+    output = ROOT / "target" / f"release-evidence-{version}.json"
+    display = output.relative_to(ROOT)
+    print(f"+ scripts/evidence-report.py > {display}", flush=True)
+    if dry_run:
+        return
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = subprocess.check_output(
+        ["scripts/evidence-report.py"],
+        cwd=ROOT,
+        text=True,
+    )
+    output.write_text(report, encoding="utf-8")
+    print(f"Wrote {display}")
+
+
 def run_preflight(args: argparse.Namespace) -> None:
     if args.skip_checks:
         print("Skipping preflight checks by request.")
@@ -165,6 +186,7 @@ def run_preflight(args: argparse.Namespace) -> None:
         ],
         dry_run=args.dry_run,
     )
+    write_release_evidence(args.version, dry_run=args.dry_run)
 
 
 def selected_steps(start_at: str) -> tuple[str, ...]:

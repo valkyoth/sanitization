@@ -1594,7 +1594,9 @@ scripts/release_crates.py --require-tag
 
 The script runs the local checks, publishes in dependency order, and pauses
 after `sanitization-derive` and `sanitization` so crates.io can index each
-dependency before the dependent crate is published.
+dependency before the dependent crate is published. During preflight it writes
+`target/release-evidence-<version>.json` with the local commit, dirty-state,
+rustc, target, Kani, and Miri metadata for the release handoff.
 
 Manual order:
 

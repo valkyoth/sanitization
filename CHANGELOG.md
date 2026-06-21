@@ -59,6 +59,8 @@
 - Added `scripts/evidence-report.py` to capture local release-evidence metadata
   for alpha, RC, and pentest handoffs.
 - Wired the evidence-report script into `scripts/checks.sh` as a smoke check.
+- Updated `scripts/release_crates.py` to write
+  `target/release-evidence-<version>.json` during preflight before publishing.
 - Added a checked `ct_primitives` example covering native equality, ordering,
   selection, `CtOption`, `CtResult`, oblivious lookup, slice selection, and
   conditional swap.
