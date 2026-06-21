@@ -14,6 +14,8 @@
   split constructor that clears the source `SecretBytes`, and aligned
   `ExpiringSecretBytes::replace_from_slice` with the build-clear-install
   replacement path.
+- Aligned `ExpiringSecretBytes::replace_from_array` and the monotonic expiring
+  slice/array replacement methods with the same build-clear-install path.
 
 ## 1.1.1
 

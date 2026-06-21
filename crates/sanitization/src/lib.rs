@@ -8581,15 +8581,24 @@ impl<const N: usize, C: MonotonicClock> MonotonicExpiringSecretBytes<N, C> {
 
     /// Replace all bytes and restart the lifetime window.
     ///
-    /// If the previous value has already expired, it is cleared before the new
-    /// value is copied in.
+    /// The replacement is validated and staged first. The old value is then
+    /// volatile-cleared before the replacement is installed.
     #[inline]
     pub fn replace_from_slice(&mut self, source: &[u8]) -> Result<(), LengthError> {
-        if self.is_expired() {
-            self.inner.secure_clear();
+        if source.len() != N {
+            if self.is_expired() {
+                self.inner.secure_clear();
+            }
+            return Err(LengthError {
+                expected: N,
+                actual: source.len(),
+            });
         }
 
-        self.inner.copy_from_slice(source)?;
+        let mut replacement = SecretBytes::<N>::zeroed();
+        replacement.copy_from_slice(source)?;
+        self.inner.secure_clear();
+        self.inner = replacement;
         self.created_at = self.clock.now();
         Ok(())
     }
@@ -8598,11 +8607,9 @@ impl<const N: usize, C: MonotonicClock> MonotonicExpiringSecretBytes<N, C> {
     /// restart the lifetime window.
     #[inline]
     pub fn replace_from_array(&mut self, bytes: [u8; N]) {
-        if self.is_expired() {
-            self.inner.secure_clear();
-        }
-
-        self.inner.replace_from_array(bytes);
+        let replacement = SecretBytes::from_array(bytes);
+        self.inner.secure_clear();
+        self.inner = replacement;
         self.created_at = self.clock.now();
     }
 
@@ -8877,15 +8884,13 @@ impl<const N: usize> ExpiringSecretBytes<N> {
     /// Replace all bytes from an owned array, clear that input array, and
     /// restart the lifetime window.
     ///
-    /// If the previous value has already expired, it is cleared before the new
-    /// value is copied in.
+    /// The replacement is staged first. The old value is then volatile-cleared
+    /// before the replacement is installed.
     #[inline]
     pub fn replace_from_array(&mut self, bytes: [u8; N]) {
-        if self.is_expired() {
-            self.inner.secure_clear();
-        }
-
-        self.inner.replace_from_array(bytes);
+        let replacement = SecretBytes::from_array(bytes);
+        self.inner.secure_clear();
+        self.inner = replacement;
         self.created_at = std::time::Instant::now();
     }
 
