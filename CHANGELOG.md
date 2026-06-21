@@ -50,6 +50,8 @@
   control flow longer.
 - Added bounded Kani proof coverage for the new `CtOption` and `CtResult`
   combinator semantics.
+- Added bounded Kani proof coverage for `Choice` boolean algebra,
+  `ct::oblivious_lookup`, and `ct::conditional_swap`.
 - Added a draft machine-readable `ct-evidence.json` describing 1.2 target
   tiers, claims, non-claims, proof harnesses, and release-candidate evidence
   requirements.

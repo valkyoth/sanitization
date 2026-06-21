@@ -8285,6 +8285,21 @@ mod kani_verification {
     }
 
     #[kani::proof]
+    fn prove_ct_choice_boolean_algebra_matches_public_bits() {
+        let left_byte: u8 = kani::any();
+        let right_byte: u8 = kani::any();
+        let left = ct::Choice::from_u8(left_byte);
+        let right = ct::Choice::from_u8(right_byte);
+        let left_bit = left.unwrap_u8();
+        let right_bit = right.unwrap_u8();
+
+        assert_eq!((left & right).unwrap_u8(), left_bit & right_bit);
+        assert_eq!((left | right).unwrap_u8(), left_bit | right_bit);
+        assert_eq!((left ^ right).unwrap_u8(), left_bit ^ right_bit);
+        assert_eq!((!left).unwrap_u8(), left_bit ^ 1);
+    }
+
+    #[kani::proof]
     fn prove_ct_fixed_equality_matches_byte_equality() {
         let left: [u8; 4] = kani::any();
         let right: [u8; 4] = kani::any();
@@ -8354,6 +8369,41 @@ mod kani_verification {
             assert_eq!(destination, source);
         } else {
             assert_eq!(destination, initial);
+        }
+    }
+
+    #[kani::proof]
+    fn prove_ct_conditional_swap_matches_choice() {
+        let initial_left: [u8; 4] = kani::any();
+        let initial_right: [u8; 4] = kani::any();
+        let choice_byte: u8 = kani::any();
+        let choice = ct::Choice::from_u8(choice_byte);
+        let mut left = initial_left;
+        let mut right = initial_right;
+
+        assert!(ct::conditional_swap(&mut left, &mut right, choice).is_ok());
+
+        if choice.unwrap_u8() == 1 {
+            assert_eq!(left, initial_right);
+            assert_eq!(right, initial_left);
+        } else {
+            assert_eq!(left, initial_left);
+            assert_eq!(right, initial_right);
+        }
+    }
+
+    #[kani::proof]
+    fn prove_ct_oblivious_lookup_matches_public_index() {
+        let table: [u8; 4] = kani::any();
+        let fallback: u8 = kani::any();
+        let index: usize = kani::any();
+
+        let selected = ct::oblivious_lookup(&table, ct::Secret::new(index), &fallback);
+
+        if index < 4 {
+            assert_eq!(selected, table[index]);
+        } else {
+            assert_eq!(selected, fallback);
         }
     }
 

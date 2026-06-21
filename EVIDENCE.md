@@ -101,12 +101,16 @@ Current proof scope:
 - legacy `constant_time_eq` matches byte equality for bounded fixed arrays;
 - public length mismatch is rejected;
 - `ct::Choice` normalizes to `0` or `1`;
+- `ct::Choice` boolean algebra matches public normalized bit behavior;
 - `ct::eq_fixed` matches byte equality for bounded fixed arrays;
 - `ct::cmp_fixed` matches lexicographic ordering for bounded fixed arrays;
 - `ct::ConstantTimeOrd` matches Rust ordering for bounded signed and unsigned
   primitive integer harnesses;
 - `ct::eq_public_len` rejects public length mismatch;
 - `ct::conditional_copy` matches the public interpretation of the `Choice`;
+- `ct::conditional_swap` matches the public interpretation of the `Choice`;
+- `ct::oblivious_lookup` matches public-index lookup or fallback behavior for
+  the bounded harness;
 - `ct::select_slice` matches the public interpretation of the `Choice`;
 - `ct::CtOption` unwrap/combine/select behavior matches the public
   interpretation of hidden presence bits;
