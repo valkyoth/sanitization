@@ -256,6 +256,8 @@ use sanitization::ct::{Choice, CtOption, CtResult};
 
 let maybe = CtOption::new(42u8, Choice::TRUE);
 assert_eq!(maybe.unwrap_or(&0), 42);
+let doubled = maybe.map(|value| value * 2);
+assert_eq!(doubled.unwrap_or(&0), 84);
 assert_eq!(
     maybe.declassify("parsed credential presence is public"),
     Some(42)
@@ -263,11 +265,19 @@ assert_eq!(
 
 let checked = CtResult::new(7u8, "invalid", Choice::TRUE);
 assert_eq!(checked.unwrap_or(&0), 7);
+let incremented = checked.map(|value| value + 1);
+assert_eq!(incremented.unwrap_or(&0), 8);
 assert_eq!(
     checked.declassify("authentication result is public"),
     Ok(7)
 );
 ```
+
+`CtOption::map`, `CtOption::and`, `CtOption::or`, `CtResult::map`, and
+`CtResult::map_err` keep the hidden presence/success bit inside the `ct`
+domain. Their closures are always called, including on dummy backing values, so
+closures that process secret-derived data must also avoid secret-dependent
+branches and memory access.
 
 Slice equality through `ct::eq_public_len` treats length as public metadata.
 Equal-length byte comparisons scan every byte and do not stop at the first

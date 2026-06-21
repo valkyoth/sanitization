@@ -7354,6 +7354,13 @@ pub mod ct {
         }
     }
 
+    impl ConditionallySelectable for Choice {
+        #[inline]
+        fn conditional_select(left: &Self, right: &Self, choice: Choice) -> Self {
+            Self(u8::conditional_select(&left.0, &right.0, choice) & 1)
+        }
+    }
+
     /// Native data-oblivious equality trait.
     ///
     /// For slices, length is public: length mismatch may return immediately,
@@ -7638,6 +7645,47 @@ pub mod ct {
             T::conditional_select(fallback, &self.value, self.is_some)
         }
 
+        /// Transform the backing value without declassifying the presence bit.
+        ///
+        /// The closure is always called, even when this value is logically
+        /// absent. If the backing value is secret-derived, the closure must
+        /// avoid secret-dependent control flow and secret-dependent memory
+        /// access.
+        #[inline]
+        pub fn map<U>(self, transform: impl FnOnce(T) -> U) -> CtOption<U> {
+            CtOption {
+                value: transform(self.value),
+                is_some: self.is_some,
+            }
+        }
+
+        /// Combine two optional values, keeping the result logically present
+        /// only when both inputs are present.
+        ///
+        /// The backing value from `other` is retained regardless of presence.
+        #[inline]
+        pub fn and<U>(self, other: CtOption<U>) -> CtOption<U> {
+            CtOption {
+                value: other.value,
+                is_some: self.is_some & other.is_some,
+            }
+        }
+
+        /// Select `self` when present and `other` otherwise without branching
+        /// on the hidden presence bit.
+        ///
+        /// The result is present when either input is present.
+        #[inline]
+        pub fn or(self, other: Self) -> Self
+        where
+            T: ConditionallySelectable,
+        {
+            Self {
+                value: T::conditional_select(&other.value, &self.value, self.is_some),
+                is_some: self.is_some | other.is_some,
+            }
+        }
+
         /// Explicitly declassify the presence bit and convert into a normal
         /// [`Option`].
         ///
@@ -7649,6 +7697,19 @@ pub mod ct {
                 Some(self.value)
             } else {
                 None
+            }
+        }
+    }
+
+    impl<T> ConditionallySelectable for CtOption<T>
+    where
+        T: ConditionallySelectable,
+    {
+        #[inline]
+        fn conditional_select(left: &Self, right: &Self, choice: Choice) -> Self {
+            Self {
+                value: T::conditional_select(&left.value, &right.value, choice),
+                is_some: Choice::conditional_select(&left.is_some, &right.is_some, choice),
             }
         }
     }
@@ -7706,6 +7767,38 @@ pub mod ct {
             T::conditional_select(fallback, &self.value, self.is_ok)
         }
 
+        /// Transform the success backing value without declassifying the
+        /// success bit.
+        ///
+        /// The closure is always called, even when this value is logically an
+        /// error. If the backing value is secret-derived, the closure must
+        /// avoid secret-dependent control flow and secret-dependent memory
+        /// access.
+        #[inline]
+        pub fn map<U>(self, transform: impl FnOnce(T) -> U) -> CtResult<U, E> {
+            CtResult {
+                value: transform(self.value),
+                error: self.error,
+                is_ok: self.is_ok,
+            }
+        }
+
+        /// Transform the error backing value without declassifying the success
+        /// bit.
+        ///
+        /// The closure is always called, even when this value is logically
+        /// successful. If the backing error is secret-derived, the closure must
+        /// avoid secret-dependent control flow and secret-dependent memory
+        /// access.
+        #[inline]
+        pub fn map_err<F>(self, transform: impl FnOnce(E) -> F) -> CtResult<T, F> {
+            CtResult {
+                value: self.value,
+                error: transform(self.error),
+                is_ok: self.is_ok,
+            }
+        }
+
         /// Explicitly declassify the success bit and convert into a normal
         /// [`Result`].
         ///
@@ -7717,6 +7810,21 @@ pub mod ct {
                 Ok(self.value)
             } else {
                 Err(self.error)
+            }
+        }
+    }
+
+    impl<T, E> ConditionallySelectable for CtResult<T, E>
+    where
+        T: ConditionallySelectable,
+        E: ConditionallySelectable,
+    {
+        #[inline]
+        fn conditional_select(left: &Self, right: &Self, choice: Choice) -> Self {
+            Self {
+                value: T::conditional_select(&left.value, &right.value, choice),
+                error: E::conditional_select(&left.error, &right.error, choice),
+                is_ok: Choice::conditional_select(&left.is_ok, &right.is_ok, choice),
             }
         }
     }
@@ -11581,6 +11689,8 @@ mod tests {
 
     #[test]
     fn ct_option_keeps_presence_as_choice() {
+        use ct::ConditionallySelectable;
+
         let present = ct::CtOption::some(9u8);
         let absent = ct::CtOption::none(3u8);
 
@@ -11588,12 +11698,28 @@ mod tests {
         assert_eq!(absent.is_none().unwrap_u8(), 1);
         assert_eq!(present.unwrap_or(&1), 9);
         assert_eq!(absent.unwrap_or(&1), 1);
+        assert_eq!(present.map(|value| value.wrapping_add(1)).unwrap_or(&0), 10);
+        assert_eq!(
+            absent
+                .map(|value| value.wrapping_add(1))
+                .declassify("test exposes mapped optional absence"),
+            None
+        );
+        assert_eq!(present.and(ct::CtOption::some(4u8)).unwrap_or(&0), 4);
+        assert_eq!(present.and(ct::CtOption::none(4u8)).unwrap_or(&0), 0);
+        assert_eq!(present.or(ct::CtOption::some(4u8)).unwrap_or(&0), 9);
+        assert_eq!(absent.or(ct::CtOption::some(4u8)).unwrap_or(&0), 4);
+        let selected =
+            ct::CtOption::conditional_select(&present, &ct::CtOption::some(11), ct::Choice::TRUE);
+        assert_eq!(selected.unwrap_or(&0), 11);
         assert_eq!(present.declassify("test exposes optional success"), Some(9));
         assert_eq!(absent.declassify("test exposes optional absence"), None);
     }
 
     #[test]
     fn ct_result_keeps_success_as_choice() {
+        use ct::ConditionallySelectable;
+
         let ok = ct::CtResult::new(7u8, 99u8, ct::Choice::TRUE);
         let err = ct::CtResult::new(7u8, 99u8, ct::Choice::FALSE);
 
@@ -11603,6 +11729,28 @@ mod tests {
         assert_eq!(err.is_err().unwrap_u8(), 1);
         assert_eq!(ok.unwrap_or(&1), 7);
         assert_eq!(err.unwrap_or(&1), 1);
+        assert_eq!(ok.map(|value| value.wrapping_add(1)).unwrap_or(&0), 8);
+        assert_eq!(
+            err.map(|value| value.wrapping_add(1))
+                .declassify("test exposes mapped result error"),
+            Err(99)
+        );
+        assert_eq!(
+            ok.map_err(|error| error.wrapping_add(1))
+                .declassify("test exposes mapped result success"),
+            Ok(7)
+        );
+        assert_eq!(
+            err.map_err(|error| error.wrapping_add(1))
+                .declassify("test exposes mapped result error"),
+            Err(100)
+        );
+        let selected = ct::CtResult::conditional_select(
+            &ok,
+            &ct::CtResult::new(42u8, 1u8, ct::Choice::TRUE),
+            ct::Choice::TRUE,
+        );
+        assert_eq!(selected.unwrap_or(&0), 42);
         assert_eq!(ok.declassify("test exposes result success"), Ok(7));
         assert_eq!(err.declassify("test exposes result error"), Err(99));
     }
