@@ -3800,14 +3800,20 @@ mod memory_lock {
                 "locked dynamic secret length exceeds capacity"
             );
             compiler_fence(Ordering::SeqCst);
+            let capacity = self.as_mut_capacity_slice();
             let mut index = 0;
             while index < len {
-                self.as_mut_capacity_slice()[index] = make_byte(index);
+                capacity[index] = make_byte(index);
                 index += 1;
             }
             self.finish_initialization(len);
         }
 
+        /// Fill a fresh or throwaway dynamic mapping.
+        ///
+        /// On error, clears all bytes written so far and resets the mapping
+        /// before returning. Callers that propagate the error may still run
+        /// `Drop`, causing a harmless second clear of already-zeroed storage.
         fn fill_from_try_fn<E>(
             &mut self,
             len: usize,
@@ -6761,15 +6767,21 @@ mod guard_pages {
             );
             compiler_fence(Ordering::SeqCst);
 
+            let capacity = self.as_mut_capacity_slice();
             let mut index = 0;
             while index < len {
-                self.as_mut_capacity_slice()[index] = make_byte(index);
+                capacity[index] = make_byte(index);
                 index += 1;
             }
 
             self.finish_initialization(len);
         }
 
+        /// Fill a fresh or throwaway guarded mapping.
+        ///
+        /// On error, clears all bytes written so far and resets the mapping
+        /// before returning. Callers that propagate the error may still run
+        /// `Drop`, causing a harmless second clear of already-zeroed storage.
         fn fill_from_try_fn<E>(
             &mut self,
             len: usize,
