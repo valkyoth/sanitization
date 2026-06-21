@@ -87,6 +87,9 @@ Current proof scope:
 - public length mismatch is rejected;
 - `ct::Choice` normalizes to `0` or `1`;
 - `ct::eq_fixed` matches byte equality for bounded fixed arrays;
+- `ct::cmp_fixed` matches lexicographic ordering for bounded fixed arrays;
+- `ct::ConstantTimeOrd` matches Rust ordering for bounded signed and unsigned
+  primitive integer harnesses;
 - `ct::eq_public_len` rejects public length mismatch;
 - `ct::conditional_copy` matches the public interpretation of the `Choice`;
 - `ct::select_slice` matches the public interpretation of the `Choice`;
@@ -126,8 +129,6 @@ Permanent documentation that constrains the claims:
 ## Open Evidence Gaps
 
 - No dudect or equivalent leakage-test harness is shipped yet.
-- `ct::ConstantTimeOrd` and `ct::cmp_fixed` currently have unit-test coverage
-  but no dedicated Kani harness.
 - AArch64 release assembly is compile-checked when the target is installed, but
   is not yet scanned by `scripts/verify-codegen.sh` on non-AArch64 hosts.
 - WASM JIT behavior remains a documented non-guarantee.

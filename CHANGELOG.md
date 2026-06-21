@@ -43,6 +43,8 @@
 - Added `ct::CtOrdering`, `ct::ConstantTimeOrd`, and `ct::cmp_fixed` for
   dependency-free data-oblivious ordering of primitive integers and fixed byte
   arrays.
+- Added bounded Kani proof coverage for native `ct` ordering primitives,
+  including fixed byte arrays plus signed and unsigned integer ordering.
 
 ## 1.1.1
 

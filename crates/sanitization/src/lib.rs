@@ -8094,6 +8094,41 @@ fn portable_constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
 #[cfg(kani)]
 mod kani_verification {
     use super::*;
+    use core::cmp::Ordering;
+
+    fn assert_ct_ordering_matches(ordering: ct::CtOrdering, expected: Ordering) {
+        match expected {
+            Ordering::Less => {
+                assert_eq!(ordering.is_less().unwrap_u8(), 1);
+                assert_eq!(ordering.is_equal().unwrap_u8(), 0);
+                assert_eq!(ordering.is_greater().unwrap_u8(), 0);
+            }
+            Ordering::Equal => {
+                assert_eq!(ordering.is_less().unwrap_u8(), 0);
+                assert_eq!(ordering.is_equal().unwrap_u8(), 1);
+                assert_eq!(ordering.is_greater().unwrap_u8(), 0);
+            }
+            Ordering::Greater => {
+                assert_eq!(ordering.is_less().unwrap_u8(), 0);
+                assert_eq!(ordering.is_equal().unwrap_u8(), 0);
+                assert_eq!(ordering.is_greater().unwrap_u8(), 1);
+            }
+        }
+    }
+
+    fn lexicographic_cmp_4(left: &[u8; 4], right: &[u8; 4]) -> Ordering {
+        let mut index = 0;
+        while index < 4 {
+            if left[index] < right[index] {
+                return Ordering::Less;
+            }
+            if left[index] > right[index] {
+                return Ordering::Greater;
+            }
+            index += 1;
+        }
+        Ordering::Equal
+    }
 
     #[kani::proof]
     fn prove_sanitize_bytes_clears_fixed_buffer() {
@@ -8162,6 +8197,39 @@ mod kani_verification {
         let right: [u8; 3] = kani::any();
 
         assert_eq!(ct::eq_public_len(&left, &right).unwrap_u8(), 0);
+    }
+
+    #[kani::proof]
+    fn prove_ct_fixed_ordering_matches_lexicographic_ordering() {
+        let left: [u8; 4] = kani::any();
+        let right: [u8; 4] = kani::any();
+
+        assert_ct_ordering_matches(
+            ct::cmp_fixed(&left, &right),
+            lexicographic_cmp_4(&left, &right),
+        );
+    }
+
+    #[kani::proof]
+    fn prove_ct_unsigned_ordering_matches_rust_ordering() {
+        let left: u16 = kani::any();
+        let right: u16 = kani::any();
+
+        assert_ct_ordering_matches(
+            <u16 as ct::ConstantTimeOrd>::ct_cmp(&left, &right),
+            left.cmp(&right),
+        );
+    }
+
+    #[kani::proof]
+    fn prove_ct_signed_ordering_matches_rust_ordering() {
+        let left: i16 = kani::any();
+        let right: i16 = kani::any();
+
+        assert_ct_ordering_matches(
+            <i16 as ct::ConstantTimeOrd>::ct_cmp(&left, &right),
+            left.cmp(&right),
+        );
     }
 
     #[kani::proof]
