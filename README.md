@@ -239,6 +239,27 @@ The declassification step is explicit on purpose. Reviewers can search for
 `declassify(` to find every place where a secret-derived value becomes a normal
 public branch or decision.
 
+Optional and fallible secret-derived states can stay in the `ct` domain until a
+public boundary:
+
+```rust
+use sanitization::ct::{Choice, CtOption, CtResult};
+
+let maybe = CtOption::new(42u8, Choice::TRUE);
+assert_eq!(maybe.unwrap_or(&0), 42);
+assert_eq!(
+    maybe.declassify("parsed credential presence is public"),
+    Some(42)
+);
+
+let checked = CtResult::new(7u8, "invalid", Choice::TRUE);
+assert_eq!(checked.unwrap_or(&0), 7);
+assert_eq!(
+    checked.declassify("authentication result is public"),
+    Ok(7)
+);
+```
+
 Slice equality through `ct::eq_public_len` treats length as public metadata.
 Equal-length byte comparisons scan every byte and do not stop at the first
 difference. For x86_64 or AArch64 builds that need a stronger compiler

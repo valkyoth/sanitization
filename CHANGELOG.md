@@ -37,6 +37,9 @@
   consumed-state disclosure from `ReadOnceSecret` debug output.
 - Clarified the benign AVX feature-detection cache race and made the
   split-secret dual mask-quality check explicitly non-short-circuiting.
+- Added explicit `CtOption::declassify` and `CtResult::declassify` public
+  branch boundaries, plus `CtResult::unwrap_or` for branchless success-value
+  selection.
 
 ## 1.1.1
 

@@ -43,7 +43,11 @@ crates.
 
 ### Planned: 1.2.0 Native Data-Oblivious API
 
-Status: planned.
+Status: in development. `v1.2.0-alpha.1` and `v1.2.0-alpha.2` are tagged as
+GitHub-only checkpoints. The current tree contains draft implementations for
+the alpha.3 memory helpers, alpha.4 secret-container integrations, and alpha.5
+evidence work; those later checkpoints still need their own final review/tag
+passes before the first release candidate.
 
 The `1.2.0` line should add a first-class dependency-free data-oblivious
 primitive module:
@@ -115,9 +119,11 @@ Initial API shape:
 - `ct::ConditionallySelectable`: branchless selection between two values;
 - `ct::ConditionallyAssignable`: branchless assignment under a `Choice`;
 - `ct::CtOption<T>`: optional value controlled by a `Choice` instead of a
-  secret-dependent branch;
+  secret-dependent branch, with explicit `declassify(reason)` when converting
+  to normal `Option<T>`;
 - `ct::CtResult<T, E>`: result-like value where success/failure can remain
-  hidden until explicit declassification;
+  hidden until explicit `declassify(reason)`, plus branchless success-value
+  selection through `unwrap_or`;
 - `ct::Mask<T>`: all-zero/all-one mask values used by branchless operations;
 - `ct::Public<T>` and `ct::Secret<T>` marker wrappers for APIs that need to
   distinguish public parameters from secret-controlled values.

@@ -7522,6 +7522,20 @@ pub mod ct {
         {
             T::conditional_select(fallback, &self.value, self.is_some)
         }
+
+        /// Explicitly declassify the presence bit and convert into a normal
+        /// [`Option`].
+        ///
+        /// This is a public branch boundary. The `reason` must explain why the
+        /// caller is allowed to reveal the presence/absence decision.
+        #[inline]
+        pub fn declassify(self, reason: &'static str) -> Option<T> {
+            if self.is_some.declassify(reason) {
+                Some(self.value)
+            } else {
+                None
+            }
+        }
     }
 
     /// Result-like value with a hidden success bit.
@@ -7565,6 +7579,30 @@ pub mod ct {
         #[inline]
         pub const fn error(&self) -> &E {
             &self.error
+        }
+
+        /// Select the success backing value or `fallback` without branching on
+        /// the success bit.
+        #[inline]
+        pub fn unwrap_or(&self, fallback: &T) -> T
+        where
+            T: ConditionallySelectable,
+        {
+            T::conditional_select(fallback, &self.value, self.is_ok)
+        }
+
+        /// Explicitly declassify the success bit and convert into a normal
+        /// [`Result`].
+        ///
+        /// This is a public branch boundary. The `reason` must explain why the
+        /// caller is allowed to reveal the success/error decision.
+        #[inline]
+        pub fn declassify(self, reason: &'static str) -> Result<T, E> {
+            if self.is_ok.declassify(reason) {
+                Ok(self.value)
+            } else {
+                Err(self.error)
+            }
         }
     }
 
@@ -11295,6 +11333,23 @@ mod tests {
         assert_eq!(absent.is_none().unwrap_u8(), 1);
         assert_eq!(present.unwrap_or(&1), 9);
         assert_eq!(absent.unwrap_or(&1), 1);
+        assert_eq!(present.declassify("test exposes optional success"), Some(9));
+        assert_eq!(absent.declassify("test exposes optional absence"), None);
+    }
+
+    #[test]
+    fn ct_result_keeps_success_as_choice() {
+        let ok = ct::CtResult::new(7u8, 99u8, ct::Choice::TRUE);
+        let err = ct::CtResult::new(7u8, 99u8, ct::Choice::FALSE);
+
+        assert_eq!(ok.is_ok().unwrap_u8(), 1);
+        assert_eq!(ok.is_err().unwrap_u8(), 0);
+        assert_eq!(err.is_ok().unwrap_u8(), 0);
+        assert_eq!(err.is_err().unwrap_u8(), 1);
+        assert_eq!(ok.unwrap_or(&1), 7);
+        assert_eq!(err.unwrap_or(&1), 1);
+        assert_eq!(ok.declassify("test exposes result success"), Ok(7));
+        assert_eq!(err.declassify("test exposes result error"), Err(99));
     }
 
     #[test]
