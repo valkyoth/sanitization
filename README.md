@@ -1556,8 +1556,9 @@ scripts/verify-kani.sh
 ```
 
 These harnesses prove selected fixed-size properties for the volatile clearing
-path, secret clearing visibility, constant-time equality correctness, and
-capacity arithmetic. They are not a replacement for external review.
+path, secret clearing visibility, native `ct` equality, ordering, selection,
+optional/result combinators, memory helper semantics, and capacity arithmetic.
+They are not a replacement for external review.
 
 To capture local release-evidence metadata for an alpha, RC, or pentest handoff:
 
@@ -1579,6 +1580,10 @@ crates/sanitization-derive    # optional proc-macro sister crate
 crates/sanitization-arrayvec  # optional ArrayVec wrapper crate
 crates/sanitization-bytes     # optional BytesMut wrapper crate
 ```
+
+The main crate also includes checked examples for the primary API families:
+`basic`, `alloc`, `macros`, `unsafe_wipe`, `high_assurance`, and
+`ct_primitives`.
 
 For crates.io releases, publish the derive crate first, then the main crate,
 then the integration wrapper crates:

@@ -59,6 +59,9 @@
 - Added `scripts/evidence-report.py` to capture local release-evidence metadata
   for alpha, RC, and pentest handoffs.
 - Wired the evidence-report script into `scripts/checks.sh` as a smoke check.
+- Added a checked `ct_primitives` example covering native equality, ordering,
+  selection, `CtOption`, `CtResult`, oblivious lookup, slice selection, and
+  conditional swap.
 - Added a draft machine-readable `ct-evidence.json` describing 1.2 target
   tiers, claims, non-claims, proof harnesses, and release-candidate evidence
   requirements.

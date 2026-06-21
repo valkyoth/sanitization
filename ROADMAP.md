@@ -364,14 +364,20 @@ high-assurance deployments.
 Implemented now:
 
 - `scripts/checks.sh` runs the feature matrix, clippy, release codegen
-  verification, bounded Kani harnesses when available, rustdoc, and package
+  verification, machine-readable evidence validation, local release-evidence
+  smoke reporting, bounded Kani harnesses when available, rustdoc, and package
   listing.
 - `scripts/verify-codegen.sh` builds release LLVM IR and checks that the wipe
-  backend contains volatile byte-zero stores. On x86_64 it also checks release
-  assembly for the optional comparison and cache-flush instruction paths.
+  backend contains volatile byte-zero stores. It also checks native `ct` helper
+  symbols, optimizer-barrier and mask-generation patterns, and absence of
+  `memcmp`/`bcmp`; on x86_64 it checks release assembly for optional
+  comparison and cache-flush instruction paths.
 - `scripts/verify-kani.sh` runs bounded Kani proof harnesses when `cargo-kani`
-  is installed, covering selected fixed-size wipe, equality, and capacity
+  is installed, covering selected fixed-size wipe, equality, ordering,
+  selection, `CtOption`/`CtResult`, oblivious memory helper, and capacity
   arithmetic properties.
+- `scripts/evidence-report.py` captures local commit, dirty-state, rustc,
+  target, Kani, and Miri metadata for alpha, RC, and pentest handoffs.
 - `scripts/verify-miri.sh` runs default, `alloc`, and all-features tests under
   Miri when a nightly toolchain with Miri is available.
 - `.github/workflows/miri.yml` runs the Miri verification script on pull
