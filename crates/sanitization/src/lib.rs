@@ -507,6 +507,19 @@ pub trait SecureSanitize {
     fn secure_sanitize(&mut self);
 }
 
+/// Sanitize a value before replacing it.
+///
+/// This is the safe replacement pattern for values whose previous contents may
+/// hold secrets, especially enums that move from a secret-bearing variant to a
+/// non-secret variant. `SecureSanitize` for derived enums can only clear the
+/// currently active variant. Calling `secure_sanitize` after assigning a unit
+/// or empty variant is too late; use `secure_replace` to clear first.
+#[inline]
+pub fn secure_replace<T: SecureSanitize>(slot: &mut T, replacement: T) {
+    slot.secure_sanitize();
+    *slot = replacement;
+}
+
 #[inline(never)]
 fn sanitize_plain_value<T>(value: &mut T) {
     wipe::volatile_wipe((value as *mut T).cast::<u8>(), mem::size_of::<T>());

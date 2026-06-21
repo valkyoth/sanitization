@@ -6,6 +6,9 @@
   `Choice`, explicit `Choice::declassify`, native equality/select traits,
   `CtOption`, `CtResult`, public/secret marker wrappers, masks, and fixed or
   public-length byte equality helpers.
+- Added `secure_replace` for sanitizing a value before replacement, documented
+  enum derive inactive-variant byte limits, and added `strict-enum-derive` for
+  opt-in compile-time acknowledgment of enum derive risk.
 
 ## 1.1.1
 

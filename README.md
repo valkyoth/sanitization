@@ -192,6 +192,7 @@ sanitization-bytes = "1.1.1"
 | `alloc` | no | Enables `SecretVec` and `SecretString`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
 | `derive` | no | Re-exports `sanitization-derive` proc macros for `#[derive(SecureSanitize)]` and `#[derive(SecureSanitizeOnDrop)]`. Pulls in proc-macro dependencies only when explicitly enabled. |
+| `strict-enum-derive` | no | Enables `derive` and rejects enum derives unless the inactive-variant byte risk is explicitly acknowledged. |
 | `serde` | no | Implements serde deserialization for secret loading and redacted serialization for secret-owning wrappers. |
 | `zeroize-interop` | no | Implements `zeroize::Zeroize` and `zeroize::ZeroizeOnDrop` for crate-owned secret containers. |
 | `subtle-interop` | no | Implements `subtle::ConstantTimeEq` for byte-oriented secret containers where the `subtle` trait can represent the comparison. |
@@ -888,6 +889,7 @@ struct LoginCredentials {
 }
 
 #[derive(SecureSanitize)]
+#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
 enum KeyMaterial {
     Symmetric(SecretBytes<32>),
     Asymmetric {
@@ -904,6 +906,15 @@ Every such field must implement `SecureSanitize`, so adding a new field without
 sanitization support becomes a compiler error. Use `#[sanitization(skip)]` only
 for fields that are intentionally non-secret or sanitized elsewhere.
 
+For enums, the generated implementation can only sanitize the currently active
+variant. If code changes a secret-bearing enum to a non-secret variant and only
+then calls `secure_sanitize`, the old inactive variant bytes are outside the
+derive's safe reach. Use `secure_replace(&mut value, replacement)` to sanitize
+before replacement, use `SecureSanitizeOnDrop` where assignment/drop semantics
+should clear the old active variant, or prefer struct wrappers for
+high-assurance state machines. Enable `strict-enum-derive` to make enum derives
+require `#[sanitization(enum_inactive_variant_bytes = "acknowledged")]`.
+
 The derive crate is a code generator only. It does not duplicate the wipe
 backend or secret containers; generated code calls this crate's
 `SecureSanitize` trait. Default builds do not depend on `sanitization-derive`,
@@ -913,7 +924,9 @@ Supported derive attributes are `#[sanitization(skip)]` on fields,
 `#[sanitization(bound = "...")]` on fields or containers for explicit generated
 `where` predicates, and
 `#[sanitization(crate = "::path::to::sanitization")]` on containers when the
-main crate is renamed in `Cargo.toml`. The helper attribute intentionally avoids
+main crate is renamed in `Cargo.toml`. Enum containers also accept
+`#[sanitization(enum_inactive_variant_bytes = "acknowledged")]` for strict enum
+derive mode. The helper attribute intentionally avoids
 the name `sanitize`, which collides with Rust's experimental built-in sanitizer
 attribute on nightly/Miri. Unions are rejected; implement them manually only
 when the active field invariant is documented.

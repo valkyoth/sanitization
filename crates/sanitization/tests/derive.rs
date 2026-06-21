@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
-use sanitization::{SecretBytes, SecureSanitize, SecureSanitizeOnDrop};
+use sanitization::{secure_replace, SecretBytes, SecureSanitize, SecureSanitizeOnDrop};
 
 #[allow(dead_code)]
 struct NotSanitizable;
@@ -23,6 +23,7 @@ struct CratePathCredentials {
 struct TupleCredentials(SecretBytes<4>, [u8; 2]);
 
 #[derive(SecureSanitize)]
+#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
 enum DerivedMaterial {
     Symmetric(SecretBytes<4>),
     Pair {
@@ -50,6 +51,13 @@ struct SkippedTaggedSecret<T> {
 #[derive(SecureSanitize, SecureSanitizeOnDrop)]
 struct DropSecret {
     key: DropProbe,
+}
+
+#[derive(SecureSanitize)]
+#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
+enum ReplaceMaterial {
+    Key(DropProbe),
+    Empty,
 }
 
 static DROP_PROBE_SANITIZED: AtomicBool = AtomicBool::new(false);
@@ -158,4 +166,17 @@ fn derive_secure_sanitize_on_drop_compiles_and_runs() {
 
     assert!(DROP_PROBE_SANITIZED.load(Ordering::SeqCst));
     assert!(DROP_PROBE_DROPPED_ZEROED.load(Ordering::SeqCst));
+}
+
+#[test]
+fn secure_replace_clears_enum_active_variant_before_replacement() {
+    DROP_PROBE_SANITIZED.store(false, Ordering::SeqCst);
+    DROP_PROBE_DROPPED_ZEROED.store(false, Ordering::SeqCst);
+
+    let mut material = ReplaceMaterial::Key(DropProbe(7));
+    secure_replace(&mut material, ReplaceMaterial::Empty);
+
+    assert!(DROP_PROBE_SANITIZED.load(Ordering::SeqCst));
+    assert!(DROP_PROBE_DROPPED_ZEROED.load(Ordering::SeqCst));
+    assert!(matches!(material, ReplaceMaterial::Empty));
 }

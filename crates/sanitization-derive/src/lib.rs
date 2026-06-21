@@ -14,6 +14,21 @@ use syn::{
 /// Every non-skipped field must implement `SecureSanitize`. Use
 /// `#[sanitization(skip)]` only for fields that are intentionally non-secret or
 /// cleared elsewhere.
+///
+/// # Enums
+///
+/// For enums, generated code can only sanitize the currently active variant.
+/// It cannot safely reach bytes left behind by previously active variants after
+/// a variant transition. Use `sanitization::secure_replace` before replacement,
+/// derive `SecureSanitizeOnDrop` when drop-before-assignment semantics are
+/// wanted, or prefer struct wrappers for high-assurance state machines.
+///
+/// When the `strict-enum-derive` feature is enabled on this derive crate,
+/// enum derives require:
+///
+/// ```ignore
+/// #[sanitization(enum_inactive_variant_bytes = "acknowledged")]
+/// ```
 #[proc_macro_derive(SecureSanitize, attributes(sanitization))]
 pub fn derive_secure_sanitize(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -52,6 +67,7 @@ pub fn derive_secure_sanitize_on_drop(input: TokenStream) -> TokenStream {
 struct ContainerOptions {
     crate_path: Option<Path>,
     bound_override: Option<Vec<WherePredicate>>,
+    enum_inactive_variant_bytes_acknowledged: bool,
 }
 
 #[derive(Default)]
@@ -65,7 +81,10 @@ fn expand_secure_sanitize(input: &DeriveInput) -> Result<TokenStream2> {
     let crate_path = crate_path(&options);
     let body = match &input.data {
         Data::Struct(data) => expand_struct_body(data, &crate_path)?,
-        Data::Enum(data) => expand_enum_body(data, &crate_path)?,
+        Data::Enum(data) => {
+            validate_enum_options(input, &options)?;
+            expand_enum_body(data, &crate_path)?
+        }
         Data::Union(_) => {
             return Err(Error::new_spanned(
                 input,
@@ -85,6 +104,17 @@ fn expand_secure_sanitize(input: &DeriveInput) -> Result<TokenStream2> {
             }
         }
     })
+}
+
+fn validate_enum_options(input: &DeriveInput, options: &ContainerOptions) -> Result<()> {
+    if cfg!(feature = "strict-enum-derive") && !options.enum_inactive_variant_bytes_acknowledged {
+        return Err(Error::new_spanned(
+            input,
+            "SecureSanitize enum derives are rejected by the strict-enum-derive feature unless #[sanitization(enum_inactive_variant_bytes = \"acknowledged\")] is present; derived enum sanitization only clears the active variant",
+        ));
+    }
+
+    Ok(())
 }
 
 fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
@@ -260,6 +290,15 @@ fn parse_container_options(attrs: &[Attribute]) -> Result<ContainerOptions> {
                 let literal: LitStr = value.parse()?;
                 options.bound_override = Some(parse_bounds(&literal)?);
                 Ok(())
+            } else if meta.path.is_ident("enum_inactive_variant_bytes") {
+                let value = meta.value()?;
+                let literal: LitStr = value.parse()?;
+                if literal.value() == "acknowledged" {
+                    options.enum_inactive_variant_bytes_acknowledged = true;
+                    Ok(())
+                } else {
+                    Err(meta.error("enum_inactive_variant_bytes must be exactly \"acknowledged\""))
+                }
             } else {
                 Err(meta.error("unsupported sanitization container attribute"))
             }
