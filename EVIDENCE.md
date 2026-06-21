@@ -80,6 +80,15 @@ Run release codegen checks directly:
 scripts/verify-codegen.sh
 ```
 
+Validate the machine-readable evidence draft directly:
+
+```bash
+scripts/verify-evidence.py
+```
+
+This verifies that `ct-evidence.json` has the expected schema and that its
+listed Kani proof names match the proof harnesses in `src/lib.rs`.
+
 ## Kani Harnesses
 
 The crate includes bounded proof harnesses behind `#[cfg(kani)]`. They are not

@@ -48,6 +48,9 @@
 - Added a draft machine-readable `ct-evidence.json` describing 1.2 target
   tiers, claims, non-claims, proof harnesses, and release-candidate evidence
   requirements.
+- Added `scripts/verify-evidence.py` and wired it into `scripts/checks.sh` so
+  the machine-readable evidence draft is schema-checked and kept in sync with
+  Kani proof harness names.
 
 ## 1.1.1
 
