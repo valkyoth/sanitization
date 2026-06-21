@@ -35,6 +35,8 @@
   `ct` memory helpers, hardening split-secret mask misuse checks, caching AVX
   OS-support detection, retrying Linux `getrandom` on `EAGAIN`, and removing
   consumed-state disclosure from `ReadOnceSecret` debug output.
+- Clarified the benign AVX feature-detection cache race and made the
+  split-secret dual mask-quality check explicitly non-short-circuiting.
 
 ## 1.1.1
 

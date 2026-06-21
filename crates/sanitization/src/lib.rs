@@ -5365,6 +5365,9 @@ pub mod register_scrub {
             return cached == AVX_SUPPORTED;
         }
 
+        // Benign init race: `detect_avx_os_support` is pure and idempotent.
+        // Concurrent first callers may repeat CPUID/XGETBV detection, but all
+        // writers store the same value and no other state depends on ordering.
         let detected = detect_avx_os_support();
         AVX_STATE.store(
             if detected {
@@ -8653,9 +8656,9 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
             byte_index += 1;
         }
 
-        if Self::mask_shares_are_trivially_constant(&shares)
-            | Self::mask_accumulator_is_trivial(&shares)
-        {
+        let trivial_mask = u8::from(Self::mask_shares_are_trivially_constant(&shares))
+            | u8::from(Self::mask_accumulator_is_trivial(&shares));
+        if trivial_mask != 0 {
             shares.secure_sanitize();
             return Err(SplitSecretError::TrivialMask);
         }
