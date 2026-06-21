@@ -126,6 +126,8 @@ Permanent documentation that constrains the claims:
 ## Open Evidence Gaps
 
 - No dudect or equivalent leakage-test harness is shipped yet.
+- `ct::ConstantTimeOrd` and `ct::cmp_fixed` currently have unit-test coverage
+  but no dedicated Kani harness.
 - AArch64 release assembly is compile-checked when the target is installed, but
   is not yet scanned by `scripts/verify-codegen.sh` on non-AArch64 hosts.
 - WASM JIT behavior remains a documented non-guarantee.

@@ -116,6 +116,10 @@ Initial API shape:
   choice into a public boolean, so reviews can search for every branch boundary;
 - `ct::ConstantTimeEq`: native equality trait for public-length,
   secret-content comparisons;
+- `ct::ConstantTimeOrd`: native ordering trait for primitive integers and
+  fixed byte arrays where ordering must not reveal the first differing byte;
+- `ct::CtOrdering`: less/equal/greater bits that require explicit
+  `declassify(reason)` before normal branching;
 - `ct::ConditionallySelectable`: branchless selection between two values;
 - `ct::ConditionallyAssignable`: branchless assignment under a `Choice`;
 - `ct::CtOption<T>`: optional value controlled by a `Choice` instead of a
@@ -135,6 +139,7 @@ Initial memory-access primitives:
 - `ct::conditional_swap(left, right, choice)`;
 - `ct::select_slice(left, right, choice)`;
 - `ct::eq_fixed(left, right)` for fixed-size arrays;
+- `ct::cmp_fixed(left, right)` for fixed-size byte-array ordering;
 - `ct::eq_public_len(left, right)` for slices where length is explicitly public.
 
 Initial implementation targets:

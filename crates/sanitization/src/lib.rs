@@ -7226,7 +7226,7 @@ impl SecureSanitize for String {
 /// decision to branch on a secret-derived result are public effects. Use
 /// [`ct::Choice::declassify`] at that boundary so reviewers can search for it.
 pub mod ct {
-    use core::{fmt, hint::black_box, marker::PhantomData, ops};
+    use core::{cmp::Ordering, fmt, hint::black_box, marker::PhantomData, ops};
 
     /// Opaque normalized 0/1 value used by data-oblivious operations.
     ///
@@ -7385,6 +7385,121 @@ pub mod ct {
     }
 
     impl<T: ConditionallySelectable> ConditionallyAssignable for T {}
+
+    /// Data-oblivious ordering result.
+    ///
+    /// Exactly one of the three choices should be true. Converting the result
+    /// into [`Ordering`] is a public branch boundary and must go through
+    /// [`CtOrdering::declassify`].
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct CtOrdering {
+        less: Choice,
+        equal: Choice,
+        greater: Choice,
+    }
+
+    impl CtOrdering {
+        /// Equal ordering.
+        pub const EQUAL: Self = Self {
+            less: Choice::FALSE,
+            equal: Choice::TRUE,
+            greater: Choice::FALSE,
+        };
+
+        /// Less-than ordering.
+        pub const LESS: Self = Self {
+            less: Choice::TRUE,
+            equal: Choice::FALSE,
+            greater: Choice::FALSE,
+        };
+
+        /// Greater-than ordering.
+        pub const GREATER: Self = Self {
+            less: Choice::FALSE,
+            equal: Choice::FALSE,
+            greater: Choice::TRUE,
+        };
+
+        /// Construct an ordering from its hidden choice bits.
+        #[inline]
+        pub const fn new(less: Choice, equal: Choice, greater: Choice) -> Self {
+            Self {
+                less,
+                equal,
+                greater,
+            }
+        }
+
+        /// Return the hidden less-than bit.
+        #[inline]
+        pub const fn is_less(&self) -> Choice {
+            self.less
+        }
+
+        /// Return the hidden equality bit.
+        #[inline]
+        pub const fn is_equal(&self) -> Choice {
+            self.equal
+        }
+
+        /// Return the hidden greater-than bit.
+        #[inline]
+        pub const fn is_greater(&self) -> Choice {
+            self.greater
+        }
+
+        /// Explicitly convert this ordering into a public [`Ordering`].
+        ///
+        /// The `reason` string is intentionally required so security reviews
+        /// can search for every comparison declassification boundary.
+        #[inline]
+        pub fn declassify(self, reason: &'static str) -> Ordering {
+            black_box(reason);
+            if self.less.unwrap_u8() == 1 {
+                Ordering::Less
+            } else if self.greater.unwrap_u8() == 1 {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            }
+        }
+    }
+
+    /// Native data-oblivious ordering trait.
+    ///
+    /// Implementations avoid secret-dependent early exit. For variable-length
+    /// inputs, length remains public metadata unless a specific API states
+    /// otherwise.
+    pub trait ConstantTimeOrd<Rhs: ?Sized = Self> {
+        /// Compare without secret-dependent early exit.
+        fn ct_cmp(&self, other: &Rhs) -> CtOrdering;
+
+        /// Hidden less-than bit.
+        #[inline]
+        fn ct_lt(&self, other: &Rhs) -> Choice {
+            self.ct_cmp(other).is_less()
+        }
+
+        /// Hidden less-than-or-equal bit.
+        #[inline]
+        fn ct_le(&self, other: &Rhs) -> Choice {
+            let ordering = self.ct_cmp(other);
+            ordering.is_less() | ordering.is_equal()
+        }
+
+        /// Hidden greater-than bit.
+        #[inline]
+        fn ct_gt(&self, other: &Rhs) -> Choice {
+            self.ct_cmp(other).is_greater()
+        }
+
+        /// Hidden greater-than-or-equal bit.
+        #[inline]
+        fn ct_ge(&self, other: &Rhs) -> Choice {
+            let ordering = self.ct_cmp(other);
+            ordering.is_greater() | ordering.is_equal()
+        }
+    }
 
     /// All-zero/all-one mask value for branchless operations.
     #[repr(transparent)]
@@ -7636,6 +7751,13 @@ pub mod ct {
                         black_box((*left & !mask) | (*right & mask))
                     }
                 }
+
+                impl ConstantTimeOrd for $ty {
+                    #[inline]
+                    fn ct_cmp(&self, other: &Self) -> CtOrdering {
+                        ct_cmp_be_bytes(&self.to_be_bytes(), &other.to_be_bytes())
+                    }
+                }
             )*
         };
     }
@@ -7658,6 +7780,16 @@ pub mod ct {
                             &(*right as $unsigned),
                             choice,
                         ) as $signed
+                    }
+                }
+
+                impl ConstantTimeOrd for $signed {
+                    #[inline]
+                    fn ct_cmp(&self, other: &Self) -> CtOrdering {
+                        let sign_bit = 1 as $unsigned << (<$unsigned>::BITS - 1);
+                        let left = ((*self as $unsigned) ^ sign_bit).to_be_bytes();
+                        let right = ((*other as $unsigned) ^ sign_bit).to_be_bytes();
+                        ct_cmp_be_bytes(&left, &right)
                     }
                 }
             )*
@@ -7692,6 +7824,13 @@ pub mod ct {
     #[inline]
     pub fn eq_fixed<const N: usize>(left: &[u8; N], right: &[u8; N]) -> Choice {
         bytes_eq_equal_len(left, right)
+    }
+
+    /// Compare fixed-size byte arrays in lexicographic byte order without
+    /// leaking the first differing byte.
+    #[inline]
+    pub fn cmp_fixed<const N: usize>(left: &[u8; N], right: &[u8; N]) -> CtOrdering {
+        ct_cmp_be_bytes(left, right)
     }
 
     /// Compare byte slices where length is explicitly public.
@@ -7829,10 +7968,44 @@ pub mod ct {
         !Choice::from_u8(black_box(diff))
     }
 
+    #[inline]
+    fn byte_lt(left: u8, right: u8) -> Choice {
+        Choice::from_u8(((left as u16).wrapping_sub(right as u16) >> 8) as u8)
+    }
+
+    #[inline]
+    fn ct_cmp_be_bytes(left: &[u8], right: &[u8]) -> CtOrdering {
+        debug_assert_eq!(left.len(), right.len());
+
+        let mut less = Choice::FALSE;
+        let mut greater = Choice::FALSE;
+        let mut equal_so_far = Choice::TRUE;
+        let mut index = 0usize;
+        while index < left.len() {
+            let left_byte = black_box(left[index]);
+            let right_byte = black_box(right[index]);
+            let left_less = byte_lt(left_byte, right_byte);
+            let right_less = byte_lt(right_byte, left_byte);
+            less = less | (equal_so_far & left_less);
+            greater = greater | (equal_so_far & right_less);
+            equal_so_far = equal_so_far & left_byte.ct_eq(&right_byte);
+            index += 1;
+        }
+
+        CtOrdering::new(less, equal_so_far, greater)
+    }
+
     impl<const N: usize> ConstantTimeEq for [u8; N] {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
             eq_fixed(self, other)
+        }
+    }
+
+    impl<const N: usize> ConstantTimeOrd for [u8; N] {
+        #[inline]
+        fn ct_cmp(&self, other: &Self) -> CtOrdering {
+            cmp_fixed(self, other)
         }
     }
 
@@ -11082,12 +11255,23 @@ mod tests {
 
     #[test]
     fn ct_primitives_compare_and_select() {
-        use ct::{ConditionallyAssignable, ConditionallySelectable, ConstantTimeEq};
+        use ct::{
+            ConditionallyAssignable, ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd,
+        };
 
         assert_eq!(7u8.ct_eq(&7).unwrap_u8(), 1);
         assert_eq!(7u8.ct_eq(&8).unwrap_u8(), 0);
         assert_eq!((-3i32).ct_eq(&-3).unwrap_u8(), 1);
         assert_eq!((-3i32).ct_ne(&4).unwrap_u8(), 1);
+        assert_eq!(3u8.ct_cmp(&9).is_less().unwrap_u8(), 1);
+        assert_eq!(9u16.ct_cmp(&3).is_greater().unwrap_u8(), 1);
+        assert_eq!(5usize.ct_cmp(&5).is_equal().unwrap_u8(), 1);
+        assert_eq!((-9i32).ct_lt(&-3).unwrap_u8(), 1);
+        assert_eq!(3i32.ct_gt(&-9).unwrap_u8(), 1);
+        assert_eq!(
+            3u8.ct_cmp(&9).declassify("test exposes primitive ordering"),
+            core::cmp::Ordering::Less
+        );
 
         let selected = u32::conditional_select(&11, &22, ct::Choice::TRUE);
         assert_eq!(selected, 22);
@@ -11101,7 +11285,7 @@ mod tests {
 
     #[test]
     fn ct_arrays_and_public_len_slices_compare() {
-        use ct::{ConditionallySelectable, ConstantTimeEq};
+        use ct::{ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd};
 
         let left = [1u8, 2, 3, 4];
         let same = [1u8, 2, 3, 4];
@@ -11109,6 +11293,9 @@ mod tests {
 
         assert_eq!(ct::eq_fixed(&left, &same).unwrap_u8(), 1);
         assert_eq!(left.ct_eq(&different).unwrap_u8(), 0);
+        assert_eq!(ct::cmp_fixed(&left, &different).is_less().unwrap_u8(), 1);
+        assert_eq!(different.ct_cmp(&left).is_greater().unwrap_u8(), 1);
+        assert_eq!(same.ct_cmp(&left).is_equal().unwrap_u8(), 1);
         assert_eq!(ct::eq_public_len(&left, &[1, 2, 3]).unwrap_u8(), 0);
 
         let selected = <[u8; 4]>::conditional_select(&left, &different, ct::Choice::TRUE);

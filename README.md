@@ -223,13 +223,16 @@ than a promise of identical wall-clock timing on every CPU, compiler backend,
 or runtime.
 
 ```rust
-use sanitization::ct::{Choice, ConditionallySelectable, ConstantTimeEq};
+use sanitization::ct::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd};
 
 let left = [7u8; 32];
 let right = [7u8; 32];
 
 let equal = left.ct_eq(&right);
 assert!(equal.declassify("authentication comparison result is public"));
+
+let lower = 10u32.ct_cmp(&20);
+assert!(lower.is_less().declassify("range-check result is public"));
 
 let selected = u32::conditional_select(&10, &20, Choice::TRUE);
 assert_eq!(selected, 20);
@@ -264,6 +267,9 @@ Slice equality through `ct::eq_public_len` treats length as public metadata.
 Equal-length byte comparisons scan every byte and do not stop at the first
 difference. For x86_64 or AArch64 builds that need a stronger compiler
 boundary for existing secret-container comparisons, enable `asm-compare`.
+Ordering through `ct::ConstantTimeOrd` and `ct::cmp_fixed` follows the same
+review style: the less/equal/greater bits remain in `CtOrdering` until the
+caller explicitly declassifies the ordering result.
 
 The same module includes memory-access helpers for secret-controlled choices
 and indexes:

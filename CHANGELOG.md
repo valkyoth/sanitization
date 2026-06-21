@@ -40,6 +40,9 @@
 - Added explicit `CtOption::declassify` and `CtResult::declassify` public
   branch boundaries, plus `CtResult::unwrap_or` for branchless success-value
   selection.
+- Added `ct::CtOrdering`, `ct::ConstantTimeOrd`, and `ct::cmp_fixed` for
+  dependency-free data-oblivious ordering of primitive integers and fixed byte
+  arrays.
 
 ## 1.1.1
 
