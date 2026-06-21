@@ -1426,6 +1426,7 @@ mod memory_lock {
         }
 
         #[cfg(all(test, feature = "canary-check", feature = "std"))]
+        #[allow(dead_code)]
         #[inline]
         pub(crate) fn corrupt_prefix_canary_for_test(&mut self) {
             if N != 0 {
@@ -1983,6 +1984,7 @@ mod memory_lock {
         }
 
         #[cfg(all(test, feature = "canary-check", feature = "std"))]
+        #[allow(dead_code)]
         #[inline]
         pub(crate) fn corrupt_prefix_canary_for_test(&mut self) {
             if N != 0 {
@@ -3025,6 +3027,7 @@ mod memory_lock {
         }
 
         #[cfg(all(test, feature = "canary-check", feature = "std"))]
+        #[allow(dead_code)]
         #[inline]
         pub(crate) fn corrupt_prefix_canary_for_test(&mut self) {
             if self.map_len == 0 {
@@ -3577,6 +3580,7 @@ mod memory_lock {
         }
 
         #[cfg(all(test, feature = "canary-check", feature = "std"))]
+        #[allow(dead_code)]
         #[inline]
         pub(crate) fn corrupt_prefix_canary_for_test(&mut self) {
             if self.map_len == 0 {
@@ -4340,6 +4344,7 @@ mod memory_lock {
         }
 
         #[cfg(all(test, feature = "canary-check", feature = "std"))]
+        #[allow(dead_code)]
         #[inline]
         pub(crate) fn corrupt_prefix_canary_for_test(&mut self) {
             if N == 0 {
@@ -6452,6 +6457,7 @@ mod guard_pages {
         }
 
         #[cfg(all(test, feature = "canary-check", feature = "std"))]
+        #[allow(dead_code)]
         #[inline]
         pub(crate) fn corrupt_suffix_canary_for_test(&mut self) {
             // SAFETY: canary-checked guarded mappings reserve a suffix canary
