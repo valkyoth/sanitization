@@ -51,6 +51,8 @@
 - Added `scripts/verify-evidence.py` and wired it into `scripts/checks.sh` so
   the machine-readable evidence draft is schema-checked and kept in sync with
   Kani proof harness names.
+- Added explicit 1.2 evidence documentation pages for guarantees,
+  non-guarantees, barrier strategy, and target tiers.
 
 ## 1.1.1
 

@@ -137,6 +137,13 @@ or compiler/toolchain versions.
 Permanent documentation that constrains the claims:
 
 - `README.md`: API examples, feature table, target behavior, release checks;
+- `GUARANTEES.md`: the positive claims for secret ownership, clearing,
+  locked/guarded storage, and native data-oblivious primitives;
+- `NON_GUARANTEES.md`: timing, runtime, platform, caller-code, serialization,
+  and interop limits;
+- `BARRIERS.md`: volatile wipe, optimizer, assembly, cache, register, and
+  release-evidence barrier strategy;
+- `TARGETS.md`: human-readable target tiers and feature availability matrix;
 - `THREAT_MODEL.md`: guarantees, residual risks, WASM limits, canary limits;
 - `SAFETY.md`: unsafe boundaries and invariants;
 - `ROADMAP.md`: 1.2 target tiers and release checkpoint gates.

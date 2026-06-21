@@ -8,6 +8,10 @@
   |
   <a href="THREAT_MODEL.md">Threat Model</a>
   |
+  <a href="GUARANTEES.md">Guarantees</a>
+  |
+  <a href="NON_GUARANTEES.md">Non-Guarantees</a>
+  |
   <a href="SAFETY.md">Safety</a>
   |
   <a href="SECURITY.md">Security</a>
@@ -108,8 +112,10 @@ Implemented now:
 | Main guarantee | narrow ownership, redaction, and clear-on-drop hygiene |
 | Out of scope | stack-history wiping, global cache secrecy, crash dumps, privileged reads |
 
-Read [THREAT_MODEL.md](THREAT_MODEL.md) and [SAFETY.md](SAFETY.md) before
-using this crate for high-assurance secret handling.
+Read [GUARANTEES.md](GUARANTEES.md), [NON_GUARANTEES.md](NON_GUARANTEES.md),
+[THREAT_MODEL.md](THREAT_MODEL.md), [BARRIERS.md](BARRIERS.md),
+[TARGETS.md](TARGETS.md), and [SAFETY.md](SAFETY.md) before using this crate
+for high-assurance secret handling.
 
 Read [ROADMAP.md](ROADMAP.md) for the implemented architecture direction and
 remaining high-assurance feature work.

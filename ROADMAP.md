@@ -217,7 +217,9 @@ Verification work for `1.2.0`:
   exact targets, rustc versions, features, checks, and claims covered by the
   release;
 - documentation pages for guarantees, non-guarantees, barriers, target tiers,
-  WASM limits, and leakage-test expectations.
+  WASM limits, and leakage-test expectations. Initial guarantee,
+  non-guarantee, barrier, and target-tier pages now exist as `GUARANTEES.md`,
+  `NON_GUARANTEES.md`, `BARRIERS.md`, and `TARGETS.md`.
 
 The stable `1.2.0` release should not claim complete hardware-level
 constant-time behavior across all targets. The claim should be narrower:
