@@ -281,7 +281,7 @@ mod canary_random {
             let ret = raw_syscall3(SYS_GETRANDOM, ptr, len, 0);
             if syscall_failed(ret) {
                 let errno = (-ret) as i32;
-                if errno == 4 {
+                if errno == 4 || errno == 11 {
                     continue;
                 }
 
@@ -5236,7 +5236,19 @@ pub mod cache_flush {
 #[cfg(feature = "register-scrub")]
 #[allow(unsafe_code)]
 pub mod register_scrub {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    use core::sync::atomic::AtomicU8;
     use core::sync::atomic::{compiler_fence, Ordering};
+
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    const AVX_UNKNOWN: u8 = 0;
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    const AVX_SUPPORTED: u8 = 1;
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    const AVX_NOT_SUPPORTED: u8 = 2;
+
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    static AVX_STATE: AtomicU8 = AtomicU8::new(AVX_UNKNOWN);
 
     /// Best-effort scrub of architecture SIMD/vector registers supported by
     /// this crate.
@@ -5348,6 +5360,26 @@ pub mod register_scrub {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     #[inline]
     fn avx_os_supported() -> bool {
+        let cached = AVX_STATE.load(Ordering::Relaxed);
+        if cached != AVX_UNKNOWN {
+            return cached == AVX_SUPPORTED;
+        }
+
+        let detected = detect_avx_os_support();
+        AVX_STATE.store(
+            if detected {
+                AVX_SUPPORTED
+            } else {
+                AVX_NOT_SUPPORTED
+            },
+            Ordering::Relaxed,
+        );
+        detected
+    }
+
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[inline]
+    fn detect_avx_os_support() -> bool {
         const CPUID_1_ECX_OSXSAVE: u32 = 1 << 27;
         const CPUID_1_ECX_AVX: u32 = 1 << 28;
         const XCR0_XMM: u64 = 1 << 1;
@@ -7636,20 +7668,23 @@ pub mod ct {
     /// The table length is public. Every table entry is visited exactly once
     /// for the public length, and an out-of-range secret index returns
     /// `fallback`.
-    #[inline]
+    #[inline(never)]
     pub fn oblivious_lookup<T>(table: &[T], secret_index: Secret<usize>, fallback: &T) -> T
     where
         T: ConditionallySelectable,
     {
+        // Initialize through the same selection trait required by the loop.
+        // This avoids adding `Clone`/`Copy` bounds to `T` while making the
+        // fallback behavior explicit.
         let mut output = T::conditional_select(fallback, fallback, Choice::FALSE);
-        let wanted = *secret_index.expose_secret();
+        let wanted = black_box(*secret_index.expose_secret());
         let mut index = 0usize;
         while index < table.len() {
             let selected = wanted.ct_eq(&index);
             output = T::conditional_select(&output, &table[index], selected);
             index += 1;
         }
-        output
+        black_box(output)
     }
 
     /// Conditionally copy `source` into `destination`.
@@ -7657,7 +7692,7 @@ pub mod ct {
     /// Lengths are public metadata. When `choice` is false, `destination` is
     /// rewritten with its existing bytes; when true, it is rewritten with
     /// `source`.
-    #[inline]
+    #[inline(never)]
     pub fn conditional_copy(
         destination: &mut [u8],
         source: &[u8],
@@ -7683,7 +7718,7 @@ pub mod ct {
     ///
     /// Lengths are public metadata. Both slices are visited for the full public
     /// length regardless of `choice`.
-    #[inline]
+    #[inline(never)]
     pub fn conditional_swap(
         left: &mut [u8],
         right: &mut [u8],
@@ -7696,7 +7731,7 @@ pub mod ct {
             });
         }
 
-        let mask = Mask::<u8>::from_choice(choice).expose();
+        let mask = black_box(Mask::<u8>::from_choice(choice).expose());
         let mut index = 0usize;
         while index < left.len() {
             let swap = (left[index] ^ right[index]) & mask;
@@ -7711,7 +7746,7 @@ pub mod ct {
     ///
     /// Lengths are public metadata. All three slices must have the same public
     /// length. Every byte is selected without branching on `choice`.
-    #[inline]
+    #[inline(never)]
     pub fn select_slice(
         destination: &mut [u8],
         left: &[u8],
@@ -8618,7 +8653,9 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
             byte_index += 1;
         }
 
-        if Self::mask_shares_are_trivially_constant(&shares) {
+        if Self::mask_shares_are_trivially_constant(&shares)
+            | Self::mask_accumulator_is_trivial(&shares)
+        {
             shares.secure_sanitize();
             return Err(SplitSecretError::TrivialMask);
         }
@@ -8636,24 +8673,46 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
             return false;
         }
 
+        let mut any_trivial = false;
         let mut share_index = 0;
         while share_index + 1 < SHARES {
             let first = shares[share_index].load(0);
             let mut byte_index = 1;
             let mut all_same = true;
             while byte_index < N {
-                all_same &= shares[share_index].load(byte_index) == first;
+                let diff = shares[share_index].load(byte_index) ^ first;
+                all_same &= diff == 0;
                 byte_index += 1;
             }
 
-            if all_same {
-                return true;
-            }
-
+            any_trivial |= all_same;
             share_index += 1;
         }
 
-        false
+        any_trivial
+    }
+
+    #[inline]
+    fn mask_accumulator_is_trivial(shares: &[SecretBytes<N>; SHARES]) -> bool {
+        if N == 0 || SHARES < 2 {
+            return false;
+        }
+
+        let mut any_nonzero = false;
+        let mut byte_index = 0;
+        while byte_index < N {
+            let mut accumulator = 0u8;
+            let mut share_index = 0;
+            while share_index + 1 < SHARES {
+                accumulator ^= shares[share_index].load(byte_index);
+                share_index += 1;
+            }
+
+            any_nonzero |= accumulator != 0;
+            byte_index += 1;
+        }
+
+        !any_nonzero
     }
 }
 
@@ -10275,7 +10334,6 @@ mod read_once {
         fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
             formatter
                 .debug_struct("ReadOnceSecret")
-                .field("consumed", &self.is_consumed())
                 .field("contents", &"<redacted>")
                 .finish()
         }
@@ -11831,6 +11889,7 @@ mod tests {
         let rendered = std::format!("{secret:?}");
 
         assert!(rendered.contains("redacted"));
+        assert!(!rendered.contains("consumed"));
         assert!(!rendered.contains("[0, 0, 0, 0]"));
     }
 
@@ -11855,6 +11914,17 @@ mod tests {
     fn split_secret_rejects_trivially_constant_masks() {
         assert!(matches!(
             SplitSecretBytes::<4, 3>::from_array_with_generator([9, 8, 7, 6], |_, _| 0),
+            Err(SplitSecretError::TrivialMask)
+        ));
+    }
+
+    #[cfg(feature = "split-secret")]
+    #[test]
+    fn split_secret_rejects_canceling_mask_accumulator() {
+        assert!(matches!(
+            SplitSecretBytes::<4, 3>::from_array_with_generator([9, 8, 7, 6], |_, index| {
+                [1, 2, 3, 4][index]
+            }),
             Err(SplitSecretError::TrivialMask)
         ));
     }

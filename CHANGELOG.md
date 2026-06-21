@@ -31,6 +31,10 @@
 - Added `EVIDENCE.md` and expanded bounded Kani harness coverage for native
   `ct` choice normalization, fixed equality, public-length mismatch,
   conditional copy, and slice selection behavior.
+- Addressed alpha pentest findings by adding stronger optimizer barriers to
+  `ct` memory helpers, hardening split-secret mask misuse checks, caching AVX
+  OS-support detection, retrying Linux `getrandom` on `EAGAIN`, and removing
+  consumed-state disclosure from `ReadOnceSecret` debug output.
 
 ## 1.1.1
 
