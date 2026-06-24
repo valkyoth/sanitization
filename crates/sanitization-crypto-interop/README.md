@@ -21,6 +21,10 @@ The `sha2` feature enables `sha2`'s own `zeroize` support so hasher state is
 cleared by the upstream implementation when the hasher is dropped.
 The incremental wrapper types also implement `sanitization::SecureSanitize`.
 
+The digest helper functions return ordinary arrays. If a digest is sensitive,
+clear it after use with `sanitization::sanitize_bytes` or move it directly into
+a `sanitization` secret container.
+
 ```rust
 use sanitization_crypto_interop::sha2::sha512_digest;
 
@@ -50,6 +54,34 @@ let digest = blake3_keyed_xof_64(&key, b"input");
 
 The caller remains responsible for clearing key material stored outside a
 `sanitization` secret container.
+
+## HMAC-SHA2
+
+The `hmac-sha2` feature enables HMAC-SHA256, HMAC-SHA384, and HMAC-SHA512
+helpers using RustCrypto's `hmac` crate with its `zeroize` feature enabled.
+Prefer these helpers over manually building keyed SHA-2 by hashing
+`key || message`.
+
+```toml
+[dependencies]
+sanitization-crypto-interop = { version = "1.2.2", features = ["hmac-sha2"] }
+```
+
+```rust
+use sanitization_crypto_interop::hmac_sha2::hmac_sha256;
+
+let tag = hmac_sha256(b"key", b"message")?;
+```
+
+Like digest helpers, returned tags are ordinary arrays and remain the caller's
+responsibility to clear if treated as sensitive.
+
+## HKDF
+
+HKDF helpers are intentionally not exposed yet. The current upstream `hkdf`
+crate stores PRK/HMAC state internally, and this crate will only wrap it after
+the cleanup path can be made explicit and tested the same way as the SHA-2,
+BLAKE3, and HMAC helpers.
 
 ## Scope
 

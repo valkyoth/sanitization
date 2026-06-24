@@ -9,6 +9,11 @@
   upstream `zeroize` support enabled.
 - Added feature-gated BLAKE3 helpers and wrappers that explicitly clear
   `blake3::Hasher` and XOF reader state after digest extraction.
+- Added feature-gated HMAC-SHA2 helpers using RustCrypto `hmac` with upstream
+  zeroization enabled.
+- Clarified that free digest/MAC helpers return ordinary caller-owned arrays
+  and that HKDF wrappers are deferred until internal PRK cleanup can be made
+  explicit.
 - Updated release checks and publishing order to include the new crypto
   interop crate.
 

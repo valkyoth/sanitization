@@ -4,6 +4,10 @@ use sanitization::SecureSanitize;
 use zeroize::Zeroize;
 
 /// Compute a 32-byte BLAKE3 digest.
+///
+/// The returned array is ordinary caller-owned memory. If the digest is
+/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// directly into a secret container.
 #[must_use]
 #[inline]
 pub fn blake3_digest(preimage: &[u8]) -> [u8; 32] {
@@ -18,6 +22,9 @@ pub fn blake3_digest(preimage: &[u8]) -> [u8; 32] {
 ///
 /// The caller remains responsible for clearing `key` if it is stored outside a
 /// `sanitization` secret container.
+/// The returned array is ordinary caller-owned memory. If the digest is
+/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// directly into a secret container.
 #[must_use]
 #[inline]
 pub fn blake3_keyed_digest(key: &[u8; 32], preimage: &[u8]) -> [u8; 32] {
@@ -32,6 +39,9 @@ pub fn blake3_keyed_digest(key: &[u8; 32], preimage: &[u8]) -> [u8; 32] {
 ///
 /// Both the BLAKE3 hasher and XOF reader are explicitly zeroized after the
 /// output bytes are copied into the returned array.
+/// The returned array is ordinary caller-owned memory. If the digest is
+/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// directly into a secret container.
 #[must_use]
 #[inline]
 pub fn blake3_xof_64(preimage: &[u8]) -> [u8; 64] {
@@ -49,6 +59,9 @@ pub fn blake3_xof_64(preimage: &[u8]) -> [u8; 64] {
 ///
 /// The caller remains responsible for clearing `key` if it is stored outside a
 /// `sanitization` secret container.
+/// The returned array is ordinary caller-owned memory. If the digest is
+/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// directly into a secret container.
 #[must_use]
 #[inline]
 pub fn blake3_keyed_xof_64(key: &[u8; 32], preimage: &[u8]) -> [u8; 64] {

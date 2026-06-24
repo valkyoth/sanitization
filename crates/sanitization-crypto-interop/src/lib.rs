@@ -10,5 +10,7 @@
 
 #[cfg(feature = "blake3")]
 pub mod blake3;
+#[cfg(feature = "hmac-sha2")]
+pub mod hmac_sha2;
 #[cfg(feature = "sha2")]
 pub mod sha2;

@@ -320,7 +320,6 @@ mod canary_random {
                 return Err(ERRNO_NO_PROGRESS);
             }
 
-            retries = 0;
             filled += ret as usize;
         }
 
@@ -884,7 +883,7 @@ mod memory_lock {
     #[cfg(feature = "canary-check")]
     const CANARY_SIZE: usize = 8;
     #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
-    const CANARY_MASK: u64 = 0xDEAD_BEEF_CAFE_BABE;
+    const CANARY_MASK: u64 = 0x9E37_79B9_7F4A_7C15;
 
     /// Platform memory-locking operation that failed.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2280,6 +2279,8 @@ mod memory_lock {
     const MAP_PRIVATE: usize = 0x02;
     #[cfg(target_os = "linux")]
     const MAP_ANONYMOUS: usize = 0x20;
+    #[cfg(target_os = "linux")]
+    const MAP_FD_ANONYMOUS: usize = (-1isize) as usize;
     #[cfg(target_os = "linux")]
     const MADV_DONTFORK: usize = 10;
     #[cfg(target_os = "linux")]
@@ -4632,7 +4633,8 @@ mod memory_lock {
 
         #[inline]
         fn slot_stride(&self) -> usize {
-            Self::slot_stride_static().unwrap_or(0)
+            Self::slot_stride_static()
+                .expect("slot stride overflow impossible after successful pool construction")
         }
 
         #[cfg(feature = "canary-check")]
@@ -4976,7 +4978,7 @@ mod memory_lock {
             len,
             PROT_READ | PROT_WRITE,
             MAP_PRIVATE | MAP_ANONYMOUS,
-            usize::MAX,
+            MAP_FD_ANONYMOUS,
             0,
         );
 
@@ -6105,6 +6107,8 @@ mod guard_pages {
     const MAP_PRIVATE: usize = 0x02;
     #[cfg(target_os = "linux")]
     const MAP_ANONYMOUS: usize = 0x20;
+    #[cfg(target_os = "linux")]
+    const MAP_FD_ANONYMOUS: usize = (-1isize) as usize;
     #[cfg(feature = "memory-lock")]
     #[cfg(target_os = "linux")]
     const MADV_DONTFORK: usize = 10;
@@ -7169,7 +7173,7 @@ mod guard_pages {
             len,
             PROT_NONE,
             MAP_PRIVATE | MAP_ANONYMOUS,
-            usize::MAX,
+            MAP_FD_ANONYMOUS,
             0,
         );
 

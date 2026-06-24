@@ -8,6 +8,10 @@ use sanitization::SecureSanitize;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256};
 
 /// Compute a SHA-224 digest.
+///
+/// The returned array is ordinary caller-owned memory. If the digest is
+/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// directly into a secret container.
 #[must_use]
 #[inline]
 pub fn sha224_digest(preimage: &[u8]) -> [u8; 28] {
@@ -17,6 +21,10 @@ pub fn sha224_digest(preimage: &[u8]) -> [u8; 28] {
 }
 
 /// Compute a SHA-256 digest.
+///
+/// The returned array is ordinary caller-owned memory. If the digest is
+/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// directly into a secret container.
 #[must_use]
 #[inline]
 pub fn sha256_digest(preimage: &[u8]) -> [u8; 32] {
@@ -26,6 +34,10 @@ pub fn sha256_digest(preimage: &[u8]) -> [u8; 32] {
 }
 
 /// Compute a SHA-384 digest.
+///
+/// The returned array is ordinary caller-owned memory. If the digest is
+/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// directly into a secret container.
 #[must_use]
 #[inline]
 pub fn sha384_digest(preimage: &[u8]) -> [u8; 48] {
@@ -35,6 +47,10 @@ pub fn sha384_digest(preimage: &[u8]) -> [u8; 48] {
 }
 
 /// Compute a SHA-512 digest.
+///
+/// The returned array is ordinary caller-owned memory. If the digest is
+/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// directly into a secret container.
 #[must_use]
 #[inline]
 pub fn sha512_digest(preimage: &[u8]) -> [u8; 64] {
@@ -44,6 +60,10 @@ pub fn sha512_digest(preimage: &[u8]) -> [u8; 64] {
 }
 
 /// Compute a SHA-512/224 digest.
+///
+/// The returned array is ordinary caller-owned memory. If the digest is
+/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// directly into a secret container.
 #[must_use]
 #[inline]
 pub fn sha512_224_digest(preimage: &[u8]) -> [u8; 28] {
@@ -53,6 +73,10 @@ pub fn sha512_224_digest(preimage: &[u8]) -> [u8; 28] {
 }
 
 /// Compute a SHA-512/256 digest.
+///
+/// The returned array is ordinary caller-owned memory. If the digest is
+/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// directly into a secret container.
 #[must_use]
 #[inline]
 pub fn sha512_256_digest(preimage: &[u8]) -> [u8; 32] {
@@ -89,8 +113,9 @@ impl SanitizedSha256 {
     /// Finalize and return the digest.
     #[must_use]
     #[inline]
-    pub fn finalize(self) -> [u8; 32] {
-        self.inner.finalize().into()
+    pub fn finalize(mut self) -> [u8; 32] {
+        let hasher = core::mem::replace(&mut self.inner, Sha256::new());
+        hasher.finalize().into()
     }
 }
 
@@ -104,6 +129,17 @@ impl Default for SanitizedSha256 {
 impl SecureSanitize for SanitizedSha256 {
     #[inline]
     fn secure_sanitize(&mut self) {
+        // `sha2` exposes `ZeroizeOnDrop`, not direct `Zeroize`, for hashers.
+        // Assignment drops the old hasher before installing the fresh one.
+        self.inner = Sha256::new();
+    }
+}
+
+impl Drop for SanitizedSha256 {
+    #[inline]
+    fn drop(&mut self) {
+        // Make the clear-on-drop boundary visible at this wrapper layer. The
+        // old hasher is zeroized through upstream `ZeroizeOnDrop`.
         self.inner = Sha256::new();
     }
 }
@@ -132,8 +168,9 @@ impl SanitizedSha384 {
     /// Finalize and return the digest.
     #[must_use]
     #[inline]
-    pub fn finalize(self) -> [u8; 48] {
-        self.inner.finalize().into()
+    pub fn finalize(mut self) -> [u8; 48] {
+        let hasher = core::mem::replace(&mut self.inner, Sha384::new());
+        hasher.finalize().into()
     }
 }
 
@@ -147,6 +184,17 @@ impl Default for SanitizedSha384 {
 impl SecureSanitize for SanitizedSha384 {
     #[inline]
     fn secure_sanitize(&mut self) {
+        // `sha2` exposes `ZeroizeOnDrop`, not direct `Zeroize`, for hashers.
+        // Assignment drops the old hasher before installing the fresh one.
+        self.inner = Sha384::new();
+    }
+}
+
+impl Drop for SanitizedSha384 {
+    #[inline]
+    fn drop(&mut self) {
+        // Make the clear-on-drop boundary visible at this wrapper layer. The
+        // old hasher is zeroized through upstream `ZeroizeOnDrop`.
         self.inner = Sha384::new();
     }
 }
@@ -175,8 +223,9 @@ impl SanitizedSha512 {
     /// Finalize and return the digest.
     #[must_use]
     #[inline]
-    pub fn finalize(self) -> [u8; 64] {
-        self.inner.finalize().into()
+    pub fn finalize(mut self) -> [u8; 64] {
+        let hasher = core::mem::replace(&mut self.inner, Sha512::new());
+        hasher.finalize().into()
     }
 }
 
@@ -190,6 +239,17 @@ impl Default for SanitizedSha512 {
 impl SecureSanitize for SanitizedSha512 {
     #[inline]
     fn secure_sanitize(&mut self) {
+        // `sha2` exposes `ZeroizeOnDrop`, not direct `Zeroize`, for hashers.
+        // Assignment drops the old hasher before installing the fresh one.
+        self.inner = Sha512::new();
+    }
+}
+
+impl Drop for SanitizedSha512 {
+    #[inline]
+    fn drop(&mut self) {
+        // Make the clear-on-drop boundary visible at this wrapper layer. The
+        // old hasher is zeroized through upstream `ZeroizeOnDrop`.
         self.inner = Sha512::new();
     }
 }

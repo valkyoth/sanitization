@@ -203,7 +203,7 @@ you already use those external libraries:
 [dependencies]
 sanitization-arrayvec = "1.2.2"
 sanitization-bytes = "1.2.2"
-sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3"] }
+sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ## Features
@@ -1523,7 +1523,7 @@ buffer libraries:
 [dependencies]
 sanitization-arrayvec = "1.2.2"
 sanitization-bytes = "1.2.2"
-sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3"] }
+sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ```rust
@@ -1554,19 +1554,24 @@ relied on third-party crates' `zeroize` features for internal hasher cleanup:
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3"] }
+sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ```rust
 use sanitization_crypto_interop::blake3::blake3_xof_64;
+use sanitization_crypto_interop::hmac_sha2::hmac_sha256;
 use sanitization_crypto_interop::sha2::sha512_digest;
 
 let cache_key = sha512_digest(b"avatar-input");
 let derived = blake3_xof_64(b"session-input");
+let tag = hmac_sha256(b"key", b"message")?;
 ```
 
 The crypto interop crate does not claim to clear arbitrary opaque crypto state.
 It only wraps crates that expose their own zeroization hooks or features.
+Its free functions return ordinary arrays; if digest, XOF, or MAC output is
+sensitive in your protocol, clear it after use or move it into a
+`sanitization` secret container.
 
 ## Choosing the Right API
 
@@ -1603,7 +1608,7 @@ It only wraps crates that expose their own zeroization hooks or features.
 | N-of-N fixed-size split storage | `SplitSecretBytes<N, SHARES>` with `split-secret` |
 | Hardware-backed backend crate integration | `hardware-secrets` feature traits |
 | Existing RustCrypto APIs with `zeroize` or `subtle` bounds | `zeroize-interop` or `subtle-interop` features |
-| Third-party hashers that previously used upstream `zeroize` features | `sanitization-crypto-interop` with `sha2` or `blake3` |
+| Third-party hashers/MACs that previously used upstream `zeroize` features | `sanitization-crypto-interop` with `sha2`, `blake3`, or `hmac-sha2` |
 | Config-file secret ingestion | `serde` feature, with redacted serialization |
 | `arrayvec` or `bytes` wrappers | `sanitization-arrayvec` or `sanitization-bytes` |
 
