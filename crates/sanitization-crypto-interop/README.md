@@ -60,10 +60,12 @@ The caller remains responsible for clearing key material stored outside a
 ## HMAC-SHA2
 
 The `hmac-sha2` feature enables HMAC-SHA256, HMAC-SHA384, and HMAC-SHA512
-helpers built directly on SHA-2 with explicit sanitization of key-block, pad,
-and inner-digest scratch buffers.
+helpers built directly on SHA-2 with RAII sanitization of key-block, pad, and
+inner-digest scratch buffers, including panic-unwind cleanup.
 Prefer these helpers over manually building keyed SHA-2 by hashing
 `key || message`.
+Because this is a local RFC 2104 implementation, keep this module in audit
+scope for high-assurance deployments.
 
 ```toml
 [dependencies]

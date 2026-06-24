@@ -10,7 +10,9 @@
 - Added feature-gated BLAKE3 helpers and wrappers that explicitly clear
   `blake3::Hasher` and XOF reader state after digest extraction.
 - Added feature-gated HMAC-SHA2 helpers implemented over SHA-2 with explicit
-  sanitization of key-block, pad, and inner-digest scratch buffers.
+  RAII sanitization of key-block, pad, and inner-digest scratch buffers.
+- Added RFC 4231 HMAC-SHA384/SHA512 short-key and long-key test-vector
+  coverage for the local HMAC-SHA2 helper implementation.
 - Clarified that free digest/MAC helpers return ordinary caller-owned arrays
   and that HKDF wrappers are deferred until internal PRK cleanup can be made
   explicit.

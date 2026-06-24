@@ -1552,7 +1552,7 @@ Allocate the maximum expected size up front with `SecretBytesMut::with_capacity`
 For crypto hashers and MAC helpers, use `sanitization-crypto-interop` when a
 project previously relied on third-party crates' `zeroize` features for
 internal hasher cleanup, or when it needs the HMAC-SHA2 helper path with
-explicit scratch-buffer cleanup:
+RAII scratch-buffer cleanup:
 
 ```toml
 [dependencies]
@@ -1572,6 +1572,8 @@ let tag = hmac_sha256(b"key", b"message");
 The crypto interop crate does not claim to clear arbitrary opaque crypto state.
 It only wraps crates that expose their own zeroization hooks or provides
 purpose-built helpers where the scratch buffers are owned and cleared locally.
+The HMAC-SHA2 helpers are local RFC 2104 implementations and should remain in
+audit scope for high-assurance deployments.
 Its free functions return ordinary arrays; if digest, XOF, or MAC output is
 sensitive in your protocol, clear it after use or move it into a
 `sanitization` secret container.
