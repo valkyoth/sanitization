@@ -15,6 +15,7 @@ Publish order:
 4. wait for crates.io indexing
 5. sanitization-arrayvec
 6. sanitization-bytes
+7. sanitization-crypto-interop
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ DEPENDENCY_STEPS = (
 FINAL_STEPS = (
     "sanitization-arrayvec",
     "sanitization-bytes",
+    "sanitization-crypto-interop",
 )
 
 ALL_PACKAGES = tuple(name for name, _ in DEPENDENCY_STEPS) + FINAL_STEPS
@@ -283,6 +285,7 @@ def main() -> int:
     print(f"  cargo info sanitization-derive@{args.version}")
     print(f"  cargo info sanitization-arrayvec@{args.version}")
     print(f"  cargo info sanitization-bytes@{args.version}")
+    print(f"  cargo info sanitization-crypto-interop@{args.version}")
     return 0
 
 

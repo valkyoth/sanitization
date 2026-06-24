@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.2
+
+- Added the optional `sanitization-crypto-interop` sister crate for targeted
+  third-party crypto hasher cleanup during migrations from direct `zeroize`
+  usage.
+- Added feature-gated SHA-2 helpers and wrappers that compile `sha2` with its
+  upstream `zeroize` support enabled.
+- Added feature-gated BLAKE3 helpers and wrappers that explicitly clear
+  `blake3::Hasher` and XOF reader state after digest extraction.
+- Updated release checks and publishing order to include the new crypto
+  interop crate.
+
 ## 1.2.1
 
 - Added in-place locked fill constructors and replacement APIs for

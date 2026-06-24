@@ -1,0 +1,32 @@
+[package]
+name = "sanitization-crypto-interop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Crypto crate interop helpers for the sanitization crate."
+license.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/sanitization-crypto-interop"
+homepage.workspace = true
+repository.workspace = true
+keywords = ["zeroize", "secrets", "security", "crypto", "hash"]
+categories = ["cryptography", "memory-management", "no-std"]
+include = [
+    "Cargo.toml",
+    "src/**/*.rs",
+    "README.md",
+]
+
+[features]
+default = []
+sha2 = ["dep:sha2", "dep:zeroize"]
+blake3 = ["dep:blake3", "dep:zeroize"]
+
+[dependencies]
+blake3 = { version = "1.8.5", default-features = false, features = ["zeroize"], optional = true }
+sanitization = { version = "1.2.2", path = "../sanitization" }
+sha2 = { version = "0.11.0", default-features = false, features = ["alloc", "zeroize"], optional = true }
+zeroize = { version = "1", default-features = false, optional = true }
+
+[lib]
+path = "src/lib.rs"

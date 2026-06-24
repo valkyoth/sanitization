@@ -32,6 +32,9 @@ cargo clippy --all-targets --no-default-features -- -D warnings
 cargo clippy --all-targets --all-features -- -D warnings
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy -p sanitization-derive --all-targets -- -D warnings
+if cargo metadata --no-deps --format-version 1 >/dev/null 2>&1; then
+    cargo test -p sanitization-crypto-interop --all-features
+fi
 scripts/verify-derive-failures.sh
 scripts/verify-leakage-smoke.sh
 scripts/verify-evidence.py
@@ -94,3 +97,4 @@ cargo package -p sanitization-derive --allow-dirty --list >/dev/null
 cargo package -p sanitization --allow-dirty --list >/dev/null
 cargo package -p sanitization-arrayvec --allow-dirty --list >/dev/null
 cargo package -p sanitization-bytes --allow-dirty --list >/dev/null
+cargo package -p sanitization-crypto-interop --allow-dirty --list >/dev/null
