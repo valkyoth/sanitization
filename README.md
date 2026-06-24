@@ -1693,7 +1693,7 @@ crates/sanitization           # main dependency-free-by-default crate
 crates/sanitization-derive    # optional proc-macro sister crate
 crates/sanitization-arrayvec  # optional ArrayVec wrapper crate
 crates/sanitization-bytes     # optional BytesMut wrapper crate
-crates/sanitization-crypto-interop # optional crypto hasher cleanup helpers
+crates/sanitization-crypto-interop # optional crypto hasher cleanup and MAC helpers
 ```
 
 The main crate also includes checked examples for the primary API families:

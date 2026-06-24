@@ -9,12 +9,12 @@ internal state is only clearable through those crates' own `zeroize` features.
 
 The core `sanitization` crate remains dependency-free by default. This sister
 crate is explicitly opt-in and feature-gated per backend.
-The optional `std` feature only adds standard error trait integration and
-forwards to `sanitization/std`; it is disabled by default.
+The optional `std` feature forwards to `sanitization/std` for callers that want
+the same feature profile across both crates; it is disabled by default.
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3"] }
+sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ## SHA-2

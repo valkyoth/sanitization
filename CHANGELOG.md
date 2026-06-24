@@ -3,8 +3,8 @@
 ## 1.2.2
 
 - Added the optional `sanitization-crypto-interop` sister crate for targeted
-  third-party crypto hasher cleanup during migrations from direct `zeroize`
-  usage.
+  third-party crypto hasher cleanup and HMAC-SHA2 helpers during migrations
+  from direct `zeroize` usage.
 - Added feature-gated SHA-2 helpers and wrappers that compile `sha2` with its
   upstream `zeroize` support enabled.
 - Added feature-gated BLAKE3 helpers and wrappers that explicitly clear
