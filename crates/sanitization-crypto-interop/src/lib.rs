@@ -8,6 +8,9 @@
 //! their own zeroization hooks. This crate provides small feature-gated helpers
 //! for those cases while keeping the core crate dependency-free.
 
+#[cfg(feature = "std")]
+extern crate std;
+
 #[cfg(feature = "blake3")]
 pub mod blake3;
 #[cfg(feature = "hmac-sha2")]

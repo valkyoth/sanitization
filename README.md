@@ -1549,8 +1549,10 @@ error instead of reallocating on append, because implicit `BytesMut` growth
 would free an old allocation containing secret bytes before it can be wiped.
 Allocate the maximum expected size up front with `SecretBytesMut::with_capacity`.
 
-For crypto hashers, use `sanitization-crypto-interop` when a project previously
-relied on third-party crates' `zeroize` features for internal hasher cleanup:
+For crypto hashers and MAC helpers, use `sanitization-crypto-interop` when a
+project previously relied on third-party crates' `zeroize` features for
+internal hasher cleanup, or when it needs the HMAC-SHA2 helper path with
+explicit scratch-buffer cleanup:
 
 ```toml
 [dependencies]
@@ -1564,11 +1566,12 @@ use sanitization_crypto_interop::sha2::sha512_digest;
 
 let cache_key = sha512_digest(b"avatar-input");
 let derived = blake3_xof_64(b"session-input");
-let tag = hmac_sha256(b"key", b"message")?;
+let tag = hmac_sha256(b"key", b"message");
 ```
 
 The crypto interop crate does not claim to clear arbitrary opaque crypto state.
-It only wraps crates that expose their own zeroization hooks or features.
+It only wraps crates that expose their own zeroization hooks or provides
+purpose-built helpers where the scratch buffers are owned and cleared locally.
 Its free functions return ordinary arrays; if digest, XOF, or MAC output is
 sensitive in your protocol, clear it after use or move it into a
 `sanitization` secret container.
@@ -1608,7 +1611,7 @@ sensitive in your protocol, clear it after use or move it into a
 | N-of-N fixed-size split storage | `SplitSecretBytes<N, SHARES>` with `split-secret` |
 | Hardware-backed backend crate integration | `hardware-secrets` feature traits |
 | Existing RustCrypto APIs with `zeroize` or `subtle` bounds | `zeroize-interop` or `subtle-interop` features |
-| Third-party hashers/MACs that previously used upstream `zeroize` features | `sanitization-crypto-interop` with `sha2`, `blake3`, or `hmac-sha2` |
+| Third-party hashers that previously used upstream `zeroize` features, plus HMAC-SHA2 helpers with explicit scratch cleanup | `sanitization-crypto-interop` with `sha2`, `blake3`, or `hmac-sha2` |
 | Config-file secret ingestion | `serde` feature, with redacted serialization |
 | `arrayvec` or `bytes` wrappers | `sanitization-arrayvec` or `sanitization-bytes` |
 

@@ -9,6 +9,8 @@ internal state is only clearable through those crates' own `zeroize` features.
 
 The core `sanitization` crate remains dependency-free by default. This sister
 crate is explicitly opt-in and feature-gated per backend.
+The optional `std` feature only adds standard error trait integration and
+forwards to `sanitization/std`; it is disabled by default.
 
 ```toml
 [dependencies]
@@ -58,7 +60,8 @@ The caller remains responsible for clearing key material stored outside a
 ## HMAC-SHA2
 
 The `hmac-sha2` feature enables HMAC-SHA256, HMAC-SHA384, and HMAC-SHA512
-helpers using RustCrypto's `hmac` crate with its `zeroize` feature enabled.
+helpers built directly on SHA-2 with explicit sanitization of key-block, pad,
+and inner-digest scratch buffers.
 Prefer these helpers over manually building keyed SHA-2 by hashing
 `key || message`.
 
@@ -70,11 +73,13 @@ sanitization-crypto-interop = { version = "1.2.2", features = ["hmac-sha2"] }
 ```rust
 use sanitization_crypto_interop::hmac_sha2::hmac_sha256;
 
-let tag = hmac_sha256(b"key", b"message")?;
+let tag = hmac_sha256(b"key", b"message");
 ```
 
 Like digest helpers, returned tags are ordinary arrays and remain the caller's
 responsibility to clear if treated as sensitive.
+The caller also remains responsible for clearing HMAC key bytes held outside a
+`sanitization` secret container.
 
 ## HKDF
 
@@ -86,6 +91,7 @@ BLAKE3, and HMAC helpers.
 ## Scope
 
 This crate does not implement clearing for arbitrary opaque crypto types. It
-only wraps third-party crates that expose their own clearing hooks. If a crypto
-crate does not expose a zeroization API or feature, this crate cannot safely
-clear that crate's private internal buffers.
+only wraps third-party crates that expose their own clearing hooks or provides
+purpose-built helpers where scratch buffers are owned and cleared locally. If a
+crypto crate does not expose a zeroization API or feature, this crate cannot
+safely clear that crate's private internal buffers.
