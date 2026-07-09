@@ -14,6 +14,9 @@
 - Surfaced native mapping unmap failures during setup-error cleanup instead of
   silently discarding them.
 - Added dependency-advisory auditing to CI and opportunistic local checks.
+- Switched the pinned/default release toolchain to Rust `1.96.1` while keeping
+  `rust-version = "1.90"` and adding a compatibility check gate for Rust
+  `1.90.0` through `1.96.1`.
 - Updated crates.io-facing version references for the 1.2.3 patch release.
 
 ## 1.2.2

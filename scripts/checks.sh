@@ -37,6 +37,7 @@ cargo clippy --all-targets --no-default-features -- -D warnings
 cargo clippy --all-targets --all-features -- -D warnings
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy -p sanitization-derive --all-targets -- -D warnings
+scripts/check-rust-version-matrix.sh
 if cargo metadata --no-deps --format-version 1 >/dev/null 2>&1; then
     cargo test -p sanitization-crypto-interop --all-features
 fi

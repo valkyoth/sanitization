@@ -112,6 +112,7 @@ Implemented now:
 | --- | --- |
 | License | `MIT OR Apache-2.0` |
 | MSRV | Rust `1.90.0` |
+| Pinned toolchain | Rust `1.96.1` |
 | Default target | `no_std` |
 | Runtime dependencies | zero external crates by default |
 | Unsafe policy | `#![deny(unsafe_code)]` at crate root, isolated `#[allow(unsafe_code)]` modules documented in `SAFETY.md` |
@@ -136,20 +137,21 @@ work.
 
 ## Rust Version Support
 
-The minimum supported Rust version is Rust `1.90.0`. New deployments should
-prefer the latest stable Rust.
+The minimum supported Rust version is Rust `1.90.0`. New deployments should use
+the pinned stable Rust `1.96.1` until the toolchain policy is updated.
 
-Compatibility evidence:
+Compatibility evidence for `1.2.3`:
 
 | Rust | Local Evidence |
 | --- | --- |
-| `1.90.0` | full check gate |
-| `1.91.0` | `cargo check --all-features` |
-| `1.92.0` | `cargo check --all-features` |
-| `1.93.0` | `cargo check --all-features` |
-| `1.94.0` | `cargo check --all-features` |
-| `1.95.0` | `cargo check --all-features` |
-| `1.96.0` | `cargo check --all-features` |
+| `1.90.0` | `cargo check --workspace --all-features` |
+| `1.91.0` | `cargo check --workspace --all-features` |
+| `1.92.0` | `cargo check --workspace --all-features` |
+| `1.93.0` | `cargo check --workspace --all-features` |
+| `1.94.0` | `cargo check --workspace --all-features` |
+| `1.95.0` | `cargo check --workspace --all-features` |
+| `1.96.0` | `cargo check --workspace --all-features` |
+| `1.96.1` | full release gate |
 
 ## Install
 
