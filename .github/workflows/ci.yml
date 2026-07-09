@@ -33,6 +33,14 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: Audit dependencies
+        shell: bash
+        run: |
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install cargo-audit --locked
+          fi
+          cargo audit --deny warnings
+
       - name: Run checks
         run: scripts/checks.sh
 

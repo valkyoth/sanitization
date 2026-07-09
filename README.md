@@ -39,7 +39,7 @@ internal unsafe boundary.
 
 ## Current Status
 
-The crate is published as stable `1.2.2` on crates.io. It is intended for
+The crate is published as stable `1.2.3` on crates.io. It is intended for
 projects that want dependency-free secret ownership and sanitization by
 default, with stronger platform hardening available through explicit feature
 flags.
@@ -155,14 +155,14 @@ Compatibility evidence:
 
 ```toml
 [dependencies]
-sanitization = "1.2.2"
+sanitization = "1.2.3"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["alloc"] }
+sanitization = { version = "1.2.3", features = ["alloc"] }
 ```
 
 The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
@@ -172,28 +172,28 @@ For memory-locked fixed-size secrets on supported native platforms:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["memory-lock"] }
+sanitization = { version = "1.2.3", features = ["memory-lock"] }
 ```
 
 For derive macros:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["derive"] }
+sanitization = { version = "1.2.3", features = ["derive"] }
 ```
 
 For optional ecosystem interop:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["zeroize-interop", "subtle-interop"] }
+sanitization = { version = "1.2.3", features = ["zeroize-interop", "subtle-interop"] }
 ```
 
 For serde-based config loading:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["serde", "alloc"] }
+sanitization = { version = "1.2.3", features = ["serde", "alloc"] }
 ```
 
 For optional ecosystem wrappers, depend on the separate sister crates only when
@@ -201,9 +201,9 @@ you already use those external libraries:
 
 ```toml
 [dependencies]
-sanitization-arrayvec = "1.2.2"
-sanitization-bytes = "1.2.2"
-sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-arrayvec = "1.2.3"
+sanitization-bytes = "1.2.3"
+sanitization-crypto-interop = { version = "1.2.3", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ## Features
@@ -351,7 +351,7 @@ those host-kernel facilities directly.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["memory-lock", "wasm-compat"] }
+sanitization = { version = "1.2.3", features = ["memory-lock", "wasm-compat"] }
 ```
 
 `memory-lock` without `wasm-compat` is rejected at compile time on WASM so
@@ -461,7 +461,7 @@ Enable `std` when you want the convenience wrapper backed by
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["std"] }
+sanitization = { version = "1.2.3", features = ["std"] }
 ```
 
 ```rust
@@ -634,7 +634,7 @@ must be a hard failure rather than a documented platform limitation:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["require-fork-exclusion"] }
+sanitization = { version = "1.2.3", features = ["require-fork-exclusion"] }
 ```
 
 With this profile, locked constructors and locked guarded constructors return a
@@ -762,7 +762,7 @@ mapping or pooled slot.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["canary-check"] }
+sanitization = { version = "1.2.3", features = ["canary-check"] }
 ```
 
 ```rust
@@ -814,7 +814,7 @@ system CSPRNG instead of the deterministic address-derived fallback:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["random-canary"] }
+sanitization = { version = "1.2.3", features = ["random-canary"] }
 ```
 
 `random-canary` uses direct platform backends without additional crates: Linux
@@ -838,7 +838,7 @@ dependency-free random backend:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["strict-canary-check"] }
+sanitization = { version = "1.2.3", features = ["strict-canary-check"] }
 ```
 
 For many same-size locked secrets on native targets, use
@@ -896,7 +896,7 @@ pages on supported Linux, Android, macOS, iOS, Windows, and BSD targets:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["guard-pages"] }
+sanitization = { version = "1.2.3", features = ["guard-pages"] }
 ```
 
 ```rust
@@ -951,7 +951,7 @@ can also lock their writable data pages:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["guard-pages", "memory-lock"] }
+sanitization = { version = "1.2.3", features = ["guard-pages", "memory-lock"] }
 ```
 
 ```rust
@@ -1032,7 +1032,7 @@ the explicit proc-macro dependency tradeoff:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["derive"] }
+sanitization = { version = "1.2.3", features = ["derive"] }
 ```
 
 ```rust
@@ -1133,7 +1133,7 @@ downstream API already requires these ecosystem traits:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["zeroize-interop", "subtle-interop"] }
+sanitization = { version = "1.2.3", features = ["zeroize-interop", "subtle-interop"] }
 ```
 
 ```rust
@@ -1163,7 +1163,7 @@ do not leak secret material.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["serde", "alloc"] }
+sanitization = { version = "1.2.3", features = ["serde", "alloc"] }
 serde = { version = "1", features = ["derive"] }
 ```
 
@@ -1320,7 +1320,7 @@ evidence:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["multi-pass-clear"] }
+sanitization = { version = "1.2.3", features = ["multi-pass-clear"] }
 ```
 
 ```rust
@@ -1347,7 +1347,7 @@ clearing followed by `clflush`/`mfence` over the affected cache lines:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["cache-flush"] }
+sanitization = { version = "1.2.3", features = ["cache-flush"] }
 ```
 
 ```rust
@@ -1378,7 +1378,7 @@ comparisons to cross an explicit compiler boundary:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["asm-compare"] }
+sanitization = { version = "1.2.3", features = ["asm-compare"] }
 ```
 
 The public API does not change. `SecretBytes<N>`, `SecretVec`, `SecretString`,
@@ -1395,7 +1395,7 @@ portable fallback, enable `strict-ct`:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["strict-ct"] }
+sanitization = { version = "1.2.3", features = ["strict-ct"] }
 ```
 
 `strict-ct` currently accepts x86_64 and AArch64 non-Miri builds, where the
@@ -1409,7 +1409,7 @@ register clearing boundary after cryptographic code:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["register-scrub"] }
+sanitization = { version = "1.2.3", features = ["register-scrub"] }
 ```
 
 ```rust
@@ -1435,7 +1435,7 @@ Enable `split-secret` for fixed-size N-of-N XOR split storage:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["split-secret"] }
+sanitization = { version = "1.2.3", features = ["split-secret"] }
 ```
 
 ```rust
@@ -1468,7 +1468,7 @@ surface for hardware-backed secret providers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.2", features = ["hardware-secrets"] }
+sanitization = { version = "1.2.3", features = ["hardware-secrets"] }
 ```
 
 ```rust
@@ -1521,9 +1521,9 @@ buffer libraries:
 
 ```toml
 [dependencies]
-sanitization-arrayvec = "1.2.2"
-sanitization-bytes = "1.2.2"
-sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-arrayvec = "1.2.3"
+sanitization-bytes = "1.2.3"
+sanitization-crypto-interop = { version = "1.2.3", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ```rust
@@ -1556,17 +1556,24 @@ RAII scratch-buffer cleanup:
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-crypto-interop = { version = "1.2.3", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ```rust
-use sanitization_crypto_interop::blake3::blake3_xof_64;
-use sanitization_crypto_interop::hmac_sha2::hmac_sha256;
+use sanitization_crypto_interop::blake3::{
+    blake3_keyed_digest, blake3_keyed_digest_verify, blake3_xof_64,
+};
+use sanitization_crypto_interop::hmac_sha2::{hmac_sha256, hmac_sha256_verify};
 use sanitization_crypto_interop::sha2::sha512_digest;
 
 let cache_key = sha512_digest(b"avatar-input");
 let derived = blake3_xof_64(b"session-input");
 let tag = hmac_sha256(b"key", b"message");
+assert!(hmac_sha256_verify(b"key", b"message", &tag));
+
+let blake_key = [7u8; 32];
+let keyed_tag = blake3_keyed_digest(&blake_key, b"message");
+assert!(blake3_keyed_digest_verify(&blake_key, b"message", &keyed_tag));
 ```
 
 The crypto interop crate does not claim to clear arbitrary opaque crypto state.
@@ -1577,6 +1584,9 @@ audit scope for high-assurance deployments.
 Its free functions return ordinary arrays; if digest, XOF, or MAC output is
 sensitive in your protocol, clear it after use or move it into a
 `sanitization` secret container.
+Use the `*_verify` helpers for MAC or keyed digest checks instead of comparing
+returned arrays with `==`, because ordinary array equality may short-circuit on
+the first mismatching byte.
 
 ## Choosing the Right API
 

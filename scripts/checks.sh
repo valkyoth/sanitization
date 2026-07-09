@@ -2,6 +2,11 @@
 set -euo pipefail
 
 cargo fmt --check
+if command -v cargo-audit >/dev/null 2>&1; then
+    cargo audit --deny warnings
+else
+    printf 'skipping cargo audit; cargo-audit is not installed\n'
+fi
 cargo test -p sanitization-derive
 cargo test
 cargo test --features alloc

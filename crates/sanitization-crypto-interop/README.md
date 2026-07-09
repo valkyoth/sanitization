@@ -37,7 +37,7 @@ the same feature profile across both crates; it is disabled by default.
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "1.2.2", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-crypto-interop = { version = "1.2.3", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ## SHA-2
@@ -63,18 +63,23 @@ clears both the `Hasher` and XOF `OutputReader` after digest extraction.
 The incremental wrapper type also implements `sanitization::SecureSanitize`.
 
 ```rust
-use sanitization_crypto_interop::blake3::blake3_xof_64;
+use sanitization_crypto_interop::blake3::{blake3_xof_64, blake3_xof_64_verify};
 
 let digest = blake3_xof_64(b"input");
+assert!(blake3_xof_64_verify(b"input", &digest));
 ```
 
 Keyed BLAKE3 helpers are also available:
 
 ```rust
-use sanitization_crypto_interop::blake3::blake3_keyed_xof_64;
+use sanitization_crypto_interop::blake3::{
+    blake3_keyed_digest_verify, blake3_keyed_xof_64,
+};
 
 let key = [7u8; 32];
 let digest = blake3_keyed_xof_64(&key, b"input");
+let expected_tag = sanitization_crypto_interop::blake3::blake3_keyed_digest(&key, b"input");
+assert!(blake3_keyed_digest_verify(&key, b"input", &expected_tag));
 ```
 
 The caller remains responsible for clearing key material stored outside a
@@ -92,17 +97,20 @@ scope for high-assurance deployments.
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "1.2.2", features = ["hmac-sha2"] }
+sanitization-crypto-interop = { version = "1.2.3", features = ["hmac-sha2"] }
 ```
 
 ```rust
-use sanitization_crypto_interop::hmac_sha2::hmac_sha256;
+use sanitization_crypto_interop::hmac_sha2::{hmac_sha256, hmac_sha256_verify};
 
 let tag = hmac_sha256(b"key", b"message");
+assert!(hmac_sha256_verify(b"key", b"message", &tag));
 ```
 
 Like digest helpers, returned tags are ordinary arrays and remain the caller's
 responsibility to clear if treated as sensitive.
+Use the `*_verify` helpers for MAC or tag checks; ordinary `==` on arrays
+short-circuits and can leak the mismatch position through timing.
 The caller also remains responsible for clearing HMAC key bytes held outside a
 `sanitization` secret container.
 

@@ -1,9 +1,12 @@
 //! BLAKE3 helpers with explicit hasher and XOF reader cleanup.
 
-use sanitization::SecureSanitize;
+use sanitization::{ct, sanitize_bytes, SecureSanitize};
 use zeroize::Zeroize;
 
 /// Compute a 32-byte BLAKE3 digest.
+///
+/// Use [`blake3_digest_verify`] instead of comparing this returned digest with
+/// `==` when checking an expected digest.
 ///
 /// The returned array is ordinary caller-owned memory. If the digest is
 /// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
@@ -18,7 +21,21 @@ pub fn blake3_digest(preimage: &[u8]) -> [u8; 32] {
     digest
 }
 
+/// Verify a 32-byte BLAKE3 digest without short-circuiting on the first mismatch.
+#[must_use]
+#[inline]
+pub fn blake3_digest_verify(preimage: &[u8], digest: &[u8; 32]) -> bool {
+    let mut actual = blake3_digest(preimage);
+    let matches =
+        ct::eq_fixed(&actual, digest).declassify("BLAKE3 digest verification result is public");
+    sanitize_bytes(&mut actual);
+    matches
+}
+
 /// Compute a keyed 32-byte BLAKE3 digest.
+///
+/// Use [`blake3_keyed_digest_verify`] instead of comparing this returned tag
+/// with `==` when checking an expected keyed digest.
 ///
 /// The caller remains responsible for clearing `key` if it is stored outside a
 /// `sanitization` secret container.
@@ -35,7 +52,21 @@ pub fn blake3_keyed_digest(key: &[u8; 32], preimage: &[u8]) -> [u8; 32] {
     digest
 }
 
+/// Verify a keyed 32-byte BLAKE3 digest without short-circuiting on the first mismatch.
+#[must_use]
+#[inline]
+pub fn blake3_keyed_digest_verify(key: &[u8; 32], preimage: &[u8], digest: &[u8; 32]) -> bool {
+    let mut actual = blake3_keyed_digest(key, preimage);
+    let matches =
+        ct::eq_fixed(&actual, digest).declassify("keyed BLAKE3 verification result is public");
+    sanitize_bytes(&mut actual);
+    matches
+}
+
 /// Compute 64 bytes of BLAKE3 XOF output.
+///
+/// Use [`blake3_xof_64_verify`] instead of comparing this returned digest with
+/// `==` when checking an expected fixed XOF output.
 ///
 /// Both the BLAKE3 hasher and XOF reader are explicitly zeroized after the
 /// output bytes are copied into the returned array.
@@ -55,7 +86,21 @@ pub fn blake3_xof_64(preimage: &[u8]) -> [u8; 64] {
     digest
 }
 
+/// Verify 64 bytes of BLAKE3 XOF output without short-circuiting on mismatch.
+#[must_use]
+#[inline]
+pub fn blake3_xof_64_verify(preimage: &[u8], digest: &[u8; 64]) -> bool {
+    let mut actual = blake3_xof_64(preimage);
+    let matches =
+        ct::eq_fixed(&actual, digest).declassify("BLAKE3 XOF verification result is public");
+    sanitize_bytes(&mut actual);
+    matches
+}
+
 /// Compute 64 bytes of keyed BLAKE3 XOF output.
+///
+/// Use [`blake3_keyed_xof_64_verify`] instead of comparing this returned tag
+/// with `==` when checking an expected fixed keyed XOF output.
 ///
 /// The caller remains responsible for clearing `key` if it is stored outside a
 /// `sanitization` secret container.
@@ -73,6 +118,17 @@ pub fn blake3_keyed_xof_64(key: &[u8; 32], preimage: &[u8]) -> [u8; 64] {
     reader.zeroize();
     hasher.zeroize();
     digest
+}
+
+/// Verify 64 bytes of keyed BLAKE3 XOF output without short-circuiting on mismatch.
+#[must_use]
+#[inline]
+pub fn blake3_keyed_xof_64_verify(key: &[u8; 32], preimage: &[u8], digest: &[u8; 64]) -> bool {
+    let mut actual = blake3_keyed_xof_64(key, preimage);
+    let matches =
+        ct::eq_fixed(&actual, digest).declassify("keyed BLAKE3 XOF verification result is public");
+    sanitize_bytes(&mut actual);
+    matches
 }
 
 /// Fill caller-provided output with BLAKE3 XOF bytes.
@@ -220,6 +276,38 @@ mod tests {
         let mut fill = [0u8; 64];
         blake3_keyed_xof_fill(&key, b"hello", &mut fill);
         assert_eq!(fill, blake3_keyed_xof_64(&key, b"hello"));
+    }
+
+    #[test]
+    fn verify_helpers_accept_and_reject_outputs() {
+        let key = [7u8; 32];
+        let digest = blake3_digest(b"hello");
+        let keyed_digest = blake3_keyed_digest(&key, b"hello");
+        let xof = blake3_xof_64(b"hello");
+        let keyed_xof = blake3_keyed_xof_64(&key, b"hello");
+
+        assert!(blake3_digest_verify(b"hello", &digest));
+        assert!(blake3_keyed_digest_verify(&key, b"hello", &keyed_digest));
+        assert!(blake3_xof_64_verify(b"hello", &xof));
+        assert!(blake3_keyed_xof_64_verify(&key, b"hello", &keyed_xof));
+
+        let mut bad_digest = digest;
+        let mut bad_keyed_digest = keyed_digest;
+        let mut bad_xof = xof;
+        let mut bad_keyed_xof = keyed_xof;
+        bad_digest[0] ^= 1;
+        bad_keyed_digest[0] ^= 1;
+        bad_xof[0] ^= 1;
+        bad_keyed_xof[0] ^= 1;
+
+        assert!(!blake3_digest_verify(b"hello", &bad_digest));
+        assert!(!blake3_keyed_digest_verify(
+            &key,
+            b"hello",
+            &bad_keyed_digest
+        ));
+        assert!(!blake3_xof_64_verify(b"hello", &bad_xof));
+        assert!(!blake3_keyed_xof_64_verify(&key, b"hello", &bad_keyed_xof));
     }
 
     #[test]

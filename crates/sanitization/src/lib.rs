@@ -2632,18 +2632,15 @@ mod memory_lock {
             let ptr = map_private(map_len)?;
 
             if let Err(error) = mark_dontdump(ptr, map_len) {
-                let _ = unmap_private(ptr, map_len);
-                return Err(error);
+                return Err(unmap_after_setup_error(ptr, map_len, error));
             }
 
             if let Err(error) = mark_dontfork(ptr, map_len) {
-                let _ = unmap_private(ptr, map_len);
-                return Err(error);
+                return Err(unmap_after_setup_error(ptr, map_len, error));
             }
 
             if let Err(error) = lock_mapping(ptr, map_len) {
-                let _ = unmap_private(ptr, map_len);
-                return Err(error);
+                return Err(unmap_after_setup_error(ptr, map_len, error));
             }
 
             let mut secret = Self {
@@ -3398,18 +3395,15 @@ mod memory_lock {
             let ptr = map_private(map_len)?;
 
             if let Err(error) = mark_dontdump(ptr, map_len) {
-                let _ = unmap_private(ptr, map_len);
-                return Err(error);
+                return Err(unmap_after_setup_error(ptr, map_len, error));
             }
 
             if let Err(error) = mark_dontfork(ptr, map_len) {
-                let _ = unmap_private(ptr, map_len);
-                return Err(error);
+                return Err(unmap_after_setup_error(ptr, map_len, error));
             }
 
             if let Err(error) = lock_mapping(ptr, map_len) {
-                let _ = unmap_private(ptr, map_len);
-                return Err(error);
+                return Err(unmap_after_setup_error(ptr, map_len, error));
             }
 
             let mut secret = Self {
@@ -4065,6 +4059,7 @@ mod memory_lock {
     pub struct SecretPool<const N: usize, const SLOTS: usize> {
         base: NonNull<u8>,
         map_len: usize,
+        slot_stride: usize,
         used: [AtomicBool; SLOTS],
     }
 
@@ -4112,6 +4107,7 @@ mod memory_lock {
                 return Ok(Self {
                     base: NonNull::dangling(),
                     map_len: 0,
+                    slot_stride,
                     used,
                 });
             }
@@ -4120,23 +4116,21 @@ mod memory_lock {
             let base = map_private(map_len)?;
 
             if let Err(error) = mark_dontdump(base, map_len) {
-                let _ = unmap_private(base, map_len);
-                return Err(error);
+                return Err(unmap_after_setup_error(base, map_len, error));
             }
 
             if let Err(error) = mark_dontfork(base, map_len) {
-                let _ = unmap_private(base, map_len);
-                return Err(error);
+                return Err(unmap_after_setup_error(base, map_len, error));
             }
 
             if let Err(error) = lock_mapping(base, map_len) {
-                let _ = unmap_private(base, map_len);
-                return Err(error);
+                return Err(unmap_after_setup_error(base, map_len, error));
             }
 
             Ok(Self {
                 base,
                 map_len,
+                slot_stride,
                 used,
             })
         }
@@ -4353,7 +4347,7 @@ mod memory_lock {
                 return Some(NonNull::dangling());
             }
 
-            let offset = slot_index.checked_mul(Self::slot_stride().ok()?)?;
+            let offset = slot_index.checked_mul(self.slot_stride)?;
             // SAFETY: `slot_index < SLOTS`, construction checked the total
             // slot-stride size, and `map_len` is rounded up from that total.
             // Therefore `offset` is inside the live mapping for all allocated
@@ -4633,28 +4627,7 @@ mod memory_lock {
 
         #[inline]
         fn slot_stride(&self) -> usize {
-            Self::slot_stride_static()
-                .expect("slot stride overflow impossible after successful pool construction")
-        }
-
-        #[cfg(feature = "canary-check")]
-        #[inline]
-        fn slot_stride_static() -> Result<usize, MemoryLockError> {
-            if N == 0 {
-                return Ok(0);
-            }
-
-            N.checked_add(CANARY_SIZE.saturating_mul(2))
-                .ok_or(MemoryLockError {
-                    operation: MemoryLockOperation::Length,
-                    errno: 0,
-                })
-        }
-
-        #[cfg(not(feature = "canary-check"))]
-        #[inline]
-        fn slot_stride_static() -> Result<usize, MemoryLockError> {
-            Ok(N)
+            self.pool.slot_stride
         }
 
         #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
@@ -5210,6 +5183,18 @@ mod memory_lock {
             Err(windows_error(MemoryLockOperation::Unmap))
         } else {
             Ok(())
+        }
+    }
+
+    #[inline]
+    fn unmap_after_setup_error(
+        ptr: NonNull<u8>,
+        len: usize,
+        setup_error: MemoryLockError,
+    ) -> MemoryLockError {
+        match unmap_private(ptr, len) {
+            Ok(()) => setup_error,
+            Err(unmap_error) => unmap_error,
         }
     }
 
@@ -7891,13 +7876,11 @@ pub mod ct {
         /// [`CtOrdering::EQUAL`].
         #[inline]
         pub const fn new(less: Choice, _equal: Choice, greater: Choice) -> Self {
-            if less.0 & 1 == 1 {
-                Self::LESS
-            } else if greater.0 & 1 == 1 {
-                Self::GREATER
-            } else {
-                Self::EQUAL
-            }
+            let less_bit = less.0 & 1;
+            let greater_bit = (greater.0 & 1) & (less_bit ^ 1);
+            let equal_bit = (less_bit | greater_bit) ^ 1;
+
+            Self::from_normalized_bits(Choice(less_bit), Choice(equal_bit), Choice(greater_bit))
         }
 
         /// Construct an ordering from already-normalized internal bits.
@@ -11779,6 +11762,9 @@ mod serde_impls {
     struct SecretVecVisitor;
 
     #[cfg(feature = "alloc")]
+    const SECRET_VEC_SERDE_MAX_PREALLOC: usize = 4096;
+
+    #[cfg(feature = "alloc")]
     impl<'de> Visitor<'de> for SecretVecVisitor {
         type Value = SecretVec;
 
@@ -11804,7 +11790,10 @@ mod serde_impls {
         where
             A: SeqAccess<'de>,
         {
-            let capacity = sequence.size_hint().unwrap_or(0);
+            let capacity = sequence
+                .size_hint()
+                .unwrap_or(0)
+                .min(SECRET_VEC_SERDE_MAX_PREALLOC);
             let mut secret = SecretVec::with_capacity(capacity);
             while let Some(byte) = sequence.next_element::<u8>()? {
                 secret.extend_from_slice(&[byte]);
@@ -12515,6 +12504,68 @@ mod tests {
         assert_eq!(text.try_with_secret(str::len), Ok(5));
         assert_eq!(serde_json::to_string(&bytes).unwrap(), "\"<redacted>\"");
         assert_eq!(serde_json::to_string(&text).unwrap(), "\"<redacted>\"");
+    }
+
+    #[cfg(all(feature = "serde", feature = "alloc"))]
+    #[test]
+    fn serde_secret_vec_clamps_untrusted_sequence_size_hint() {
+        use serde::de::{value::Error as ValueError, DeserializeSeed, IntoDeserializer, SeqAccess};
+        use serde::Deserialize;
+
+        struct HostileHintDeserializer;
+
+        impl<'de> serde::Deserializer<'de> for HostileHintDeserializer {
+            type Error = ValueError;
+
+            fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+            where
+                V: serde::de::Visitor<'de>,
+            {
+                self.deserialize_bytes(visitor)
+            }
+
+            fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+            where
+                V: serde::de::Visitor<'de>,
+            {
+                visitor.visit_seq(HostileHintSeq { yielded: false })
+            }
+
+            serde::forward_to_deserialize_any! {
+                bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char str string
+                byte_buf option unit unit_struct newtype_struct seq tuple
+                tuple_struct map struct enum identifier ignored_any
+            }
+        }
+
+        struct HostileHintSeq {
+            yielded: bool,
+        }
+
+        impl<'de> SeqAccess<'de> for HostileHintSeq {
+            type Error = ValueError;
+
+            fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+            where
+                T: DeserializeSeed<'de>,
+            {
+                if self.yielded {
+                    return Ok(None);
+                }
+
+                self.yielded = true;
+                seed.deserialize(7u8.into_deserializer()).map(Some)
+            }
+
+            fn size_hint(&self) -> Option<usize> {
+                Some(usize::MAX)
+            }
+        }
+
+        let secret = SecretVec::deserialize(HostileHintDeserializer).unwrap();
+
+        assert_eq!(secret.with_secret(|bytes| bytes[0]), 7);
+        assert!(secret.capacity() <= 4096);
     }
 
     #[cfg(feature = "std")]

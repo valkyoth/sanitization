@@ -4,7 +4,7 @@
 //! Raw SHA-2 keyed constructions are vulnerable to length-extension and other
 //! misuse patterns. HMAC is the standard MAC construction for SHA-2.
 
-use sanitization::sanitize_bytes;
+use sanitization::{ct, sanitize_bytes};
 use sha2::{Digest, Sha256, Sha384, Sha512};
 
 use crate::sha2::{sha256_digest, sha384_digest, sha512_digest};
@@ -60,6 +60,9 @@ impl<const N: usize> Drop for Scratch<N> {
 
 /// Compute HMAC-SHA256.
 ///
+/// Use [`hmac_sha256_verify`] instead of comparing this returned tag with `==`
+/// when checking an expected tag.
+///
 /// The caller remains responsible for clearing `key` after use if it is stored
 /// outside a `sanitization` secret container.
 ///
@@ -88,7 +91,20 @@ pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
     outer.finalize().into()
 }
 
+/// Verify an HMAC-SHA256 tag without short-circuiting on the first mismatch.
+#[must_use]
+pub fn hmac_sha256_verify(key: &[u8], message: &[u8], tag: &[u8; 32]) -> bool {
+    let mut actual = hmac_sha256(key, message);
+    let matches =
+        ct::eq_fixed(&actual, tag).declassify("HMAC-SHA256 verification result is public");
+    sanitize_bytes(&mut actual);
+    matches
+}
+
 /// Compute HMAC-SHA384.
+///
+/// Use [`hmac_sha384_verify`] instead of comparing this returned tag with `==`
+/// when checking an expected tag.
 ///
 /// The caller remains responsible for clearing `key` after use if it is stored
 /// outside a `sanitization` secret container.
@@ -118,7 +134,20 @@ pub fn hmac_sha384(key: &[u8], message: &[u8]) -> [u8; 48] {
     outer.finalize().into()
 }
 
+/// Verify an HMAC-SHA384 tag without short-circuiting on the first mismatch.
+#[must_use]
+pub fn hmac_sha384_verify(key: &[u8], message: &[u8], tag: &[u8; 48]) -> bool {
+    let mut actual = hmac_sha384(key, message);
+    let matches =
+        ct::eq_fixed(&actual, tag).declassify("HMAC-SHA384 verification result is public");
+    sanitize_bytes(&mut actual);
+    matches
+}
+
 /// Compute HMAC-SHA512.
+///
+/// Use [`hmac_sha512_verify`] instead of comparing this returned tag with `==`
+/// when checking an expected tag.
 ///
 /// The caller remains responsible for clearing `key` after use if it is stored
 /// outside a `sanitization` secret container.
@@ -146,6 +175,16 @@ pub fn hmac_sha512(key: &[u8], message: &[u8]) -> [u8; 64] {
     outer.update(outer_pad.as_slice());
     outer.update(inner_hash.as_slice());
     outer.finalize().into()
+}
+
+/// Verify an HMAC-SHA512 tag without short-circuiting on the first mismatch.
+#[must_use]
+pub fn hmac_sha512_verify(key: &[u8], message: &[u8], tag: &[u8; 64]) -> bool {
+    let mut actual = hmac_sha512(key, message);
+    let matches =
+        ct::eq_fixed(&actual, tag).declassify("HMAC-SHA512 verification result is public");
+    sanitize_bytes(&mut actual);
+    matches
 }
 
 #[inline]
@@ -257,5 +296,27 @@ mod tests {
                 0x8b, 0x91, 0x5a, 0x98, 0x5d, 0x78, 0x65, 0x98,
             ]
         );
+    }
+
+    #[test]
+    fn hmac_verify_helpers_accept_and_reject_tags() {
+        let tag256 = hmac_sha256(b"key", b"message");
+        let tag384 = hmac_sha384(b"key", b"message");
+        let tag512 = hmac_sha512(b"key", b"message");
+
+        assert!(hmac_sha256_verify(b"key", b"message", &tag256));
+        assert!(hmac_sha384_verify(b"key", b"message", &tag384));
+        assert!(hmac_sha512_verify(b"key", b"message", &tag512));
+
+        let mut bad256 = tag256;
+        let mut bad384 = tag384;
+        let mut bad512 = tag512;
+        bad256[0] ^= 1;
+        bad384[0] ^= 1;
+        bad512[0] ^= 1;
+
+        assert!(!hmac_sha256_verify(b"key", b"message", &bad256));
+        assert!(!hmac_sha384_verify(b"key", b"message", &bad384));
+        assert!(!hmac_sha512_verify(b"key", b"message", &bad512));
     }
 }

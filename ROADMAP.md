@@ -471,6 +471,12 @@ BSD, iOS, and macOS core-dump policies, pooled locked-arena runtime behavior,
 and any future allocator-sensitive dynamic containers all need
 platform-specific tests and review.
 
+Follow-up maintenance target: consolidate the native and WASM memory-lock
+compatibility modules so shared error types, size arithmetic, canary handling,
+and pool invariants live behind one internal abstraction. The current split is
+cfg-exclusive and tested, but reducing duplicated backend scaffolding lowers
+the chance that a future low-level fix lands in only one backend.
+
 ## Candidate Differentiators
 
 These are not promises for the first stable release. They are candidate
