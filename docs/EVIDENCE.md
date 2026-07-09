@@ -5,7 +5,7 @@ crate. It is not a blanket claim of identical wall-clock timing or complete
 microarchitectural side-channel resistance.
 
 The same information is also summarized in machine-readable form in
-`ct-evidence.json`. That file is a draft until a release candidate attaches
+`docs/ct-evidence.json`. That file is a draft until a release candidate attaches
 exact CI run URLs, rustc versions, target triples, and feature sets.
 
 ## Scope
@@ -37,7 +37,7 @@ The crate does not claim:
 
 ## Target Tiers
 
-`ct-evidence.json` mirrors these tiers for tooling and release review.
+`docs/ct-evidence.json` mirrors these tiers for tooling and release review.
 
 | Target/profile | Tier | Evidence |
 | --- | --- | --- |
@@ -105,7 +105,7 @@ Validate the machine-readable evidence draft directly:
 scripts/verify-evidence.py
 ```
 
-This verifies that `ct-evidence.json` has the expected schema and that its
+This verifies that `docs/ct-evidence.json` has the expected schema and that its
 listed Kani proof names match the proof harnesses in `src/lib.rs`.
 
 Generate local release-evidence metadata for reviewer or release notes:
@@ -178,18 +178,18 @@ or compiler/toolchain versions.
 Permanent documentation that constrains the claims:
 
 - `README.md`: API examples, feature table, target behavior, release checks;
-- `GUARANTEES.md`: the positive claims for secret ownership, clearing,
+- `docs/GUARANTEES.md`: the positive claims for secret ownership, clearing,
   locked/guarded storage, and native data-oblivious primitives;
-- `NON_GUARANTEES.md`: timing, runtime, platform, caller-code, serialization,
+- `docs/NON_GUARANTEES.md`: timing, runtime, platform, caller-code, serialization,
   and interop limits;
-- `BARRIERS.md`: volatile wipe, optimizer, assembly, cache, register, and
+- `docs/BARRIERS.md`: volatile wipe, optimizer, assembly, cache, register, and
   release-evidence barrier strategy;
-- `TARGETS.md`: human-readable target tiers and feature availability matrix;
-- `LEAKAGE_TESTS.md`: expectations, commands, and metadata requirements for
+- `docs/TARGETS.md`: human-readable target tiers and feature availability matrix;
+- `docs/LEAKAGE_TESTS.md`: expectations, commands, and metadata requirements for
   dudect-style timing/leakage harnesses;
-- `THREAT_MODEL.md`: guarantees, residual risks, WASM limits, canary limits;
-- `SAFETY.md`: unsafe boundaries and invariants;
-- `ROADMAP.md`: 1.2 target tiers and release checkpoint gates.
+- `docs/THREAT_MODEL.md`: guarantees, residual risks, WASM limits, canary limits;
+- `docs/SAFETY.md`: unsafe boundaries and invariants;
+- `docs/ROADMAP.md`: 1.2 target tiers and release checkpoint gates.
 
 ## Open Evidence Gaps
 

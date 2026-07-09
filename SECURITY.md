@@ -13,8 +13,8 @@ Security-sensitive changes should include:
 - bounded Kani harnesses when `cargo-kani` is installed or via the Kani
   workflow;
 - Miri verification on nightly for default, `alloc`, and all-features builds;
-- `SAFETY.md` updates for unsafe code;
-- `THREAT_MODEL.md` updates for guarantee or scope changes.
+- `docs/SAFETY.md` updates for unsafe code;
+- `docs/THREAT_MODEL.md` updates for guarantee or scope changes.
 
 ## GitHub Security Defaults
 

@@ -1,8 +1,8 @@
 # Guarantees
 
 This document defines the security claims this repository is willing to make.
-It should be read together with `NON_GUARANTEES.md`, `THREAT_MODEL.md`,
-`SAFETY.md`, `BARRIERS.md`, `TARGETS.md`, and `EVIDENCE.md`.
+It should be read together with `docs/NON_GUARANTEES.md`, `docs/THREAT_MODEL.md`,
+`docs/SAFETY.md`, `docs/BARRIERS.md`, `docs/TARGETS.md`, and `docs/EVIDENCE.md`.
 
 The short version: `sanitization` provides dependency-free secret ownership,
 optimizer-resistant clearing, and data-oblivious primitives under documented
@@ -96,8 +96,8 @@ reviewable.
 
 The repository carries release evidence in two forms:
 
-- human-readable evidence in `EVIDENCE.md`;
-- machine-readable evidence in `ct-evidence.json`, validated by
+- human-readable evidence in `docs/EVIDENCE.md`;
+- machine-readable evidence in `docs/ct-evidence.json`, validated by
   `scripts/verify-evidence.py`.
 
 The current evidence includes unit tests, release codegen checks, Miri where

@@ -44,6 +44,7 @@ fi
 scripts/verify-derive-failures.sh
 scripts/verify-leakage-smoke.sh
 scripts/verify-evidence.py
+scripts/test-release-readiness.sh
 scripts/evidence-report.py >/dev/null
 
 target_installed() {

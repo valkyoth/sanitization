@@ -2,8 +2,9 @@
 """Emit local release-evidence metadata as JSON.
 
 This script does not certify a release. It captures the local toolchain,
-repository, and installed-target context that `EVIDENCE.md`, `TARGETS.md`, and
-`ct-evidence.json` require release candidates to cite.
+repository, and installed-target context that `docs/EVIDENCE.md`,
+`docs/TARGETS.md`, and `docs/ct-evidence.json` require release candidates to
+cite.
 """
 
 from __future__ import annotations

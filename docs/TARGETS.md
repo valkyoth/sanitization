@@ -1,7 +1,7 @@
 # Target Tiers
 
 This document classifies target support for the high-assurance and native
-`ct` features. The machine-readable form is `ct-evidence.json`.
+`ct` features. The machine-readable form is `docs/ct-evidence.json`.
 
 ## Tier Definitions
 
@@ -46,7 +46,7 @@ A stable `1.2.0` candidate should attach or cite:
 - exact target triple;
 - exact feature set;
 - CI run URL or local command transcript;
-- `ct-evidence.json` validation result;
+- `docs/ct-evidence.json` validation result;
 - release codegen check result;
 - Kani result when available;
 - Miri result when available;

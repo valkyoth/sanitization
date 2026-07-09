@@ -1,5 +1,7 @@
 /target/
 tools/*/target/
+__pycache__/
+*.py[cod]
 PENTEST.md
 pentest.md
 MORE.md

@@ -11,7 +11,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EVIDENCE = ROOT / "ct-evidence.json"
+EVIDENCE = ROOT / "docs/ct-evidence.json"
 LIB_RS = ROOT / "crates" / "sanitization" / "src" / "lib.rs"
 
 REQUIRED_TOP_LEVEL = {
@@ -68,7 +68,7 @@ def main() -> int:
         fail(f"{EVIDENCE.name} is invalid JSON: {error}")
 
     if not isinstance(data, dict):
-        fail("ct-evidence.json must contain a JSON object")
+        fail("docs/ct-evidence.json must contain a JSON object")
 
     missing = REQUIRED_TOP_LEVEL.difference(data)
     if missing:
@@ -163,7 +163,7 @@ def main() -> int:
         data["release_candidate_requirements"], "release_candidate_requirements"
     )
 
-    print("ct-evidence.json validated")
+    print("docs/ct-evidence.json validated")
     return 0
 
 

@@ -81,7 +81,7 @@ include either:
   release evidence.
 
 Until then, keep the target at Tier B or Tier C and document the missing
-measurement in `EVIDENCE.md` and `ct-evidence.json`.
+measurement in `docs/EVIDENCE.md` and `docs/ct-evidence.json`.
 
 ## Harness
 
@@ -114,7 +114,7 @@ The harness:
 - computes an absolute Welch's t statistic;
 - exits non-zero when the configured threshold is exceeded;
 - emits a machine-readable result that can be referenced from
-  `ct-evidence.json`.
+  `docs/ct-evidence.json`.
 
 Some hardened VMs, containers, or kernels can trap `rdtsc` or `cntvct_el0`.
 Those environments are not suitable for this harness. Use a host that exposes

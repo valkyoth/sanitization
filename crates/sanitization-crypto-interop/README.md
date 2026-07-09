@@ -8,7 +8,7 @@
   |
   <a href="https://docs.rs/sanitization-crypto-interop">Docs.rs</a>
   |
-  <a href="https://github.com/valkyoth/sanitization/blob/main/SAFETY.md">Safety</a>
+  <a href="https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md">Safety</a>
   |
   <a href="https://github.com/valkyoth/sanitization/blob/main/SECURITY.md">Security</a>
 </div>

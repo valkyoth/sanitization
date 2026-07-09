@@ -6,13 +6,13 @@
 <div align="center">
   <a href="https://docs.rs/sanitization">Docs.rs</a>
   |
-  <a href="https://github.com/valkyoth/sanitization/blob/main/THREAT_MODEL.md">Threat Model</a>
+  <a href="https://github.com/valkyoth/sanitization/blob/main/docs/THREAT_MODEL.md">Threat Model</a>
   |
-  <a href="https://github.com/valkyoth/sanitization/blob/main/GUARANTEES.md">Guarantees</a>
+  <a href="https://github.com/valkyoth/sanitization/blob/main/docs/GUARANTEES.md">Guarantees</a>
   |
-  <a href="https://github.com/valkyoth/sanitization/blob/main/NON_GUARANTEES.md">Non-Guarantees</a>
+  <a href="https://github.com/valkyoth/sanitization/blob/main/docs/NON_GUARANTEES.md">Non-Guarantees</a>
   |
-  <a href="https://github.com/valkyoth/sanitization/blob/main/SAFETY.md">Safety</a>
+  <a href="https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md">Safety</a>
   |
   <a href="https://github.com/valkyoth/sanitization/blob/main/SECURITY.md">Security</a>
 </div>
@@ -52,7 +52,7 @@ Implemented now:
   the `sanitization-derive` proc-macro sister crate.
 - one audited internal unsafe boundary for default volatile clearing.
 - explicit feature-gated unsafe modules for platform hardening, documented in
-  `SAFETY.md`.
+  `docs/SAFETY.md`.
 - `SecretBytes<N>` for fixed-size secrets.
 - `Secret<T>` for custom sanitizable values.
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
@@ -115,7 +115,7 @@ Implemented now:
 | Pinned toolchain | Rust `1.96.1` |
 | Default target | `no_std` |
 | Runtime dependencies | zero external crates by default |
-| Unsafe policy | `#![deny(unsafe_code)]` at crate root, isolated `#[allow(unsafe_code)]` modules documented in `SAFETY.md` |
+| Unsafe policy | `#![deny(unsafe_code)]` at crate root, isolated `#[allow(unsafe_code)]` modules documented in `docs/SAFETY.md` |
 | Clear primitive | volatile writes by default |
 | Heap support | `alloc` feature |
 | Proc macros | optional `derive` feature via `sanitization-derive` |
@@ -123,15 +123,15 @@ Implemented now:
 | Main guarantee | narrow ownership, redaction, and clear-on-drop hygiene |
 | Out of scope | stack-history wiping, global cache secrecy, crash dumps, privileged reads |
 
-Read [GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/GUARANTEES.md),
-[NON_GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/NON_GUARANTEES.md),
-[THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/THREAT_MODEL.md),
-[BARRIERS.md](https://github.com/valkyoth/sanitization/blob/main/BARRIERS.md),
-[TARGETS.md](https://github.com/valkyoth/sanitization/blob/main/TARGETS.md),
-and [SAFETY.md](https://github.com/valkyoth/sanitization/blob/main/SAFETY.md)
+Read [GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/GUARANTEES.md),
+[NON_GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/NON_GUARANTEES.md),
+[THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/docs/THREAT_MODEL.md),
+[BARRIERS.md](https://github.com/valkyoth/sanitization/blob/main/docs/BARRIERS.md),
+[TARGETS.md](https://github.com/valkyoth/sanitization/blob/main/docs/TARGETS.md),
+and [SAFETY.md](https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md)
 before using this crate for high-assurance secret handling.
 
-Read [ROADMAP.md](https://github.com/valkyoth/sanitization/blob/main/ROADMAP.md)
+Read [ROADMAP.md](https://github.com/valkyoth/sanitization/blob/main/docs/ROADMAP.md)
 for the implemented architecture direction and remaining high-assurance feature
 work.
 
@@ -1662,10 +1662,10 @@ derive rejection checks, leakage-harness smoke testing, machine-readable
 evidence validation, local evidence-report smoke testing, release LLVM
 IR/assembly verification, optional bounded Kani verification when `cargo-kani`
 is installed, docs with warnings denied, and package listing.
-`EVIDENCE.md` records the current target tiers, proof scope, codegen checks,
-and non-guarantees for the native `ct` work. `ct-evidence.json` mirrors the
+`docs/EVIDENCE.md` records the current target tiers, proof scope, codegen checks,
+and non-guarantees for the native `ct` work. `docs/ct-evidence.json` mirrors the
 same evidence in a machine-readable draft format for release review.
-`LEAKAGE_TESTS.md` records the metadata, commands, and scope expected for
+`docs/LEAKAGE_TESTS.md` records the metadata, commands, and scope expected for
 dudect-style timing/leakage runs.
 
 When a nightly toolchain with Miri is available, run the interpreter-based
@@ -1775,7 +1775,7 @@ Important limits:
   `/proc/<pid>/mem`, kernel compromise, DMA, firmware compromise, or copies made
   by third-party libraries.
 
-See [THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/THREAT_MODEL.md),
-[SAFETY.md](https://github.com/valkyoth/sanitization/blob/main/SAFETY.md), and
+See [THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/docs/THREAT_MODEL.md),
+[SAFETY.md](https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md), and
 [SECURITY.md](https://github.com/valkyoth/sanitization/blob/main/SECURITY.md)
 for the security model and maintenance policy.

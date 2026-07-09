@@ -106,12 +106,46 @@ def verify_versions(expected_version: str) -> None:
             )
 
 
+def verify_release_artifacts(version: str) -> None:
+    tag = f"v{version}"
+    release_notes = ROOT / "release-notes" / f"RELEASE_NOTES_{version}.md"
+    pentest_report = ROOT / "security" / "pentest" / f"{tag}.md"
+    scratch_pentest = ROOT / "PENTEST.md"
+
+    if scratch_pentest.exists():
+        raise RuntimeError("root PENTEST.md is temporary scratch input and must be removed")
+    if not release_notes.is_file():
+        raise RuntimeError(f"missing release notes: {release_notes.relative_to(ROOT)}")
+    if not pentest_report.is_file():
+        raise RuntimeError(f"missing pentest report: {pentest_report.relative_to(ROOT)}")
+
+    report = pentest_report.read_text(encoding="utf-8")
+    required_prefixes = (
+        "Status: PASS\n",
+        "Reviewed-Commit: ",
+        "Tester: ",
+        "Scope: ",
+        "Date: ",
+    )
+    for prefix in required_prefixes:
+        if prefix not in report:
+            raise RuntimeError(
+                f"pentest report {pentest_report.relative_to(ROOT)} is missing {prefix.strip()}"
+            )
+
+
 def check_release_tag(version: str, *, require_tag: bool) -> None:
     tag = f"v{version}"
-    try:
-        head = capture(["git", "rev-parse", "HEAD"])
-        tagged_commit = capture(["git", "rev-list", "-n", "1", tag])
-    except subprocess.CalledProcessError:
+    head = capture(["git", "rev-parse", "HEAD"])
+    tagged = subprocess.run(
+        ["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}"],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    if tagged.returncode != 0:
         message = f"Release tag {tag!r} was not found."
         if require_tag:
             print(f"Refusing to publish: {message}", file=sys.stderr)
@@ -119,6 +153,7 @@ def check_release_tag(version: str, *, require_tag: bool) -> None:
         print(f"Warning: {message}", file=sys.stderr)
         return
 
+    tagged_commit = tagged.stdout.strip()
     if head != tagged_commit:
         message = f"HEAD is not tagged as {tag} (HEAD {head}, {tag} {tagged_commit})."
         if require_tag:
@@ -248,6 +283,7 @@ def main() -> int:
 
     require_clean_tree(allow_dirty=args.allow_dirty or args.dry_run)
     verify_versions(args.version)
+    verify_release_artifacts(args.version)
     check_release_tag(args.version, require_tag=args.require_tag)
 
     steps = selected_steps(args.start_at)

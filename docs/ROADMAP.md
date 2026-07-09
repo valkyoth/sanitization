@@ -41,16 +41,14 @@ crates.
 
 ## 1.x Architecture Direction
 
-### Planned: 1.2.0 Native Data-Oblivious API
+### Implemented: 1.2.0 Native Data-Oblivious API
 
-Status: in development. `v1.2.0-alpha.1` and `v1.2.0-alpha.2` are tagged as
-GitHub-only checkpoints. The current tree contains the planned alpha.3 memory
-helpers, alpha.4 secret-container integrations, alpha.5 verification/evidence
-work, and conservative native `ct` derive support. Those later checkpoint tags
-still need the usual final CI/pentest review before moving to the first release
-candidate.
+Status: implemented in the 1.2 release line. The alpha tags were GitHub-only
+checkpoints; the stable `v1.2.0` release carried the native `ct` API, memory
+helpers, secret-container integrations, verification/evidence work, and
+conservative native `ct` derive support.
 
-The `1.2.0` line should add a first-class dependency-free data-oblivious
+The `1.2.0` line added a first-class dependency-free data-oblivious
 primitive module:
 
 ```rust
@@ -68,7 +66,7 @@ native module gives this crate its own no-dependency data-oblivious primitives,
 while `subtle-interop` remains the compatibility bridge for RustCrypto and other
 ecosystem APIs that already require `subtle` traits.
 
-Planned release checkpoints:
+Historical release checkpoints:
 
 - `v1.2.0-alpha.1`: public API skeleton.
   Exit gate: `ct` module exists with documented `Choice`,
@@ -89,7 +87,7 @@ Planned release checkpoints:
   gates are enabled. Existing `constant_time_eq` APIs remain source-compatible.
 - `v1.2.0-alpha.5`: verification and evidence.
   Exit gate: Kani harnesses, release-codegen checks, Miri coverage, and the
-  first `EVIDENCE.md` or `ct-evidence.json` draft describe exactly which
+  first `docs/EVIDENCE.md` or `docs/ct-evidence.json` draft describe exactly which
   targets, features, rustc versions, and claims are covered.
 - `v1.2.0-rc.1`: documentation-complete release candidate.
   Exit gate: README, SAFETY, THREAT_MODEL, roadmap, examples, rustdoc, target
@@ -216,14 +214,14 @@ Verification work for `1.2.0`:
   element;
 - release-codegen checks updated where the `ct` module reuses or extends the
   existing comparison backends;
-- an `EVIDENCE.md` or machine-readable `ct-evidence.json` draft that lists the
+- a `docs/EVIDENCE.md` or machine-readable `docs/ct-evidence.json` draft that lists the
   exact targets, rustc versions, features, checks, and claims covered by the
   release;
 - documentation pages for guarantees, non-guarantees, barriers, target tiers,
   WASM limits, and leakage-test expectations. Initial guarantee,
   non-guarantee, barrier, target-tier, and leakage-test pages now exist as
-  `GUARANTEES.md`, `NON_GUARANTEES.md`, `BARRIERS.md`, `TARGETS.md`, and
-  `LEAKAGE_TESTS.md`.
+  `docs/GUARANTEES.md`, `docs/NON_GUARANTEES.md`, `docs/BARRIERS.md`, `docs/TARGETS.md`, and
+  `docs/LEAKAGE_TESTS.md`.
 
 The stable `1.2.0` release should not claim complete hardware-level
 constant-time behavior across all targets. The claim should be narrower:

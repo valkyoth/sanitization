@@ -84,7 +84,7 @@
 - Added native `ct::ConstantTimeEq` integrations for secret containers and
   `ct::ConditionallySelectable` for fixed-size `SecretBytes<N>`, while keeping
   existing `constant_time_eq` methods source-compatible.
-- Added `EVIDENCE.md` and expanded bounded Kani harness coverage for native
+- Added `docs/EVIDENCE.md` and expanded bounded Kani harness coverage for native
   `ct` choice normalization, fixed equality, public-length mismatch,
   conditional copy, and slice selection behavior.
 - Addressed alpha pentest findings by adding stronger optimizer barriers to
@@ -111,7 +111,7 @@
 - Expanded release codegen verification to cover native `ct` helper symbols,
   optimizer-barrier/mask patterns, and absence of `memcmp`/`bcmp` calls.
 - Updated machine-readable evidence validation so native `ct` codegen coverage
-  cannot silently drift out of `ct-evidence.json`.
+  cannot silently drift out of `docs/ct-evidence.json`.
 - Added `scripts/evidence-report.py` to capture local release-evidence metadata
   for alpha, RC, and pentest handoffs.
 - Wired the evidence-report script into `scripts/checks.sh` as a smoke check.
@@ -140,7 +140,7 @@
   conditional swap.
 - Added optional `derive` support for conservative field-wise
   `ConstantTimeEq` and `ConditionallySelectable` struct derives.
-- Added a draft machine-readable `ct-evidence.json` describing 1.2 target
+- Added a draft machine-readable `docs/ct-evidence.json` describing 1.2 target
   tiers, claims, non-claims, proof harnesses, and release-candidate evidence
   requirements.
 - Added `scripts/verify-evidence.py` and wired it into `scripts/checks.sh` so
@@ -148,7 +148,7 @@
   Kani proof harness names.
 - Added explicit 1.2 evidence documentation pages for guarantees,
   non-guarantees, barrier strategy, and target tiers.
-- Added `LEAKAGE_TESTS.md` to define the scope, metadata, and release policy
+- Added `docs/LEAKAGE_TESTS.md` to define the scope, metadata, and release policy
   for future dudect-style timing/leakage evidence.
 
 ## 1.1.1
