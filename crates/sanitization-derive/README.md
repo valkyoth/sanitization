@@ -1,3 +1,26 @@
+<p align="center">
+  <b>Conservative derive macros for sanitization.</b><br>
+  Field-wise sanitize and native ct derives without adding dependencies to the default crate.
+</p>
+
+<div align="center">
+  <a href="https://crates.io/crates/sanitization">sanitization crate</a>
+  |
+  <a href="https://docs.rs/sanitization-derive">Docs.rs</a>
+  |
+  <a href="https://github.com/valkyoth/sanitization/blob/main/SAFETY.md">Safety</a>
+  |
+  <a href="https://github.com/valkyoth/sanitization/blob/main/SECURITY.md">Security</a>
+</div>
+
+<br>
+
+<p align="center">
+  <a href="https://github.com/valkyoth/sanitization">
+    <img src="https://raw.githubusercontent.com/valkyoth/sanitization/main/.github/images/sanitization.webp" alt="sanitization Rust crate overview">
+  </a>
+</p>
+
 # sanitization-derive
 
 Optional derive macros for the `sanitization` crate.

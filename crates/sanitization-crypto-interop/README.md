@@ -1,3 +1,26 @@
+<p align="center">
+  <b>Crypto hasher and MAC cleanup helpers for sanitization.</b><br>
+  Targeted SHA-2, BLAKE3, and HMAC-SHA2 interop without changing the core crate defaults.
+</p>
+
+<div align="center">
+  <a href="https://crates.io/crates/sanitization">sanitization crate</a>
+  |
+  <a href="https://docs.rs/sanitization-crypto-interop">Docs.rs</a>
+  |
+  <a href="https://github.com/valkyoth/sanitization/blob/main/SAFETY.md">Safety</a>
+  |
+  <a href="https://github.com/valkyoth/sanitization/blob/main/SECURITY.md">Security</a>
+</div>
+
+<br>
+
+<p align="center">
+  <a href="https://github.com/valkyoth/sanitization">
+    <img src="https://raw.githubusercontent.com/valkyoth/sanitization/main/.github/images/sanitization.webp" alt="sanitization Rust crate overview">
+  </a>
+</p>
+
 # sanitization-crypto-interop
 
 Optional crypto crate integration helpers for
