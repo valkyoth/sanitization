@@ -112,7 +112,7 @@ Implemented now:
 | --- | --- |
 | License | `MIT OR Apache-2.0` |
 | MSRV | Rust `1.90.0` |
-| Pinned toolchain | Rust `1.96.1` |
+| Pinned toolchain | Rust `1.97.0` |
 | Default target | `no_std` |
 | Runtime dependencies | zero external crates by default |
 | Unsafe policy | `#![deny(unsafe_code)]` at crate root, isolated `#[allow(unsafe_code)]` modules documented in `docs/SAFETY.md` |
@@ -138,7 +138,7 @@ work.
 ## Rust Version Support
 
 The minimum supported Rust version is Rust `1.90.0`. New deployments should use
-the pinned stable Rust `1.96.1` until the toolchain policy is updated.
+the pinned stable Rust `1.97.0` until the toolchain policy is updated.
 
 Compatibility evidence for `1.2.3`:
 
@@ -151,7 +151,8 @@ Compatibility evidence for `1.2.3`:
 | `1.94.0` | `cargo check --workspace --all-features` |
 | `1.95.0` | `cargo check --workspace --all-features` |
 | `1.96.0` | `cargo check --workspace --all-features` |
-| `1.96.1` | full release gate |
+| `1.96.1` | `cargo check --workspace --all-features` |
+| `1.97.0` | full release gate |
 
 ## Install
 
