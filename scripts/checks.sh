@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cargo fmt --check
+scripts/verify-action-pins.sh
 if command -v cargo-audit >/dev/null 2>&1; then
     cargo audit --deny warnings
 else

@@ -167,6 +167,9 @@ Invariant:
 - Replacement helpers stage the new value in a fresh locked mapping before
   clearing and swapping out the old mapping. If mapping setup or generation
   fails, the old locked value remains unchanged.
+- Mapping setup failures attempt to unmap before returning. If setup and unmap
+  both fail, the unmap error takes precedence because the mapping may remain
+  live; the compact stable error representation cannot carry both OS errors.
 - `LockedSecretVec` zero-capacity values use a dangling non-null pointer and
   never offset that pointer to create zero-length slices.
 - `LockedSecretVec` growth stages a replacement mapping, copies initialized
@@ -312,6 +315,10 @@ Operations:
   after mapping setup and optional lock policies have succeeded.
 - `try_from_fn` constructors generate bytes directly into the writable data
   pages and clear the full writable region on generator errors.
+- Guarded mapping setup failures attempt to unmap before returning. If setup and
+  unmap both fail, the unmap error takes precedence because the mapping may
+  remain live; the compact stable error representation cannot carry both OS
+  errors.
 - With `canary-check`, guarded mappings reserve an 8-byte prefix canary before
   the payload and an 8-byte suffix canary immediately after the initialized
   payload. Public payload pointers are offset past the prefix canary. Exposure,
@@ -342,9 +349,9 @@ Invariant:
   base.
 - The writable data length is rounded to a platform page granule. Linux uses
   4 KiB on `x86_64`. Linux `aarch64` reads `AT_PAGESZ` from
-  `/proc/self/auxv` with raw syscalls, caches the result, and falls back to
-  64 KiB if detection fails or returns an invalid value. Android/macOS/iOS/BSD
-  use `getpagesize`; Windows uses `GetSystemInfo`.
+  `/proc/self/auxv` with raw syscalls, bounds interrupted-read retries, caches
+  the result, and falls back to 64 KiB if detection fails or returns an invalid
+  value. Android/macOS/iOS/BSD use `getpagesize`; Windows uses `GetSystemInfo`.
 - `len <= data_capacity` is preserved before any slice is created.
 - The `locked` flag is set only after platform lock setup succeeds. On Linux
   this includes `MADV_DONTDUMP`, `MADV_DONTFORK`, and `mlock`.

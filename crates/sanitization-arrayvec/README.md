@@ -37,3 +37,6 @@ let mut keys = SecretArrayVec::<SecretBytes<32>, 4>::new();
 keys.push(SecretBytes::from_array([7; 32])).unwrap();
 keys.clear_secret();
 ```
+
+If `push` reaches capacity, the rejected element is sanitized before it is
+returned inside `arrayvec::CapacityError`.

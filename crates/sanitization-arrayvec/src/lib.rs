@@ -61,9 +61,19 @@ impl<T: SecureSanitize, const CAP: usize> SecretArrayVec<T, CAP> {
     }
 
     /// Push one sanitizable element.
+    ///
+    /// If the vector is full, the rejected element is sanitized before it is
+    /// returned inside [`CapacityError`].
     #[inline]
     pub fn push(&mut self, value: T) -> Result<(), CapacityError<T>> {
-        self.inner.try_push(value)
+        match self.inner.try_push(value) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let mut rejected = error.element();
+                rejected.secure_sanitize();
+                Err(CapacityError::new(rejected))
+            }
+        }
     }
 
     /// Borrow initialized elements.
@@ -167,5 +177,14 @@ mod tests {
 
         assert!(rendered.contains("redacted"));
         assert!(!rendered.contains("1, 2, 3, 4"));
+    }
+
+    #[test]
+    fn arrayvec_wrapper_sanitizes_rejected_elements() {
+        let mut secrets = SecretArrayVec::<[u8; 4], 0>::new();
+
+        let error = secrets.push([1, 2, 3, 4]).unwrap_err();
+
+        assert_eq!(error.element(), [0; 4]);
     }
 }

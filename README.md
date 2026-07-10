@@ -1547,6 +1547,8 @@ token.clear_secret();
 
 These crates use wrapper types because Rust's orphan rules prevent implementing
 `SecureSanitize` directly for external types in a separate crate.
+When `SecretArrayVec::push` reaches capacity, it sanitizes the rejected element
+before returning it inside `arrayvec::CapacityError`.
 `SecretBytesMut` treats capacity as fixed after construction and returns an
 error instead of reallocating on append, because implicit `BytesMut` growth
 would free an old allocation containing secret bytes before it can be wiped.

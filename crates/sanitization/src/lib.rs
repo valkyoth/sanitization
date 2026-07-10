@@ -405,6 +405,7 @@ mod linux_aarch64_page_size {
     const SYS_CLOSE: usize = 57;
     const SYS_READ: usize = 63;
     const EINTR_RET: isize = -4;
+    const MAX_AUXV_READ_RETRIES: usize = 16;
 
     static DETECTED_PAGE_GRANULE: AtomicUsize = AtomicUsize::new(0);
 
@@ -430,10 +431,16 @@ mod linux_aarch64_page_size {
         let mut pending = [0_u8; AUXV_ENTRY_SIZE];
         let mut pending_len = 0;
         let mut buffer = [0_u8; 256];
+        let mut interrupted_reads = 0;
 
         loop {
             let read = raw_syscall3(SYS_READ, fd, buffer.as_mut_ptr() as usize, buffer.len());
             if read == EINTR_RET {
+                if interrupted_reads == MAX_AUXV_READ_RETRIES {
+                    let _ = raw_syscall1(SYS_CLOSE, fd);
+                    return None;
+                }
+                interrupted_reads += 1;
                 continue;
             }
 
@@ -2411,6 +2418,10 @@ mod memory_lock {
     }
 
     /// Error returned by platform memory-locking operations.
+    ///
+    /// If setup and the subsequent cleanup unmap both fail, the returned error
+    /// reports `Unmap`. A mapping that may still be live takes diagnostic
+    /// precedence over the original setup failure.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub struct MemoryLockError {
         /// Operation that failed.
@@ -5188,6 +5199,9 @@ mod memory_lock {
         len: usize,
         setup_error: MemoryLockError,
     ) -> MemoryLockError {
+        // A failed unmap can leave a live mapping behind, so it takes
+        // precedence over the setup error. Carrying both would require a
+        // breaking change to the public two-field error representation.
         match unmap_private(ptr, len) {
             Ok(()) => setup_error,
             Err(unmap_error) => unmap_error,
@@ -6243,6 +6257,10 @@ mod guard_pages {
     }
 
     /// Error returned by guarded secret allocation operations.
+    ///
+    /// If setup and the subsequent cleanup unmap both fail, the returned error
+    /// reports `Unmap`. A mapping that may still be live takes diagnostic
+    /// precedence over the original setup failure.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub struct GuardPageError {
         /// Operation that failed.
@@ -6382,44 +6400,46 @@ mod guard_pages {
             let data_addr = match (base.as_ptr() as usize).checked_add(page_granule) {
                 Some(address) => address,
                 None => {
-                    let _ = unmap_guarded(base, total_len);
-                    return Err(GuardPageError {
-                        operation: GuardPageOperation::Length,
-                        errno: 0,
-                    });
+                    return Err(unmap_after_guard_setup_error(
+                        base,
+                        total_len,
+                        GuardPageError {
+                            operation: GuardPageOperation::Length,
+                            errno: 0,
+                        },
+                    ));
                 }
             };
             let data = match NonNull::new(data_addr as *mut u8) {
                 Some(data) => data,
                 None => {
-                    let _ = unmap_guarded(base, total_len);
-                    return Err(GuardPageError {
-                        operation: GuardPageOperation::Map,
-                        errno: 0,
-                    });
+                    return Err(unmap_after_guard_setup_error(
+                        base,
+                        total_len,
+                        GuardPageError {
+                            operation: GuardPageOperation::Map,
+                            errno: 0,
+                        },
+                    ));
                 }
             };
 
             if let Err(error) = protect_data(data, writable_len) {
-                let _ = unmap_guarded(base, total_len);
-                return Err(error);
+                return Err(unmap_after_guard_setup_error(base, total_len, error));
             }
 
             #[cfg(feature = "memory-lock")]
             if locked {
                 if let Err(error) = mark_dontdump(data, writable_len) {
-                    let _ = unmap_guarded(base, total_len);
-                    return Err(error);
+                    return Err(unmap_after_guard_setup_error(base, total_len, error));
                 }
 
                 if let Err(error) = mark_dontfork(data, writable_len) {
-                    let _ = unmap_guarded(base, total_len);
-                    return Err(error);
+                    return Err(unmap_after_guard_setup_error(base, total_len, error));
                 }
 
                 if let Err(error) = lock_mapping(data, writable_len) {
-                    let _ = unmap_guarded(base, total_len);
-                    return Err(error);
+                    return Err(unmap_after_guard_setup_error(base, total_len, error));
                 }
             }
 
@@ -7465,6 +7485,21 @@ mod guard_pages {
             Err(windows_error(GuardPageOperation::Unmap))
         } else {
             Ok(())
+        }
+    }
+
+    #[inline]
+    fn unmap_after_guard_setup_error(
+        ptr: NonNull<u8>,
+        len: usize,
+        setup_error: GuardPageError,
+    ) -> GuardPageError {
+        // A failed unmap can leave a live mapping behind, so it takes
+        // precedence over the setup error. Carrying both would require a
+        // breaking change to the public two-field error representation.
+        match unmap_guarded(ptr, len) {
+            Ok(()) => setup_error,
+            Err(unmap_error) => unmap_error,
         }
     }
 
