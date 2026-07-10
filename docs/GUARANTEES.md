@@ -2,7 +2,8 @@
 
 This document defines the security claims this repository is willing to make.
 It should be read together with `docs/NON_GUARANTEES.md`, `docs/THREAT_MODEL.md`,
-`docs/SAFETY.md`, `docs/BARRIERS.md`, `docs/TARGETS.md`, and `docs/EVIDENCE.md`.
+`docs/SAFETY.md`, `docs/BARRIERS.md`, `docs/TARGETS.md`,
+`docs/REPRODUCIBLE_BUILDS.md`, and `docs/EVIDENCE.md`.
 
 The short version: `sanitization` provides dependency-free secret ownership,
 optimizer-resistant clearing, and data-oblivious primitives under documented
@@ -38,6 +39,8 @@ audited wipe boundary. This is the crate's primary clearing guarantee:
 - replacement helpers clear the old value before installing the new value where
   the API can do so safely;
 - explicit volatile helper functions are available for ordinary byte buffers.
+- `BoundedSecretVec<MAX>` checks its public maximum before construction,
+  append, replacement, and every supported serde visitor input form.
 
 The guarantee is about bytes reachable through the current allocation or
 container. It does not cover allocator metadata, stale copies from earlier
@@ -104,4 +107,3 @@ The current evidence includes unit tests, release codegen checks, Miri where
 available, and bounded Kani proof harnesses for selected wipe, comparison,
 ordering, selection, and allocation-arithmetic properties. These are evidence
 for specific claims, not blanket proof of all timing behavior on all targets.
-

@@ -371,8 +371,11 @@ The unsafe boundary is intentionally small:
   `AtomicBool::swap(true, Ordering::AcqRel)`.
 - Only the caller that observes the previous value as `false` receives access
   to the inner `T`; every later caller receives `AlreadyConsumedError`.
-- The successful caller clears the inner value immediately after the closure
-  returns. If the closure unwinds, `Drop` still clears the inner value.
+- The successful caller installs a private cleanup guard before invoking caller
+  code. The guard clears the inner value after normal return or during unwind,
+  even if another `Arc` or owner keeps the wrapper alive after `catch_unwind`.
+- The cleanup guard runs only after the closure frame and its borrow of the
+  inner value have ended. Process abort remains outside destructor guarantees.
 - `ReadOnceSecret<T>` is `Sync` when `T: Send`, following the same runtime
   exclusivity principle as lock-like containers: shared references may race to
   claim the value, but only one can access it.

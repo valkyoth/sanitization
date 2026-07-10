@@ -10511,6 +10511,10 @@ impl<const N: usize> fmt::Debug for ExpiringSecretBytes<N> {
 /// integration boundaries where the secret length is dynamic, such as decoded
 /// tokens or PEM/DER material. Clearing uses volatile writes over the full
 /// allocation capacity before the vector length is set to zero.
+///
+/// With the `serde` feature, this type accepts any input length for backwards
+/// compatibility. Use [`BoundedSecretVec<MAX>`] at untrusted boundaries that
+/// require an application-defined maximum.
 #[cfg(feature = "alloc")]
 pub struct SecretVec {
     inner: Vec<u8>,
@@ -10830,6 +10834,201 @@ impl ct::ConstantTimeEq<[u8]> for SecretVec {
     #[inline]
     fn ct_eq(&self, other: &[u8]) -> ct::Choice {
         ct::eq_public_len(self.inner.as_slice(), other)
+    }
+}
+
+/// Error returned when a dynamic secret exceeds its declared public limit.
+#[cfg(feature = "alloc")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SecretVecLimitError {
+    /// Maximum accepted secret length.
+    pub maximum: usize,
+    /// Length that was rejected.
+    pub actual: usize,
+}
+
+#[cfg(feature = "alloc")]
+impl fmt::Display for SecretVecLimitError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "secret length exceeds limit: maximum {} bytes, got {} bytes",
+            self.maximum, self.actual
+        )
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for SecretVecLimitError {}
+
+/// Heap-allocated secret bytes constrained to a public maximum length.
+///
+/// This additive wrapper is intended for protocol and configuration trust
+/// boundaries where unbounded dynamic secret allocation is unacceptable. With
+/// the `serde` feature, every deserialization input form rejects more than
+/// `MAX` bytes. Rejected owned buffers and partially decoded values are cleared
+/// before they are released.
+#[cfg(feature = "alloc")]
+pub struct BoundedSecretVec<const MAX: usize> {
+    inner: SecretVec,
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> BoundedSecretVec<MAX> {
+    /// Create an empty bounded secret.
+    #[must_use]
+    #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            inner: SecretVec::empty(),
+        }
+    }
+
+    /// Copy a slice into bounded secret storage.
+    #[inline]
+    pub fn from_slice(bytes: &[u8]) -> Result<Self, SecretVecLimitError> {
+        Self::validate_len(bytes.len())?;
+        Ok(Self {
+            inner: SecretVec::from_slice(bytes),
+        })
+    }
+
+    /// Take ownership of a vector after validating its length.
+    ///
+    /// An oversized input allocation is volatile-cleared before the error is
+    /// returned.
+    #[inline]
+    pub fn from_vec(mut bytes: Vec<u8>) -> Result<Self, SecretVecLimitError> {
+        if let Err(error) = Self::validate_len(bytes.len()) {
+            sanitize_vec_capacity(&mut bytes);
+            return Err(error);
+        }
+        Ok(Self {
+            inner: SecretVec::from_vec(bytes),
+        })
+    }
+
+    /// Convert an existing secret vector after validating its length.
+    ///
+    /// An oversized input is cleared before the error is returned.
+    #[inline]
+    pub fn from_secret_vec(mut secret: SecretVec) -> Result<Self, SecretVecLimitError> {
+        if let Err(error) = Self::validate_len(secret.len()) {
+            secret.clear_secret();
+            return Err(error);
+        }
+        Ok(Self { inner: secret })
+    }
+
+    /// Maximum accepted length.
+    #[must_use]
+    #[inline]
+    pub const fn max_len() -> usize {
+        MAX
+    }
+
+    /// Number of initialized secret bytes.
+    #[must_use]
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns true when no bytes are held.
+    #[must_use]
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Run a closure with read-only access to the secret bytes.
+    #[inline]
+    pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8]) -> R) -> R {
+        self.inner.with_secret(inspect)
+    }
+
+    /// Run a closure with mutable access to the initialized secret bytes.
+    #[inline]
+    pub fn with_secret_mut<R>(&mut self, edit: impl FnOnce(&mut [u8]) -> R) -> R {
+        self.inner.with_secret_mut(edit)
+    }
+
+    /// Append bytes without permitting the configured limit to be exceeded.
+    #[inline]
+    pub fn extend_from_slice(&mut self, bytes: &[u8]) -> Result<(), SecretVecLimitError> {
+        let actual = self.len().saturating_add(bytes.len());
+        Self::validate_len(actual)?;
+        self.inner.extend_from_slice(bytes);
+        Ok(())
+    }
+
+    /// Replace the current value after validating the replacement length.
+    #[inline]
+    pub fn replace_from_slice(&mut self, bytes: &[u8]) -> Result<(), SecretVecLimitError> {
+        Self::validate_len(bytes.len())?;
+        self.inner.replace_from_slice(bytes);
+        Ok(())
+    }
+
+    /// Clear this value immediately with volatile writes.
+    #[inline(never)]
+    pub fn clear_secret(&mut self) {
+        self.inner.clear_secret();
+    }
+
+    /// Return the bounded value as an ordinary clear-on-drop secret vector.
+    #[must_use]
+    #[inline]
+    pub fn into_secret_vec(self) -> SecretVec {
+        self.inner
+    }
+
+    #[inline]
+    fn validate_len(actual: usize) -> Result<(), SecretVecLimitError> {
+        if actual > MAX {
+            Err(SecretVecLimitError {
+                maximum: MAX,
+                actual,
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> Default for BoundedSecretVec<MAX> {
+    #[inline]
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> SecureSanitize for BoundedSecretVec<MAX> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.clear_secret();
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> fmt::Debug for BoundedSecretVec<MAX> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BoundedSecretVec")
+            .field("len", &self.len())
+            .field("max_len", &MAX)
+            .field("contents", &"<redacted>")
+            .finish()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> ct::ConstantTimeEq for BoundedSecretVec<MAX> {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> ct::Choice {
+        self.inner.ct_eq(&other.inner)
     }
 }
 
@@ -11294,12 +11493,23 @@ mod read_once {
     ///
     /// `ReadOnceSecret<T>` uses an atomic consumed flag, so repeated access is
     /// rejected even when callers hold multiple shared references to the same
-    /// wrapper. The wrapped value is cleared immediately after the first
-    /// successful closure returns, and `Drop` still clears during unwinding or
-    /// if the wrapper is never consumed.
+    /// wrapper. A cleanup guard clears the wrapped value after the first closure
+    /// returns or unwinds, even when another owner keeps the wrapper alive.
+    /// `Drop` also clears a value that is never consumed.
     pub struct ReadOnceSecret<T: SecureSanitize> {
         inner: UnsafeCell<T>,
         consumed: AtomicBool,
+    }
+
+    struct ClearOnExit<'a, T: SecureSanitize> {
+        owner: &'a ReadOnceSecret<T>,
+    }
+
+    impl<T: SecureSanitize> Drop for ClearOnExit<'_, T> {
+        #[inline]
+        fn drop(&mut self) {
+            self.owner.clear_inner();
+        }
     }
 
     // SAFETY: Moving the wrapper to another thread transfers ownership of the
@@ -11309,7 +11519,8 @@ mod read_once {
 
     // SAFETY: Shared references may race to consume the value, but the atomic
     // swap permits exactly one successful accessor. That accessor has exclusive
-    // logical access until it clears the inner value before returning.
+    // logical access until its cleanup guard clears the inner value before
+    // returning or while unwinding.
     unsafe impl<T: SecureSanitize + Send> Sync for ReadOnceSecret<T> {}
 
     impl<T: SecureSanitize> ReadOnceSecret<T> {
@@ -11327,17 +11538,19 @@ mod read_once {
         /// wrapped value.
         ///
         /// The first caller wins by atomically setting the consumed flag. Any
-        /// later caller receives [`AlreadyConsumedError`]. If the closure
-        /// unwinds, `Drop` still clears the wrapped value during unwinding. As
-        /// with all destructor-based cleanup, process abort prevents cleanup
-        /// from running.
+        /// later caller receives [`AlreadyConsumedError`]. A private cleanup
+        /// guard clears the wrapped value on normal return and while unwinding,
+        /// even when another owner keeps this wrapper alive. As with all
+        /// destructor-based cleanup, process abort prevents cleanup from
+        /// running.
         #[inline]
         pub fn consume<R>(&self, inspect: impl FnOnce(&T) -> R) -> Result<R, AlreadyConsumedError> {
             self.claim()?;
+            let clear_guard = ClearOnExit { owner: self };
             // SAFETY: `claim` permits exactly one successful accessor. No other
             // safe method can access `inner` after the consumed flag is set.
             let result = inspect(unsafe { &*self.inner.get() });
-            self.clear_inner();
+            drop(clear_guard);
             Ok(result)
         }
 
@@ -11352,10 +11565,11 @@ mod read_once {
             edit: impl FnOnce(&mut T) -> R,
         ) -> Result<R, AlreadyConsumedError> {
             self.claim()?;
+            let clear_guard = ClearOnExit { owner: self };
             // SAFETY: `claim` permits exactly one successful accessor. The
             // successful caller therefore has exclusive logical access.
             let result = edit(unsafe { &mut *self.inner.get() });
-            self.clear_inner();
+            drop(clear_guard);
             Ok(result)
         }
 
@@ -11385,8 +11599,9 @@ mod read_once {
 
         #[inline]
         fn clear_inner(&self) {
-            // SAFETY: `clear_inner` is called only after `claim` succeeds or
-            // from contexts holding `&mut self`.
+            // SAFETY: `clear_inner` is called only by the unique successful
+            // claimant's cleanup guard. The closure frame and its inner borrow
+            // have ended before the guard runs, including during unwinding.
             unsafe { (&mut *self.inner.get()).secure_sanitize() };
         }
     }
@@ -11556,6 +11771,17 @@ mod zeroize_interop {
     impl zeroize::ZeroizeOnDrop for SecretVec {}
 
     #[cfg(feature = "alloc")]
+    impl<const MAX: usize> zeroize::Zeroize for BoundedSecretVec<MAX> {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl<const MAX: usize> zeroize::ZeroizeOnDrop for BoundedSecretVec<MAX> {}
+
+    #[cfg(feature = "alloc")]
     impl zeroize::Zeroize for SecretString {
         #[inline]
         fn zeroize(&mut self) {
@@ -11643,6 +11869,18 @@ mod subtle_interop {
 
     #[cfg(feature = "alloc")]
     impl ConstantTimeEq for SecretVec {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            Choice::from(
+                self.with_secret(|left| {
+                    other.with_secret(|right| constant_time_eq_slices(left, right))
+                }) as u8,
+            )
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl<const MAX: usize> ConstantTimeEq for BoundedSecretVec<MAX> {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
             Choice::from(
@@ -11824,6 +12062,82 @@ mod serde_impls {
                 secret.extend_from_slice(&[byte]);
             }
             Ok(secret)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl<const MAX: usize> Serialize for BoundedSecretVec<MAX> {
+        #[inline]
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(REDACTED)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl<'de, const MAX: usize> Deserialize<'de> for BoundedSecretVec<MAX> {
+        #[inline]
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_bytes(BoundedSecretVecVisitor::<MAX>)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    struct BoundedSecretVecVisitor<const MAX: usize>;
+
+    #[cfg(feature = "alloc")]
+    impl<'de, const MAX: usize> Visitor<'de> for BoundedSecretVecVisitor<MAX> {
+        type Value = BoundedSecretVec<MAX>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(formatter, "at most {MAX} secret bytes")
+        }
+
+        fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            BoundedSecretVec::from_slice(bytes).map_err(E::custom)
+        }
+
+        fn visit_byte_buf<E>(self, bytes: Vec<u8>) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            BoundedSecretVec::from_vec(bytes).map_err(E::custom)
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let capacity = sequence
+                .size_hint()
+                .unwrap_or(0)
+                .min(MAX)
+                .min(SECRET_VEC_SERDE_MAX_PREALLOC);
+            let mut secret = SecretVec::with_capacity(capacity);
+
+            while secret.len() < MAX {
+                let Some(byte) = sequence.next_element::<u8>()? else {
+                    return Ok(BoundedSecretVec { inner: secret });
+                };
+                secret.extend_from_slice(&[byte]);
+            }
+
+            if sequence.next_element::<IgnoredAny>()?.is_some() {
+                return Err(A::Error::custom(SecretVecLimitError {
+                    maximum: MAX,
+                    actual: MAX.saturating_add(1),
+                }));
+            }
+
+            Ok(BoundedSecretVec { inner: secret })
         }
     }
 
@@ -12533,6 +12847,74 @@ mod tests {
 
     #[cfg(all(feature = "serde", feature = "alloc"))]
     #[test]
+    fn bounded_secret_vec_rejects_oversized_serde_sequences() {
+        let accepted: BoundedSecretVec<4> = serde_json::from_str("[1,2,3,4]").unwrap();
+        let rejected = serde_json::from_str::<BoundedSecretVec<4>>("[1,2,3,4,5]");
+
+        assert_eq!(accepted.with_secret(|bytes| bytes.len()), 4);
+        assert!(rejected.is_err());
+        assert_eq!(serde_json::to_string(&accepted).unwrap(), "\"<redacted>\"");
+    }
+
+    #[cfg(all(feature = "serde", feature = "alloc"))]
+    #[test]
+    fn bounded_secret_vec_rejects_oversized_serde_byte_inputs() {
+        use serde::{
+            de::value::{BytesDeserializer, Error as ValueError},
+            Deserialize,
+        };
+
+        struct OwnedBytesDeserializer(Vec<u8>);
+
+        impl<'de> serde::Deserializer<'de> for OwnedBytesDeserializer {
+            type Error = ValueError;
+
+            fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+            where
+                V: serde::de::Visitor<'de>,
+            {
+                visitor.visit_byte_buf(self.0)
+            }
+
+            fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+            where
+                V: serde::de::Visitor<'de>,
+            {
+                visitor.visit_byte_buf(self.0)
+            }
+
+            serde::forward_to_deserialize_any! {
+                bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char str string
+                byte_buf option unit unit_struct newtype_struct seq tuple
+                tuple_struct map struct enum identifier ignored_any
+            }
+        }
+
+        let borrowed = BytesDeserializer::<ValueError>::new(&[1, 2, 3, 4, 5]);
+        let owned = OwnedBytesDeserializer(std::vec![1, 2, 3, 4, 5]);
+
+        assert!(BoundedSecretVec::<4>::deserialize(borrowed).is_err());
+        assert!(BoundedSecretVec::<4>::deserialize(owned).is_err());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn bounded_secret_vec_enforces_limits_during_mutation() {
+        let mut secret = BoundedSecretVec::<4>::from_slice(&[1, 2]).unwrap();
+
+        assert_eq!(secret.extend_from_slice(&[3, 4]), Ok(()));
+        assert_eq!(
+            secret.extend_from_slice(&[5]),
+            Err(SecretVecLimitError {
+                maximum: 4,
+                actual: 5,
+            })
+        );
+        secret.with_secret(|bytes| assert_eq!(bytes, &[1, 2, 3, 4]));
+    }
+
+    #[cfg(all(feature = "serde", feature = "alloc"))]
+    #[test]
     fn serde_secret_vec_clamps_untrusted_sequence_size_hint() {
         use serde::de::{value::Error as ValueError, DeserializeSeed, IntoDeserializer, SeqAccess};
         use serde::Deserialize;
@@ -13141,6 +13523,66 @@ mod tests {
 
         assert_eq!(successes, 1);
         assert_eq!(failures, 1);
+    }
+
+    #[test]
+    fn read_once_secret_clears_when_consume_unwinds_while_shared() {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        use std::{
+            panic::{catch_unwind, AssertUnwindSafe},
+            sync::Arc,
+        };
+
+        struct Probe(Arc<AtomicBool>);
+
+        impl SecureSanitize for Probe {
+            fn secure_sanitize(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let cleared = Arc::new(AtomicBool::new(false));
+        let secret = Arc::new(ReadOnceSecret::new(Probe(Arc::clone(&cleared))));
+        let retained_owner = Arc::clone(&secret);
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = secret.consume(|_| panic!("consumer panic"));
+        }));
+
+        assert!(result.is_err());
+        assert!(cleared.load(Ordering::Acquire));
+        assert!(retained_owner.is_consumed());
+        assert!(Arc::strong_count(&retained_owner) > 1);
+    }
+
+    #[test]
+    fn read_once_secret_clears_when_mutable_consume_unwinds_while_shared() {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        use std::{
+            panic::{catch_unwind, AssertUnwindSafe},
+            sync::Arc,
+        };
+
+        struct Probe(Arc<AtomicBool>);
+
+        impl SecureSanitize for Probe {
+            fn secure_sanitize(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let cleared = Arc::new(AtomicBool::new(false));
+        let secret = Arc::new(ReadOnceSecret::new(Probe(Arc::clone(&cleared))));
+        let retained_owner = Arc::clone(&secret);
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = secret.consume_mut(|_| panic!("mutable consumer panic"));
+        }));
+
+        assert!(result.is_err());
+        assert!(cleared.load(Ordering::Acquire));
+        assert!(retained_owner.is_consumed());
+        assert!(Arc::strong_count(&retained_owner) > 1);
     }
 
     #[test]

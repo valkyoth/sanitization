@@ -19,6 +19,13 @@
   conservative page granule.
 - Sanitized `SecretArrayVec` elements rejected at capacity before returning
   them to the caller.
+- Added unwind-safe eager clearing guards to `ReadOnceSecret::consume` and
+  `consume_mut`, including when another shared owner keeps the wrapper alive.
+- Added `BoundedSecretVec<MAX>` for application-defined dynamic secret limits,
+  including strict bounded serde handling for borrowed bytes, owned buffers,
+  and sequences.
+- Documented locked, frozen, vendored application builds for deployments that
+  require a reproducibly constrained complete dependency graph.
 
 ## 1.2.3
 

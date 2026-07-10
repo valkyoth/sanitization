@@ -12,6 +12,8 @@ Rust applications.
 - Volatile clearing for ordinary mutable byte slices.
 - Volatile clearing of `SecretVec` and `SecretString` initialized bytes and
   spare heap capacity before freeing their allocations.
+- Const-generic `BoundedSecretVec<MAX>` enforcement for dynamic secret input
+  whose length must be limited at an application trust boundary.
 - Explicit volatile helper APIs for existing ordinary buffers.
 - Optional platform memory locking for `LockedSecretBytes<N>` when the
   `memory-lock` feature is enabled on supported Linux, Android, macOS, iOS,
@@ -65,6 +67,9 @@ Rust applications.
   compromise, DMA, malicious firmware, or privileged co-tenants.
 - Revoking external copies after a secret has already been exposed to caller
   code or third-party libraries.
+- Limiting `SecretVec` deserialization when callers deliberately choose the
+  unbounded type, or preventing a deserializer/transport from allocating its
+  own input before `BoundedSecretVec<MAX>` receives visitor control.
 - Soundly scrubbing old stack frames, prior Rust move copies, all CPU
   registers, unrelated CPU cache lines, allocator metadata, or third-party
   library copies. The `register-scrub` feature is only an explicit best-effort

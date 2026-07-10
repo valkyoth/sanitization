@@ -18,5 +18,12 @@
   conservative page granule.
 - Sanitized `SecretArrayVec` elements rejected at capacity before returning
   them to the caller.
+- Added unwind-safe eager clearing guards to `ReadOnceSecret::consume` and
+  `consume_mut`, including when another shared owner keeps the wrapper alive.
+- Added `BoundedSecretVec<MAX>` for application-defined dynamic secret limits,
+  including strict bounded serde handling for borrowed bytes, owned buffers,
+  and sequences.
+- Added reproducible deployment guidance for locked, frozen, vendored final
+  application dependency graphs.
 - Updated all workspace crates and crates.io-facing version references for the
   `1.2.4` patch release.

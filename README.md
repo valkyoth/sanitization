@@ -63,7 +63,8 @@ Implemented now:
 - optional `sanitization-crypto-interop` sister crate for targeted cleanup
   wrappers around third-party hash crates such as `sha2` and `blake3`.
 - optional `serde` deserialization for loading secrets from config formats,
-  with redacted serialization.
+  with redacted serialization and const-generic `BoundedSecretVec<MAX>` input
+  limits for untrusted dynamic byte sequences.
 - native dependency-free `sanitization::ct` data-oblivious primitives with
   explicit declassification boundaries, `Choice`, `CtOption`, `CtResult`,
   `CtOrdering`, fixed-size equality and ordering, conditional selection,
@@ -128,7 +129,8 @@ Read [GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/GUA
 [THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/docs/THREAT_MODEL.md),
 [BARRIERS.md](https://github.com/valkyoth/sanitization/blob/main/docs/BARRIERS.md),
 [TARGETS.md](https://github.com/valkyoth/sanitization/blob/main/docs/TARGETS.md),
-and [SAFETY.md](https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md)
+[SAFETY.md](https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md),
+and [REPRODUCIBLE_BUILDS.md](https://github.com/valkyoth/sanitization/blob/main/docs/REPRODUCIBLE_BUILDS.md)
 before using this crate for high-assurance secret handling.
 
 Read [ROADMAP.md](https://github.com/valkyoth/sanitization/blob/main/docs/ROADMAP.md)
@@ -336,15 +338,17 @@ and return `LengthError` on mismatch.
 Secret containers also implement the native `ct` traits where the operation can
 preserve their lifecycle model. `SecretBytes<N>` implements native
 `ConstantTimeEq`, byte-slice equality, and `ConditionallySelectable`.
-`SecretVec`, `SecretString`, `LockedSecretBytes<N>`, `LockedSecretVec`,
-`SecretPoolSlot<N, SLOTS>`, and `GuardedSecretVec` implement native
-`ConstantTimeEq` behind their normal feature gates. Existing
-`constant_time_eq` methods remain available and source-compatible.
+`SecretVec`, `BoundedSecretVec<MAX>`, `SecretString`,
+`LockedSecretBytes<N>`, `LockedSecretVec`, `SecretPoolSlot<N, SLOTS>`, and
+`GuardedSecretVec` implement native `ConstantTimeEq` behind their normal
+feature gates. Existing `constant_time_eq` methods remain available and
+source-compatible.
 
 ## WASM Support
 
 The base containers (`SecretBytes`, `Secret`, `ReadOnceSecret`, and with
-`alloc`, `SecretVec` and `SecretString`) compile on `wasm32` targets.
+`alloc`, `SecretVec`, `BoundedSecretVec<MAX>`, and `SecretString`) compile on
+`wasm32` targets.
 `memory-lock` compiles on WASM only when `wasm-compat` is also enabled. That
 feature pair exposes API-compatible volatile-only backends:
 `LockedSecretBytes<N>` and `SecretPool<N, SLOTS>` own storage inside WASM
@@ -1171,13 +1175,14 @@ serde = { version = "1", features = ["derive"] }
 ```
 
 ```rust
-use sanitization::{SecretBytes, SecretString};
+use sanitization::{BoundedSecretVec, SecretBytes, SecretString};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct Config {
     signing_key: SecretBytes<32>,
     api_token: SecretString,
+    recovery_blob: BoundedSecretVec<65536>,
 }
 ```
 
@@ -1187,6 +1192,12 @@ serialization to export or back up secrets; it redacts by design. For generic
 `Deserialize` implementation, so use this crate's leaf types such as
 `SecretBytes<N>`, `SecretVec`, and `SecretString` at secret-bearing fields when
 you need secret-aware ingestion end to end.
+
+Plain `SecretVec` deserialization intentionally has no universal protocol-size
+limit. At an untrusted boundary, use `BoundedSecretVec<MAX>` so borrowed bytes,
+owned byte buffers, and element sequences are all rejected once they exceed the
+application's public maximum. Some deserializers may allocate input before the
+visitor is called, so transport and parser input limits remain required.
 
 ## Generic Secret Wrapper
 
@@ -1608,6 +1619,7 @@ the first mismatching byte.
 | Many same-size fixed keys under native memory-lock quotas | `SecretPool<N, SLOTS>` with `memory-lock` |
 | Many same-size fixed keys with pooled canary checks | `SecretPool<N, SLOTS>` with `canary-check` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |
+| Untrusted dynamic secret input with a public size limit | `BoundedSecretVec<MAX>` with `alloc` and `serde` |
 | Dynamic bytes with platform guard pages | `GuardedSecretVec` with `guard-pages` |
 | Guarded dynamic bytes with in-region corruption checks | `GuardedSecretVec` with `guard-pages` and `canary-check` |
 | Secret UTF-8 text | `SecretString` with `alloc` |
