@@ -41,6 +41,8 @@ audited wipe boundary. This is the crate's primary clearing guarantee:
 - explicit volatile helper functions are available for ordinary byte buffers.
 - `BoundedSecretVec<MAX>` checks its public maximum before construction,
   append, replacement, and every supported serde visitor input form.
+- Ordinary `SecretVec` serde rejects inputs larger than the documented 1 MiB
+  default ceiling rather than allocating without a crate-level bound.
 
 The guarantee is about bytes reachable through the current allocation or
 container. It does not cover allocator metadata, stale copies from earlier

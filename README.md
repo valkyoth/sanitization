@@ -1193,11 +1193,12 @@ serialization to export or back up secrets; it redacts by design. For generic
 `SecretBytes<N>`, `SecretVec`, and `SecretString` at secret-bearing fields when
 you need secret-aware ingestion end to end.
 
-Plain `SecretVec` deserialization intentionally has no universal protocol-size
-limit. At an untrusted boundary, use `BoundedSecretVec<MAX>` so borrowed bytes,
-owned byte buffers, and element sequences are all rejected once they exceed the
-application's public maximum. Some deserializers may allocate input before the
-visitor is called, so transport and parser input limits remain required.
+Plain `SecretVec` deserialization rejects inputs larger than the public
+`DEFAULT_SECRET_VEC_SERDE_MAX_LEN` ceiling of 1 MiB. At an untrusted boundary,
+prefer `BoundedSecretVec<MAX>` so borrowed bytes, owned byte buffers, and
+element sequences use the application's protocol-specific maximum. Some
+deserializers may allocate input before the visitor is called, so transport and
+parser input limits remain required.
 
 ## Generic Secret Wrapper
 
@@ -1558,8 +1559,9 @@ token.clear_secret();
 
 These crates use wrapper types because Rust's orphan rules prevent implementing
 `SecureSanitize` directly for external types in a separate crate.
-When `SecretArrayVec::push` reaches capacity, it sanitizes the rejected element
-before returning it inside `arrayvec::CapacityError`.
+`SecretArrayVec::push` preserves `arrayvec` semantics and returns the unchanged
+rejected element. Use `push_or_sanitize` to consume and sanitize a rejected
+secret and receive a payload-free `SanitizedCapacityError`.
 `SecretBytesMut` treats capacity as fixed after construction and returns an
 error instead of reallocating on append, because implicit `BytesMut` growth
 would free an old allocation containing secret bytes before it can be wiped.

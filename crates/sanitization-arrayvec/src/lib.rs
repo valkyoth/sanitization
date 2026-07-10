@@ -14,6 +14,19 @@ use sanitization::SecureSanitize;
 #[cfg(test)]
 extern crate std;
 
+/// Error returned when [`SecretArrayVec::push_or_sanitize`] rejects and clears
+/// an element because the vector is full.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SanitizedCapacityError;
+
+impl fmt::Display for SanitizedCapacityError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("secret array vector is full; rejected element was sanitized")
+    }
+}
+
+impl core::error::Error for SanitizedCapacityError {}
+
 /// Clear-on-drop wrapper around [`ArrayVec`].
 ///
 /// Live elements are sanitized before the vector is cleared. Spare uninitialized
@@ -62,16 +75,28 @@ impl<T: SecureSanitize, const CAP: usize> SecretArrayVec<T, CAP> {
 
     /// Push one sanitizable element.
     ///
-    /// If the vector is full, the rejected element is sanitized before it is
-    /// returned inside [`CapacityError`].
+    /// If the vector is full, [`CapacityError`] returns the original element
+    /// unchanged, matching `arrayvec` semantics. Callers remain responsible for
+    /// sanitizing or securely reusing that rejected value. Use
+    /// [`SecretArrayVec::push_or_sanitize`] when rejection must consume and
+    /// clear the element instead.
     #[inline]
     pub fn push(&mut self, value: T) -> Result<(), CapacityError<T>> {
+        self.inner.try_push(value)
+    }
+
+    /// Push an element, consuming and sanitizing it if the vector is full.
+    ///
+    /// The error intentionally carries no `T`, preventing callers from
+    /// mistaking a sanitized value for the original secret.
+    #[inline]
+    pub fn push_or_sanitize(&mut self, value: T) -> Result<(), SanitizedCapacityError> {
         match self.inner.try_push(value) {
             Ok(()) => Ok(()),
             Err(error) => {
                 let mut rejected = error.element();
                 rejected.secure_sanitize();
-                Err(CapacityError::new(rejected))
+                Err(SanitizedCapacityError)
             }
         }
     }
@@ -180,11 +205,34 @@ mod tests {
     }
 
     #[test]
-    fn arrayvec_wrapper_sanitizes_rejected_elements() {
+    fn arrayvec_wrapper_push_returns_original_rejected_element() {
         let mut secrets = SecretArrayVec::<[u8; 4], 0>::new();
 
         let error = secrets.push([1, 2, 3, 4]).unwrap_err();
 
-        assert_eq!(error.element(), [0; 4]);
+        assert_eq!(error.element(), [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn arrayvec_wrapper_can_sanitize_rejected_elements() {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        struct Probe(Arc<AtomicBool>);
+
+        impl SecureSanitize for Probe {
+            fn secure_sanitize(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let sanitized = Arc::new(AtomicBool::new(false));
+        let mut secrets = SecretArrayVec::<Probe, 0>::new();
+
+        assert_eq!(
+            secrets.push_or_sanitize(Probe(Arc::clone(&sanitized))),
+            Err(SanitizedCapacityError)
+        );
+        assert!(sanitized.load(Ordering::Acquire));
     }
 }

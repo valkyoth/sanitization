@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           if ! command -v cargo-audit >/dev/null 2>&1; then
-            cargo install cargo-audit --locked
+            cargo install cargo-audit --version 0.22.2 --locked
           fi
           cargo audit --deny warnings
 

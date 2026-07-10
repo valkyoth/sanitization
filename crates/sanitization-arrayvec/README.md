@@ -38,5 +38,7 @@ keys.push(SecretBytes::from_array([7; 32])).unwrap();
 keys.clear_secret();
 ```
 
-If `push` reaches capacity, the rejected element is sanitized before it is
-returned inside `arrayvec::CapacityError`.
+If `push` reaches capacity, `arrayvec::CapacityError` returns the original
+element unchanged. The caller must securely reuse or sanitize it. Use
+`push_or_sanitize` when rejection should consume and clear the element instead;
+that method returns a payload-free `SanitizedCapacityError`.

@@ -17,13 +17,17 @@
   fail.
 - Bounded Linux AArch64 auxiliary-vector read retries before falling back to the
   conservative page granule.
-- Sanitized `SecretArrayVec` elements rejected at capacity before returning
-  them to the caller.
+- Added `SecretArrayVec::push_or_sanitize` with a payload-free error for secure
+  rejection while preserving conventional `push` behavior and its unchanged
+  recoverable `CapacityError<T>` value.
 - Added unwind-safe eager clearing guards to `ReadOnceSecret::consume` and
   `consume_mut`, including when another shared owner keeps the wrapper alive.
 - Added `BoundedSecretVec<MAX>` for application-defined dynamic secret limits,
   including strict bounded serde handling for borrowed bytes, owned buffers,
   and sequences.
+- Added a 1 MiB default ceiling to ordinary `SecretVec` deserialization so
+  existing serde call sites are no longer unbounded by default.
+- Pinned CI installation of `cargo-audit` to version `0.22.2`.
 - Documented locked, frozen, vendored application builds for deployments that
   require a reproducibly constrained complete dependency graph.
 

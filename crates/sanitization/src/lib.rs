@@ -10512,13 +10512,21 @@ impl<const N: usize> fmt::Debug for ExpiringSecretBytes<N> {
 /// tokens or PEM/DER material. Clearing uses volatile writes over the full
 /// allocation capacity before the vector length is set to zero.
 ///
-/// With the `serde` feature, this type accepts any input length for backwards
-/// compatibility. Use [`BoundedSecretVec<MAX>`] at untrusted boundaries that
-/// require an application-defined maximum.
+/// With the `serde` feature, deserialization rejects inputs larger than
+/// [`DEFAULT_SECRET_VEC_SERDE_MAX_LEN`]. Use [`BoundedSecretVec<MAX>`] at
+/// boundaries that require a different application-defined maximum.
 #[cfg(feature = "alloc")]
 pub struct SecretVec {
     inner: Vec<u8>,
 }
+
+/// Default maximum accepted by serde deserialization into [`SecretVec`].
+///
+/// The 1 MiB ceiling prevents accidental unbounded allocation while remaining
+/// large enough for typical encoded keys, tokens, and certificate material.
+/// Use [`BoundedSecretVec<MAX>`] when a protocol requires a different limit.
+#[cfg(feature = "alloc")]
+pub const DEFAULT_SECRET_VEC_SERDE_MAX_LEN: usize = 1024 * 1024;
 
 #[cfg(feature = "alloc")]
 impl SecretVec {
@@ -11001,6 +11009,14 @@ impl<const MAX: usize> Default for BoundedSecretVec<MAX> {
     #[inline]
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> From<BoundedSecretVec<MAX>> for SecretVec {
+    #[inline]
+    fn from(secret: BoundedSecretVec<MAX>) -> Self {
+        secret.into_secret_vec()
     }
 }
 
@@ -12028,6 +12044,18 @@ mod serde_impls {
     const SECRET_VEC_SERDE_MAX_PREALLOC: usize = 4096;
 
     #[cfg(feature = "alloc")]
+    fn validate_default_secret_vec_len<E: DeError>(actual: usize) -> Result<(), E> {
+        if actual > DEFAULT_SECRET_VEC_SERDE_MAX_LEN {
+            Err(E::custom(SecretVecLimitError {
+                maximum: DEFAULT_SECRET_VEC_SERDE_MAX_LEN,
+                actual,
+            }))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "alloc")]
     impl<'de> Visitor<'de> for SecretVecVisitor {
         type Value = SecretVec;
 
@@ -12039,13 +12067,18 @@ mod serde_impls {
         where
             E: DeError,
         {
+            validate_default_secret_vec_len::<E>(bytes.len())?;
             Ok(SecretVec::from_slice(bytes))
         }
 
-        fn visit_byte_buf<E>(self, bytes: Vec<u8>) -> Result<Self::Value, E>
+        fn visit_byte_buf<E>(self, mut bytes: Vec<u8>) -> Result<Self::Value, E>
         where
             E: DeError,
         {
+            if let Err(error) = validate_default_secret_vec_len::<E>(bytes.len()) {
+                sanitize_vec_capacity(&mut bytes);
+                return Err(error);
+            }
             Ok(SecretVec::from_vec(bytes))
         }
 
@@ -12056,11 +12089,24 @@ mod serde_impls {
             let capacity = sequence
                 .size_hint()
                 .unwrap_or(0)
+                .min(DEFAULT_SECRET_VEC_SERDE_MAX_LEN)
                 .min(SECRET_VEC_SERDE_MAX_PREALLOC);
             let mut secret = SecretVec::with_capacity(capacity);
-            while let Some(byte) = sequence.next_element::<u8>()? {
+
+            while secret.len() < DEFAULT_SECRET_VEC_SERDE_MAX_LEN {
+                let Some(byte) = sequence.next_element::<u8>()? else {
+                    return Ok(secret);
+                };
                 secret.extend_from_slice(&[byte]);
             }
+
+            if sequence.next_element::<IgnoredAny>()?.is_some() {
+                return Err(A::Error::custom(SecretVecLimitError {
+                    maximum: DEFAULT_SECRET_VEC_SERDE_MAX_LEN,
+                    actual: DEFAULT_SECRET_VEC_SERDE_MAX_LEN.saturating_add(1),
+                }));
+            }
+
             Ok(secret)
         }
     }
@@ -12238,6 +12284,24 @@ mod serde_impls {
             D: Deserializer<'de>,
         {
             T::deserialize(deserializer).map(ReadOnceSecret::new)
+        }
+    }
+
+    #[cfg(all(test, feature = "alloc"))]
+    mod tests {
+        use super::*;
+        use serde::de::value::Error as ValueError;
+
+        #[test]
+        fn default_secret_vec_limit_rejects_excess_length() {
+            assert!(validate_default_secret_vec_len::<ValueError>(
+                DEFAULT_SECRET_VEC_SERDE_MAX_LEN
+            )
+            .is_ok());
+            assert!(validate_default_secret_vec_len::<ValueError>(
+                DEFAULT_SECRET_VEC_SERDE_MAX_LEN.saturating_add(1)
+            )
+            .is_err());
         }
     }
 }
@@ -12911,6 +12975,9 @@ mod tests {
             })
         );
         secret.with_secret(|bytes| assert_eq!(bytes, &[1, 2, 3, 4]));
+
+        let unbounded: SecretVec = secret.into();
+        unbounded.with_secret(|bytes| assert_eq!(bytes, &[1, 2, 3, 4]));
     }
 
     #[cfg(all(feature = "serde", feature = "alloc"))]
