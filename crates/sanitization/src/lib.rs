@@ -1769,10 +1769,8 @@ mod memory_lock {
 
             let mut index = 0;
             while index < N {
-                match make_byte(index) {
-                    Ok(byte) => slot.as_mut_slice()[index] = byte,
-                    Err(error) => return Err(error),
-                }
+                let byte = make_byte(index)?;
+                slot.as_mut_slice()[index] = byte;
                 index += 1;
             }
             compiler_fence(Ordering::SeqCst);
@@ -4308,10 +4306,8 @@ mod memory_lock {
 
             let mut index = 0;
             while index < N {
-                match make_byte(index) {
-                    Ok(byte) => slot.as_mut_slice()[index] = byte,
-                    Err(error) => return Err(error),
-                }
+                let byte = make_byte(index)?;
+                slot.as_mut_slice()[index] = byte;
                 index += 1;
             }
             compiler_fence(Ordering::SeqCst);
@@ -9158,10 +9154,8 @@ impl<const N: usize> SecretBytes<N> {
         let mut secret = Self::zeroed();
         let mut index = 0;
         while index < N {
-            match make_byte(index) {
-                Ok(byte) => secret.store(index, byte),
-                Err(error) => return Err(error),
-            }
+            let byte = make_byte(index)?;
+            secret.store(index, byte);
             index += 1;
         }
         secret.after_secret_write();
@@ -10572,10 +10566,8 @@ impl SecretVec {
         let mut secret = Self::with_capacity(len);
         let mut index = 0;
         while index < len {
-            match make_byte(index) {
-                Ok(byte) => secret.inner.push(byte),
-                Err(error) => return Err(error),
-            }
+            let byte = make_byte(index)?;
+            secret.inner.push(byte);
             index += 1;
         }
         Ok(secret)
@@ -10908,10 +10900,8 @@ impl SecretString {
         let mut secret = Self::with_capacity(max_utf8_capacity(char_count));
         let mut index = 0;
         while index < char_count {
-            match make_char(index) {
-                Ok(character) => secret.push_secret_char(character),
-                Err(error) => return Err(error),
-            }
+            let character = make_char(index)?;
+            secret.push_secret_char(character);
             index += 1;
         }
         Ok(secret)
@@ -13033,7 +13023,7 @@ mod tests {
 
     #[test]
     fn debug_output_is_redacted() {
-        let secret = SecretBytes::<3>::from_array([b'a', b'b', b'c']);
+        let secret = SecretBytes::<3>::from_array(*b"abc");
         let rendered = std::format!("{secret:?}");
 
         assert!(rendered.contains("redacted"));
