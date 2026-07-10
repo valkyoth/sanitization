@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.4
 
 - Switched the pinned/default toolchain to Rust `1.97.0` while retaining Rust
   `1.90.0` as the minimum supported version and checking every supported stable

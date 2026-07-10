@@ -26,7 +26,7 @@ hmac-sha2 = ["sha2"]
 
 [dependencies]
 blake3 = { version = "1.8.5", default-features = false, features = ["zeroize"], optional = true }
-sanitization = { version = "1.2.3", path = "../sanitization" }
+sanitization = { version = "1.2.4", path = "../sanitization" }
 sha2 = { version = "0.11.0", default-features = false, features = ["alloc", "zeroize"], optional = true }
 zeroize = { version = "1", default-features = false, optional = true }
 
