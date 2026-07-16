@@ -3,10 +3,31 @@ set -eu
 
 CP00_BASE='62411d236f651159f82b4db6422f242488a9e94c'
 PLAN='docs/IMPLEMENTATION_PLAN_2.0.0.md'
+REPORT_DIR='security/pentest/2.0-development'
 
 fail() {
     echo "validate-2.0-checkpoint: $1" >&2
     exit 1
+}
+
+regular_blob_mode() {
+    commit="$1"
+    path="$2"
+    entry="$(git ls-tree "$commit" -- "$path")"
+    mode="$(printf '%s\n' "$entry" | awk '{print $1}')"
+    object_type="$(printf '%s\n' "$entry" | awk '{print $2}')"
+
+    [ "$mode" = "100644" ] && [ "$object_type" = "blob" ]
+}
+
+committed_field() {
+    source="$1"
+    name="$2"
+    count="$(grep -c "^${name}: " "$source" || true)"
+    if [ "$count" -ne 1 ]; then
+        fail "${report} must contain exactly one ${name} field"
+    fi
+    sed -n "s/^${name}: //p" "$source"
 }
 
 checkpoint="${1:-}"
@@ -18,7 +39,11 @@ case "$checkpoint" in
         ;;
 esac
 
-report="security/pentest/2.0-development/${checkpoint}.md"
+report="${REPORT_DIR}/${checkpoint}.md"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+committed_report="$tmp/report"
+previous_metadata="$tmp/previous-report"
 
 if [ -f PENTEST.md ] || [ -f pentest.md ]; then
     fail "root PENTEST.md is temporary scratch input and must be removed"
@@ -44,23 +69,20 @@ if ! git cat-file -e "HEAD:${report}" 2>/dev/null; then
     fail "checkpoint report must be committed at HEAD: ${report}"
 fi
 
-field() {
-    name="$1"
-    count="$(grep -c "^${name}: " "$report" || true)"
-    if [ "$count" -ne 1 ]; then
-        fail "${report} must contain exactly one ${name} field"
-    fi
-    sed -n "s/^${name}: //p" "$report"
-}
+regular_blob_mode HEAD "$report" \
+    || fail "checkpoint report must be a regular non-executable Git blob"
 
-status="$(field Status)"
-reported_checkpoint="$(field Checkpoint)"
-base_commit="$(field Base-Commit)"
-reviewed_through="$(field Reviewed-Through)"
-tester="$(field Tester)"
-review_type="$(field Review-Type)"
-scope="$(field Scope)"
-date="$(field Date)"
+git show "HEAD:${report}" >"$committed_report" \
+    || fail "could not read committed checkpoint report"
+
+status="$(committed_field "$committed_report" Status)"
+reported_checkpoint="$(committed_field "$committed_report" Checkpoint)"
+base_commit="$(committed_field "$committed_report" Base-Commit)"
+reviewed_through="$(committed_field "$committed_report" Reviewed-Through)"
+tester="$(committed_field "$committed_report" Tester)"
+review_type="$(committed_field "$committed_report" Review-Type)"
+scope="$(committed_field "$committed_report" Scope)"
+date="$(committed_field "$committed_report" Date)"
 
 if [ "$status" != "PASS" ]; then
     fail "${report} Status must be PASS"
@@ -121,21 +143,65 @@ else
     number="$(printf '%s' "$digits" | sed 's/^0//')"
     previous_number="$((number - 1))"
     previous_checkpoint="$(printf 'CP-%02d' "$previous_number")"
-    previous_report="security/pentest/2.0-development/${previous_checkpoint}.md"
+    previous_report="${REPORT_DIR}/${previous_checkpoint}.md"
 
     if ! git cat-file -e "${reviewed_through}:${previous_report}" 2>/dev/null; then
         fail "previous accepted report is missing at Reviewed-Through: ${previous_report}"
     fi
 
-    expected_base="$(
-        git log --diff-filter=A -1 --format=%H "$reviewed_through" -- "$previous_report"
+    acceptance_commit="$(
+        git log --first-parent --diff-filter=A --reverse --format=%H \
+            "$reviewed_through" -- "$previous_report" |
+            sed -n '1p'
     )"
-    [ -n "$expected_base" ] \
+    [ -n "$acceptance_commit" ] \
         || fail "could not locate acceptance commit for ${previous_checkpoint}"
 
-    if ! git diff --quiet "$expected_base" "$reviewed_through" -- "$previous_report"; then
-        fail "previous accepted report was modified after ${expected_base}"
+    regular_blob_mode "$acceptance_commit" "$previous_report" \
+        || fail "previous checkpoint report is not a regular Git blob"
+    git show "${acceptance_commit}:${previous_report}" >"$previous_metadata" \
+        || fail "could not read previous committed report"
+
+    previous_status="$(committed_field "$previous_metadata" Status)"
+    previous_reported_checkpoint="$(committed_field "$previous_metadata" Checkpoint)"
+    previous_reviewed="$(committed_field "$previous_metadata" Reviewed-Through)"
+
+    [ "$previous_status" = "PASS" ] \
+        || fail "previous checkpoint report Status must be PASS"
+    [ "$previous_reported_checkpoint" = "$previous_checkpoint" ] \
+        || fail "previous checkpoint report identity is invalid"
+    printf '%s\n' "$previous_reviewed" | grep -Eq '^[0-9a-f]{40}$' \
+        || fail "previous report contains an invalid Reviewed-Through"
+    git cat-file -e "${previous_reviewed}^{commit}" 2>/dev/null \
+        || fail "previous Reviewed-Through ${previous_reviewed} was not found"
+
+    acceptance_parent="$(git rev-parse "${acceptance_commit}^")"
+    [ "$acceptance_parent" = "$previous_reviewed" ] \
+        || fail "previous acceptance is not the direct child of Reviewed-Through"
+
+    acceptance_paths="$(
+        git diff-tree --no-commit-id --name-only -r "$acceptance_commit"
+    )"
+    [ "$acceptance_paths" = "$previous_report" ] \
+        || fail "previous acceptance commit was not report-only"
+
+    for commit in $(
+        git rev-list --first-parent "${acceptance_commit}..${reviewed_through}"
+    ); do
+        changed_reports="$(
+            git diff-tree --first-parent --no-commit-id --name-only -r \
+                "$commit" -- "$REPORT_DIR"
+        )"
+        if [ -n "$changed_reports" ]; then
+            fail "an accepted checkpoint report was modified or replaced"
+        fi
+    done
+
+    if ! git diff --quiet "$acceptance_commit" "$reviewed_through" -- "$REPORT_DIR"; then
+        fail "an accepted checkpoint report was modified or replaced"
     fi
+
+    expected_base="$acceptance_commit"
 fi
 
 if [ "$base_commit" != "$expected_base" ]; then

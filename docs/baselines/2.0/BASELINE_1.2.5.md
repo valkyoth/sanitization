@@ -80,8 +80,9 @@ scripts/capture-2.0-baseline.py --check
 That check reconstructs manifests, features, package contents, public source
 declarations, unsafe sites, file hashes, and evidence-document hashes directly
 from the immutable `v1.2.5` Git tag. It validates the recorded codegen metadata
-without pretending that old host-specific artifacts should be rebuilt
-byte-for-byte by every future compiler.
+against a pinned canonical SHA-256 digest without pretending that old
+host-specific artifacts should be rebuilt byte-for-byte by every future
+compiler.
 
 ## Use During 2.0
 

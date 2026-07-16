@@ -47,6 +47,7 @@ scripts/verify-leakage-smoke.sh
 scripts/verify-evidence.py
 scripts/test-release-readiness.sh
 scripts/test-2.0-checkpoint.sh
+scripts/validate-current-2.0-checkpoint.sh
 scripts/capture-2.0-baseline.py --check
 scripts/evidence-report.py >/dev/null
 

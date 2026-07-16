@@ -18,6 +18,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE_REF = "v1.2.5"
 OUTPUT = ROOT / "docs" / "baselines" / "2.0" / "baseline-1.2.5.json"
+EXPECTED_CODEGEN_SHA256 = (
+    "30d9f42f77035d4527bfcd1ff1a5cf16"
+    "aca2ba5d5635c7e969c92b17df38bcb8"
+)
 SOURCE_MATCH_PATHS = [
     "Cargo.toml",
     "Cargo.lock",
@@ -377,6 +381,13 @@ def verify() -> None:
     codegen = recorded.get("codegen")
     if not isinstance(codegen, dict):
         fail("committed baseline has no codegen object")
+    canonical_codegen = json.dumps(
+        codegen,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if sha256(canonical_codegen) != EXPECTED_CODEGEN_SHA256:
+        fail("frozen codegen evidence was modified")
     if not codegen.get("memcmp_or_bcmp_absent"):
         fail("recorded baseline codegen contains memcmp or bcmp")
     for key in (

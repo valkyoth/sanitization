@@ -5,6 +5,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 source_script="$(pwd)/scripts/validate-2.0-checkpoint.sh"
+source_current_script="$(pwd)/scripts/validate-current-2.0-checkpoint.sh"
 
 assert_fails_with() {
     expected="$1"
@@ -33,6 +34,8 @@ make_fixture() {
 `security/pentest/2.0-development/CP-00.md`
 ### `CP-01`: Fixture
 `security/pentest/2.0-development/CP-01.md`
+### `CP-02`: Fixture
+`security/pentest/2.0-development/CP-02.md`
 EOF
     printf 'fixture\n' >"$repo/README.md"
 
@@ -46,9 +49,14 @@ EOF
         base="$(git rev-parse HEAD)"
 
         cp "$source_script" scripts/validate-2.0-checkpoint.sh
+        cp "$source_current_script" scripts/validate-current-2.0-checkpoint.sh
         sed -i "s/^CP00_BASE=.*/CP00_BASE='${base}'/" scripts/validate-2.0-checkpoint.sh
-        chmod +x scripts/validate-2.0-checkpoint.sh
-        git add scripts/validate-2.0-checkpoint.sh
+        chmod +x \
+            scripts/validate-2.0-checkpoint.sh \
+            scripts/validate-current-2.0-checkpoint.sh
+        git add \
+            scripts/validate-2.0-checkpoint.sh \
+            scripts/validate-current-2.0-checkpoint.sh
         git commit -q -m "CP-00 implementation"
     )
 
@@ -62,6 +70,7 @@ write_report() {
     review_type="${4:-targeted-external}"
     report="security/pentest/2.0-development/${checkpoint}.md"
 
+    mkdir -p security/pentest/2.0-development
     cat >"$report" <<EOF
 Status: PASS
 Checkpoint: ${checkpoint}
@@ -80,6 +89,17 @@ accept_cp00() {
     write_report CP-00 "$base" "$reviewed"
     git add security/pentest/2.0-development/CP-00.md
     git commit -q -m "Accept CP-00"
+}
+
+accept_cp01() {
+    cp00_acceptance="$(git rev-parse HEAD)"
+    printf 'checkpoint one\n' >checkpoint-one.txt
+    git add checkpoint-one.txt
+    git commit -q -m "CP-01 implementation"
+    reviewed="$(git rev-parse HEAD)"
+    write_report CP-01 "$cp00_acceptance" "$reviewed" independent-audit
+    git add security/pentest/2.0-development/CP-01.md
+    git commit -q -m "Accept CP-01"
 }
 
 repo="$(make_fixture bad-checkpoint)"
@@ -123,6 +143,39 @@ repo="$(make_fixture malformed-report)"
     git add security/pentest/2.0-development/CP-00.md
     git commit -q -m "bad report"
     assert_fails_with "unsupported Review-Type" \
+        scripts/validate-2.0-checkpoint.sh CP-00
+)
+
+repo="$(make_fixture working-tree-substitution)"
+(
+    cd "$repo"
+    base="$(git rev-parse HEAD~1)"
+    reviewed="$(git rev-parse HEAD)"
+    write_report CP-00 "$base" "$reviewed"
+    sed -i 's/^Status: PASS$/Status: FAIL/' \
+        security/pentest/2.0-development/CP-00.md
+    git add security/pentest/2.0-development/CP-00.md
+    git commit -q -m "committed failed report"
+    sed -i 's/^Status: FAIL$/Status: PASS/' \
+        security/pentest/2.0-development/CP-00.md
+
+    assert_fails_with "Status must be PASS" \
+        scripts/validate-2.0-checkpoint.sh CP-00
+)
+
+repo="$(make_fixture symlink-report)"
+(
+    cd "$repo"
+    base="$(git rev-parse HEAD~1)"
+    reviewed="$(git rev-parse HEAD)"
+    write_report CP-00 "$base" "$reviewed"
+    mv security/pentest/2.0-development/CP-00.md report-target.md
+    ln -s "$(pwd)/report-target.md" \
+        security/pentest/2.0-development/CP-00.md
+    git add security/pentest/2.0-development/CP-00.md
+    git commit -q -m "symlink report"
+
+    assert_fails_with "regular non-executable Git blob" \
         scripts/validate-2.0-checkpoint.sh CP-00
 )
 
@@ -184,21 +237,41 @@ repo="$(make_fixture cp00-ready)"
     cd "$repo"
     accept_cp00
     scripts/validate-2.0-checkpoint.sh CP-00
+    scripts/validate-current-2.0-checkpoint.sh
+)
+
+repo="$(make_fixture automatic-invalid-report)"
+(
+    cd "$repo"
+    base="$(git rev-parse HEAD~1)"
+    reviewed="$(git rev-parse HEAD)"
+    write_report CP-00 "$base" "$reviewed"
+    sed -i 's/^Status: PASS$/Status: FAIL/' \
+        security/pentest/2.0-development/CP-00.md
+    git add security/pentest/2.0-development/CP-00.md
+    git commit -q -m "invalid automatic report"
+
+    assert_fails_with "Status must be PASS" \
+        scripts/validate-current-2.0-checkpoint.sh
+)
+
+repo="$(make_fixture automatic-multiple-reports)"
+(
+    cd "$repo"
+    printf 'one\n' >security/pentest/2.0-development/CP-00.md
+    printf 'two\n' >security/pentest/2.0-development/CP-01.md
+    git add security/pentest/2.0-development
+    git commit -q -m "multiple reports"
+
+    assert_fails_with "exactly one checkpoint report may change" \
+        scripts/validate-current-2.0-checkpoint.sh
 )
 
 repo="$(make_fixture cp01-ready)"
 (
     cd "$repo"
     accept_cp00
-    cp00_acceptance="$(git rev-parse HEAD)"
-
-    printf 'checkpoint one\n' >checkpoint-one.txt
-    git add checkpoint-one.txt
-    git commit -q -m "CP-01 implementation"
-    reviewed="$(git rev-parse HEAD)"
-    write_report CP-01 "$cp00_acceptance" "$reviewed" independent-audit
-    git add security/pentest/2.0-development/CP-01.md
-    git commit -q -m "Accept CP-01"
+    accept_cp01
 
     scripts/validate-2.0-checkpoint.sh CP-01
 )
@@ -236,8 +309,78 @@ repo="$(make_fixture cp01-modified-prior-report)"
     git add security/pentest/2.0-development/CP-01.md
     git commit -q -m "CP-01 report"
 
-    assert_fails_with "previous accepted report was modified" \
+    assert_fails_with "accepted checkpoint report was modified or replaced" \
         scripts/validate-2.0-checkpoint.sh CP-01
+)
+
+repo="$(make_fixture cp01-delete-readd-prior-report)"
+(
+    cd "$repo"
+    accept_cp00
+
+    git rm -q security/pentest/2.0-development/CP-00.md
+    printf 'unreviewed security change\n' >security-change.txt
+    git add security-change.txt
+    git commit -q -m "delete report with unreviewed change"
+
+    base="$(git rev-parse HEAD~3)"
+    original_reviewed="$(git rev-parse HEAD~2)"
+    write_report CP-00 "$base" "$original_reviewed"
+    git add security/pentest/2.0-development/CP-00.md
+    git commit -q -m "re-add prior report"
+    forged_base="$(git rev-parse HEAD)"
+
+    printf 'checkpoint one\n' >checkpoint-one.txt
+    git add checkpoint-one.txt
+    git commit -q -m "CP-01 implementation"
+    reviewed="$(git rev-parse HEAD)"
+    write_report CP-01 "$forged_base" "$reviewed"
+    git add security/pentest/2.0-development/CP-01.md
+    git commit -q -m "CP-01 report after reset"
+
+    assert_fails_with "accepted checkpoint report was modified or replaced" \
+        scripts/validate-2.0-checkpoint.sh CP-01
+)
+
+repo="$(make_fixture cp02-modified-older-report)"
+(
+    cd "$repo"
+    accept_cp00
+    accept_cp01
+    cp01_acceptance="$(git rev-parse HEAD)"
+
+    printf '\nmodified during CP-02\n' \
+        >>security/pentest/2.0-development/CP-00.md
+    printf 'checkpoint two\n' >checkpoint-two.txt
+    git add checkpoint-two.txt security/pentest/2.0-development/CP-00.md
+    git commit -q -m "CP-02 implementation with older report tamper"
+    reviewed="$(git rev-parse HEAD)"
+    write_report CP-02 "$cp01_acceptance" "$reviewed"
+    git add security/pentest/2.0-development/CP-02.md
+    git commit -q -m "CP-02 report"
+
+    assert_fails_with "accepted checkpoint report was modified or replaced" \
+        scripts/validate-2.0-checkpoint.sh CP-02
+)
+
+repo="$(make_fixture cp02-deleted-older-report)"
+(
+    cd "$repo"
+    accept_cp00
+    accept_cp01
+    cp01_acceptance="$(git rev-parse HEAD)"
+
+    git rm -q security/pentest/2.0-development/CP-00.md
+    printf 'checkpoint two\n' >checkpoint-two.txt
+    git add checkpoint-two.txt
+    git commit -q -m "CP-02 implementation deleting older report"
+    reviewed="$(git rev-parse HEAD)"
+    write_report CP-02 "$cp01_acceptance" "$reviewed"
+    git add security/pentest/2.0-development/CP-02.md
+    git commit -q -m "CP-02 report"
+
+    assert_fails_with "accepted checkpoint report was modified or replaced" \
+        scripts/validate-2.0-checkpoint.sh CP-02
 )
 
 echo "2.0 checkpoint validator tests passed"
