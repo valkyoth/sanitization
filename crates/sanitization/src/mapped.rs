@@ -13,8 +13,9 @@ use crate::{ct, SecureSanitize};
 #[path = "mapped/protection.rs"]
 mod protection;
 pub use protection::{
+    CanaryCorruptedError, ForkPolicy, ForkProtectionReport, ForkProtectionRequest,
     ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport, ProtectionRequest,
-    ProtectionState, Requirement, RollbackReport, RollbackState,
+    ProtectionState, Requirement, RollbackReport, RollbackState, SecretIntegrityError,
 };
 
 #[cfg(all(
@@ -90,25 +91,8 @@ pub use memory_lock::{
 ))]
 pub use memory_lock::{LockedSecretVec, LockedSecretVecFillError, LockedSecretVecGenerateError};
 
-#[cfg(all(
-    feature = "canary-check",
-    any(
-        all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ),
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "android",
-        target_os = "windows",
-        target_os = "freebsd",
-        target_os = "openbsd",
-        target_os = "netbsd",
-        target_os = "dragonfly",
-        all(target_arch = "wasm32", feature = "wasm-compat"),
-    )
-))]
-pub use memory_lock::{CanaryCorruptedError, LockedSecretBytesCheckedCopyError};
+/// Compatibility name for fixed-size copy operations that check integrity.
+pub type LockedSecretBytesCheckedCopyError = SecretIntegrityError<crate::LengthError>;
 
 #[cfg(all(
     feature = "guard-pages",
@@ -156,7 +140,6 @@ pub use guard_pages::{
 
 /// Error returned when checked secret-text exposure detects corruption or
 /// invalid UTF-8.
-#[cfg(feature = "canary-check")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SecretTextIntegrityError {
     /// Prefix or suffix canary verification failed.
@@ -165,7 +148,6 @@ pub enum SecretTextIntegrityError {
     Utf8(core::str::Utf8Error),
 }
 
-#[cfg(feature = "canary-check")]
 impl fmt::Display for SecretTextIntegrityError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -175,7 +157,7 @@ impl fmt::Display for SecretTextIntegrityError {
     }
 }
 
-#[cfg(all(feature = "canary-check", feature = "std"))]
+#[cfg(feature = "std")]
 impl std::error::Error for SecretTextIntegrityError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -271,11 +253,13 @@ impl LockedSecretString {
     #[inline]
     pub fn from_locked_secret_vec(
         mut inner: LockedSecretVec,
-    ) -> Result<Self, core::str::Utf8Error> {
-        let valid = inner.with_secret(|bytes| core::str::from_utf8(bytes).map(|_| ()));
+    ) -> Result<Self, SecretTextIntegrityError> {
+        let valid = inner
+            .with_secret(|bytes| core::str::from_utf8(bytes).map(|_| ()))
+            .map_err(SecretTextIntegrityError::Canary)?;
         if let Err(error) = valid {
             inner.clear_secret();
-            return Err(error);
+            return Err(SecretTextIntegrityError::Utf8(error));
         }
         Ok(Self { inner })
     }
@@ -320,9 +304,11 @@ impl LockedSecretString {
     pub fn try_with_secret<R>(
         &self,
         inspect: impl FnOnce(&str) -> R,
-    ) -> Result<R, core::str::Utf8Error> {
+    ) -> Result<R, SecretTextIntegrityError> {
         self.inner
             .with_secret(|bytes| core::str::from_utf8(bytes).map(inspect))
+            .map_err(SecretTextIntegrityError::Canary)?
+            .map_err(SecretTextIntegrityError::Utf8)
     }
 
     /// Run a closure with mutable access to the locked secret text.
@@ -330,13 +316,14 @@ impl LockedSecretString {
     pub fn try_with_secret_mut<R>(
         &mut self,
         edit: impl FnOnce(&mut str) -> R,
-    ) -> Result<R, core::str::Utf8Error> {
+    ) -> Result<R, SecretTextIntegrityError> {
         self.inner
             .with_secret_mut(|bytes| core::str::from_utf8_mut(bytes).map(edit))
+            .map_err(SecretTextIntegrityError::Canary)?
+            .map_err(SecretTextIntegrityError::Utf8)
     }
 
-    /// Verify canaries and UTF-8 before exposing locked secret text.
-    #[cfg(feature = "canary-check")]
+    /// Compatibility alias for [`LockedSecretString::try_with_secret`].
     #[inline]
     pub fn expose_secret_checked<R>(
         &self,
@@ -350,20 +337,26 @@ impl LockedSecretString {
 
     /// Append UTF-8 text, preserving locked storage across growth.
     #[inline]
-    pub fn push_str(&mut self, text: &str) -> Result<(), MemoryLockError> {
+    pub fn push_str(&mut self, text: &str) -> Result<(), SecretIntegrityError<MemoryLockError>> {
         self.inner.extend_from_slice(text.as_bytes())
     }
 
     /// Replace all text while preserving locked-storage semantics.
     #[inline]
-    pub fn replace_from_secret_str(&mut self, text: &str) -> Result<(), MemoryLockError> {
+    pub fn replace_from_secret_str(
+        &mut self,
+        text: &str,
+    ) -> Result<(), SecretIntegrityError<MemoryLockError>> {
         self.inner.replace_from_slice(text.as_bytes())
     }
 
     /// Replace all text from an owned string and clear the source allocation.
     #[cfg(feature = "alloc")]
     #[inline]
-    pub fn replace_from_string(&mut self, text: String) -> Result<(), MemoryLockError> {
+    pub fn replace_from_string(
+        &mut self,
+        text: String,
+    ) -> Result<(), SecretIntegrityError<MemoryLockError>> {
         let source = SecretString::from_string(text);
         self.inner.replace_from_slice(source.inner.as_slice())
     }
@@ -384,14 +377,20 @@ impl LockedSecretString {
     }
 
     /// Compare against UTF-8 text without early exit for equal-length inputs.
-    #[must_use]
     #[inline]
-    pub fn constant_time_eq(&self, other: &str) -> bool {
+    pub fn constant_time_eq(&self, other: &str) -> Result<bool, CanaryCorruptedError> {
         self.inner.constant_time_eq(other.as_bytes())
     }
 
+    /// Compare after integrity verification, panicking on canary corruption.
+    #[must_use]
+    #[inline]
+    pub fn constant_time_eq_or_panic(&self, other: &str) -> bool {
+        self.constant_time_eq(other)
+            .expect("locked secret canary corrupted")
+    }
+
     /// Verify the underlying locked mapping canaries.
-    #[cfg(feature = "canary-check")]
     #[inline]
     pub fn verify_integrity(&self) -> Result<(), CanaryCorruptedError> {
         self.inner.verify_integrity()
@@ -424,7 +423,7 @@ impl LockedSecretString {
     not(miri)
 ))]
 impl TryFrom<LockedSecretVec> for LockedSecretString {
-    type Error = core::str::Utf8Error;
+    type Error = SecretTextIntegrityError;
 
     #[inline]
     fn try_from(secret: LockedSecretVec) -> Result<Self, Self::Error> {
@@ -610,11 +609,13 @@ impl GuardedSecretString {
     #[inline]
     pub fn from_guarded_secret_vec(
         mut inner: GuardedSecretVec,
-    ) -> Result<Self, core::str::Utf8Error> {
-        let valid = inner.with_secret(|bytes| core::str::from_utf8(bytes).map(|_| ()));
+    ) -> Result<Self, SecretTextIntegrityError> {
+        let valid = inner
+            .with_secret(|bytes| core::str::from_utf8(bytes).map(|_| ()))
+            .map_err(SecretTextIntegrityError::Canary)?;
         if let Err(error) = valid {
             inner.clear_secret();
-            return Err(error);
+            return Err(SecretTextIntegrityError::Utf8(error));
         }
         Ok(Self { inner })
     }
@@ -659,9 +660,11 @@ impl GuardedSecretString {
     pub fn try_with_secret<R>(
         &self,
         inspect: impl FnOnce(&str) -> R,
-    ) -> Result<R, core::str::Utf8Error> {
+    ) -> Result<R, SecretTextIntegrityError> {
         self.inner
             .with_secret(|bytes| core::str::from_utf8(bytes).map(inspect))
+            .map_err(SecretTextIntegrityError::Canary)?
+            .map_err(SecretTextIntegrityError::Utf8)
     }
 
     /// Run a closure with mutable access to the guarded secret text.
@@ -669,13 +672,14 @@ impl GuardedSecretString {
     pub fn try_with_secret_mut<R>(
         &mut self,
         edit: impl FnOnce(&mut str) -> R,
-    ) -> Result<R, core::str::Utf8Error> {
+    ) -> Result<R, SecretTextIntegrityError> {
         self.inner
             .with_secret_mut(|bytes| core::str::from_utf8_mut(bytes).map(edit))
+            .map_err(SecretTextIntegrityError::Canary)?
+            .map_err(SecretTextIntegrityError::Utf8)
     }
 
-    /// Verify canaries and UTF-8 before exposing guarded secret text.
-    #[cfg(feature = "canary-check")]
+    /// Compatibility alias for [`GuardedSecretString::try_with_secret`].
     #[inline]
     pub fn expose_secret_checked<R>(
         &self,
@@ -689,20 +693,26 @@ impl GuardedSecretString {
 
     /// Append UTF-8 text, preserving guarded and lock-state semantics.
     #[inline]
-    pub fn push_str(&mut self, text: &str) -> Result<(), GuardPageError> {
+    pub fn push_str(&mut self, text: &str) -> Result<(), SecretIntegrityError<GuardPageError>> {
         self.inner.extend_from_slice(text.as_bytes())
     }
 
     /// Replace all text while preserving guarded and lock-state semantics.
     #[inline]
-    pub fn replace_from_secret_str(&mut self, text: &str) -> Result<(), GuardPageError> {
+    pub fn replace_from_secret_str(
+        &mut self,
+        text: &str,
+    ) -> Result<(), SecretIntegrityError<GuardPageError>> {
         self.inner.replace_from_slice(text.as_bytes())
     }
 
     /// Replace all text from an owned string and clear the source allocation.
     #[cfg(feature = "alloc")]
     #[inline]
-    pub fn replace_from_string(&mut self, text: String) -> Result<(), GuardPageError> {
+    pub fn replace_from_string(
+        &mut self,
+        text: String,
+    ) -> Result<(), SecretIntegrityError<GuardPageError>> {
         let source = SecretString::from_string(text);
         self.inner.replace_from_slice(source.inner.as_slice())
     }
@@ -723,14 +733,20 @@ impl GuardedSecretString {
     }
 
     /// Compare against UTF-8 text without early exit for equal-length inputs.
-    #[must_use]
     #[inline]
-    pub fn constant_time_eq(&self, other: &str) -> bool {
+    pub fn constant_time_eq(&self, other: &str) -> Result<bool, CanaryCorruptedError> {
         self.inner.constant_time_eq(other.as_bytes())
     }
 
+    /// Compare after integrity verification, panicking on canary corruption.
+    #[must_use]
+    #[inline]
+    pub fn constant_time_eq_or_panic(&self, other: &str) -> bool {
+        self.constant_time_eq(other)
+            .expect("guarded secret canary corrupted")
+    }
+
     /// Verify the guarded mapping canaries.
-    #[cfg(feature = "canary-check")]
     #[inline]
     pub fn verify_integrity(&self) -> Result<(), CanaryCorruptedError> {
         self.inner.verify_integrity()
@@ -763,7 +779,7 @@ impl GuardedSecretString {
     not(miri)
 ))]
 impl TryFrom<GuardedSecretVec> for GuardedSecretString {
-    type Error = core::str::Utf8Error;
+    type Error = SecretTextIntegrityError;
 
     #[inline]
     fn try_from(secret: GuardedSecretVec) -> Result<Self, Self::Error> {
@@ -875,14 +891,16 @@ mod native_ct_memory_lock_impls {
     impl<const N: usize> ct::ConstantTimeEq for LockedSecretBytes<N> {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
-            self.expose_secret(|left| other.expose_secret(|right| ct::eq_fixed(left, right)))
+            self.expose_secret_or_panic(|left| {
+                other.expose_secret_or_panic(|right| ct::eq_fixed(left, right))
+            })
         }
     }
 
     impl<const N: usize> ct::ConstantTimeEq<[u8]> for LockedSecretBytes<N> {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
-            self.expose_secret(|left| ct::eq_public_len(left, other))
+            self.expose_secret_or_panic(|left| ct::eq_public_len(left, other))
         }
     }
 
@@ -891,7 +909,9 @@ mod native_ct_memory_lock_impls {
     {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
-            self.expose_secret(|left| other.expose_secret(|right| ct::eq_fixed(left, right)))
+            self.expose_secret_or_panic(|left| {
+                other.expose_secret_or_panic(|right| ct::eq_fixed(left, right))
+            })
         }
     }
 
@@ -900,7 +920,7 @@ mod native_ct_memory_lock_impls {
     {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
-            self.expose_secret(|left| ct::eq_public_len(left, other))
+            self.expose_secret_or_panic(|left| ct::eq_public_len(left, other))
         }
     }
 
@@ -908,7 +928,9 @@ mod native_ct_memory_lock_impls {
     impl ct::ConstantTimeEq for LockedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
-            self.with_secret(|left| other.with_secret(|right| ct::eq_public_len(left, right)))
+            self.with_secret_or_panic(|left| {
+                other.with_secret_or_panic(|right| ct::eq_public_len(left, right))
+            })
         }
     }
 
@@ -916,7 +938,7 @@ mod native_ct_memory_lock_impls {
     impl ct::ConstantTimeEq<[u8]> for LockedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
-            self.with_secret(|left| ct::eq_public_len(left, other))
+            self.with_secret_or_panic(|left| ct::eq_public_len(left, other))
         }
     }
 
@@ -961,14 +983,16 @@ mod native_ct_guard_page_impls {
     impl ct::ConstantTimeEq for GuardedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
-            self.with_secret(|left| other.with_secret(|right| ct::eq_public_len(left, right)))
+            self.with_secret_or_panic(|left| {
+                other.with_secret_or_panic(|right| ct::eq_public_len(left, right))
+            })
         }
     }
 
     impl ct::ConstantTimeEq<[u8]> for GuardedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
-            self.with_secret(|left| ct::eq_public_len(left, other))
+            self.with_secret_or_panic(|left| ct::eq_public_len(left, other))
         }
     }
 

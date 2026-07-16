@@ -132,9 +132,10 @@ use private platform mappings and memory locking to reduce the chance that
 secret storage reaches swap or pagefiles. `SecretPool<N, SLOTS>` uses the same
 backend but sub-allocates many fixed-size slots from one locked mapping,
 reducing page-granule quota overhead for applications that keep many same-size
-secrets. Linux also applies `MADV_DONTDUMP` and `MADV_DONTFORK` to reduce
-ordinary core-dump exposure and accidental inheritance across `fork`. This is a
-high-assurance building block, not a complete OS secrecy guarantee. Resource
+secrets. Linux also applies `MADV_DONTDUMP`; callers can explicitly allow fork
+inheritance, request `MADV_DONTFORK` exclusion, or request
+`MADV_WIPEONFORK` zero-filled child pages. This is a high-assurance building
+block, not a complete OS secrecy guarantee. Resource
 limits or policy can make setup fail, and locked memory can still be exposed
 through hibernation, nonstandard crash dump mechanisms, debuggers, privileged
 reads, DMA, malicious firmware, or copies made before data enters the locked
@@ -180,8 +181,9 @@ With the `canary-check` feature, non-empty `LockedSecretBytes<N>` mappings,
 canary before and after the secret bytes. `GuardedSecretVec` places one canary
 before the payload and one immediately after the initialized payload. Exposure,
 mutation, replacement, and comparison APIs verify both canaries before reading
-or modifying the secret; checked APIs return `CanaryCorruptedError`, while
-infallible APIs clear the mapping or slot and panic. This can detect overwrites
+or modifying the secret. Ordinary APIs clear the mapping or slot and return
+`CanaryCorruptedError` or `SecretIntegrityError`; explicitly named
+`_or_panic` helpers preserve panic-on-corruption behavior. This can detect overwrites
 that stay inside the writable mapping but reach the canary words, including
 some overrun/underrun cases that do not reach a guard page. It does not detect
 corruption entirely inside the secret bytes and does not provide authenticity
@@ -280,21 +282,22 @@ does not remap or copy it; invalid UTF-8 is cleared before rejection.
 
 When both `guard-pages` and `memory-lock` are enabled, `GuardedSecretVec`
 locked constructors also lock the writable data pages. Linux additionally calls
-`MADV_DONTDUMP` and `MADV_DONTFORK`. This combines guard-page fault isolation
-with swap/pagefile reduction for dynamic secrets, but all memory-lock limits
-still apply.
+`MADV_DONTDUMP` and applies the requested inherit, exclude, or wipe-child fork
+policy. This combines guard-page fault isolation with swap/pagefile reduction
+for dynamic secrets, but all memory-lock limits still apply.
 
-On non-Linux Unix targets, locked mappings do not apply fork-inheritance
-exclusion. Secret mappings are inherited by child processes after `fork`.
+On non-Linux Unix targets, explicit exclude and wipe-child fork policies are
+reported as unsupported. An explicit inherit policy succeeds because ordinary
+platform fork behavior inherits the mapping.
 Applications using prefork servers or worker pools must clear secrets before
 forking, isolate secret-owning work into processes created before secrets are
 loaded, or use Linux if `MADV_DONTFORK`-style fork isolation is required.
 FreeBSD requests core-dump exclusion with `MADV_NOCORE`; Android, macOS, iOS,
 OpenBSD, NetBSD, and DragonFly BSD currently only lock resident memory and do
 not apply crate-level dump exclusion.
-With `require-fork-exclusion`, locked native constructors and locked guarded
-constructors return a `DontFork` platform error on non-Linux targets instead of
-accepting this reduced guarantee. This feature is intended for deployments
+With `require-fork-exclusion`, named locked constructors request exclusion as
+required and fail on targets where it is unavailable. Explicit requests can
+instead require wipe-child behavior. This feature is intended for deployments
 where accidental fork inheritance is an audit blocker.
 
 `SecretBytes::expose_secret` directly borrows the owned fixed-size storage and

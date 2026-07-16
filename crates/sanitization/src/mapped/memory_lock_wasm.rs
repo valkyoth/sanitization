@@ -5,8 +5,9 @@ use core::{
 };
 
 use super::{
-    ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport, ProtectionRequest,
-    ProtectionState, Requirement, RollbackReport,
+    CanaryCorruptedError, ForkPolicy, ProtectionControl, ProtectionError, ProtectionFailure,
+    ProtectionReport, ProtectionRequest, ProtectionState, Requirement, RollbackReport,
+    SecretIntegrityError,
 };
 
 #[cfg(feature = "canary-check")]
@@ -25,6 +26,8 @@ pub enum MemoryLockOperation {
     DontDump,
     /// Fork inheritance exclusion failed.
     DontFork,
+    /// Child-process wipe-on-fork policy failed.
+    WipeOnFork,
     /// Page locking failed.
     Lock,
     /// Page unlocking failed.
@@ -120,66 +123,7 @@ where
     }
 }
 
-/// Error returned when a checked locked secret detects canary corruption.
-#[cfg(feature = "canary-check")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CanaryCorruptedError;
-
-#[cfg(feature = "canary-check")]
-impl fmt::Display for CanaryCorruptedError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("locked secret canary corrupted")
-    }
-}
-
-#[cfg(all(feature = "canary-check", feature = "std"))]
-impl std::error::Error for CanaryCorruptedError {}
-
-/// Error returned by checked locked-secret copy operations.
-#[cfg(feature = "canary-check")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LockedSecretBytesCheckedCopyError {
-    /// The caller provided a destination with the wrong length.
-    Length(crate::LengthError),
-    /// Prefix or suffix canary verification failed.
-    Canary(CanaryCorruptedError),
-}
-
-#[cfg(feature = "canary-check")]
-impl fmt::Display for LockedSecretBytesCheckedCopyError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Length(error) => error.fmt(formatter),
-            Self::Canary(error) => error.fmt(formatter),
-        }
-    }
-}
-
-#[cfg(all(feature = "canary-check", feature = "std"))]
-impl std::error::Error for LockedSecretBytesCheckedCopyError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Length(error) => Some(error),
-            Self::Canary(error) => Some(error),
-        }
-    }
-}
-
-#[cfg(feature = "canary-check")]
-impl From<crate::LengthError> for LockedSecretBytesCheckedCopyError {
-    #[inline]
-    fn from(error: crate::LengthError) -> Self {
-        Self::Length(error)
-    }
-}
-
-#[cfg(feature = "canary-check")]
-impl From<CanaryCorruptedError> for LockedSecretBytesCheckedCopyError {
-    #[inline]
-    fn from(error: CanaryCorruptedError) -> Self {
-        Self::Canary(error)
-    }
-}
+type LockedSecretBytesCheckedCopyError = SecretIntegrityError<crate::LengthError>;
 
 impl From<crate::LengthError> for LockedSecretBytesError {
     #[inline]
@@ -420,15 +364,18 @@ impl<const N: usize> LockedSecretBytes<N> {
 
     /// Replace all secret bytes from a same-length slice.
     #[inline]
-    pub fn copy_from_slice(&mut self, source: &[u8]) -> Result<(), crate::LengthError> {
+    pub fn copy_from_slice(
+        &mut self,
+        source: &[u8],
+    ) -> Result<(), SecretIntegrityError<crate::LengthError>> {
         if source.len() != N {
-            return Err(crate::LengthError {
+            return Err(SecretIntegrityError::Operation(crate::LengthError {
                 expected: N,
                 actual: source.len(),
-            });
+            }));
         }
 
-        self.assert_canaries_intact();
+        self.verify_integrity()?;
         self.as_mut_slice().copy_from_slice(source);
         compiler_fence(Ordering::SeqCst);
         Ok(())
@@ -436,16 +383,24 @@ impl<const N: usize> LockedSecretBytes<N> {
 
     /// Replace all secret bytes from a same-length slice.
     #[inline]
-    pub fn replace_from_slice(&mut self, source: &[u8]) -> Result<(), LockedSecretBytesError> {
-        self.assert_canaries_intact();
+    pub fn replace_from_slice(
+        &mut self,
+        source: &[u8],
+    ) -> Result<(), SecretIntegrityError<LockedSecretBytesError>> {
+        self.verify_integrity()?;
         if source.len() != N {
-            return Err(crate::LengthError {
-                expected: N,
-                actual: source.len(),
-            }
-            .into());
+            return Err(SecretIntegrityError::Operation(
+                crate::LengthError {
+                    expected: N,
+                    actual: source.len(),
+                }
+                .into(),
+            ));
         }
-        let mut replacement = self.replacement_zeroed()?;
+        let mut replacement = self
+            .replacement_zeroed()
+            .map_err(LockedSecretBytesError::Memory)
+            .map_err(SecretIntegrityError::Operation)?;
         replacement.as_mut_slice().copy_from_slice(source);
         compiler_fence(Ordering::SeqCst);
         self.secure_clear();
@@ -455,13 +410,19 @@ impl<const N: usize> LockedSecretBytes<N> {
 
     /// Replace all secret bytes from an owned array, then clear the input.
     #[inline]
-    pub fn replace_from_array(&mut self, mut bytes: [u8; N]) -> Result<(), MemoryLockError> {
-        self.assert_canaries_intact();
+    pub fn replace_from_array(
+        &mut self,
+        mut bytes: [u8; N],
+    ) -> Result<(), SecretIntegrityError<MemoryLockError>> {
+        if let Err(error) = self.verify_integrity() {
+            crate::wipe::bytes(&mut bytes);
+            return Err(error.into());
+        }
         let mut replacement = match self.replacement_zeroed() {
             Ok(replacement) => replacement,
             Err(error) => {
                 crate::wipe::bytes(&mut bytes);
-                return Err(error);
+                return Err(SecretIntegrityError::Operation(error));
             }
         };
         replacement.as_mut_slice().copy_from_slice(&bytes);
@@ -476,9 +437,11 @@ impl<const N: usize> LockedSecretBytes<N> {
     pub fn replace_from_fn(
         &mut self,
         make_byte: impl FnMut(usize) -> u8,
-    ) -> Result<(), MemoryLockError> {
-        self.assert_canaries_intact();
-        let mut replacement = self.replacement_zeroed()?;
+    ) -> Result<(), SecretIntegrityError<MemoryLockError>> {
+        self.verify_integrity()?;
+        let mut replacement = self
+            .replacement_zeroed()
+            .map_err(SecretIntegrityError::Operation)?;
         let mut make_byte = make_byte;
         let mut index = 0;
         while index < N {
@@ -496,9 +459,12 @@ impl<const N: usize> LockedSecretBytes<N> {
     pub fn try_replace_from_fn<E>(
         &mut self,
         make_byte: impl FnMut(usize) -> Result<u8, E>,
-    ) -> Result<(), LockedSecretBytesGenerateError<E>> {
-        self.assert_canaries_intact();
-        let mut replacement = self.replacement_zeroed()?;
+    ) -> Result<(), SecretIntegrityError<LockedSecretBytesGenerateError<E>>> {
+        self.verify_integrity()?;
+        let mut replacement = self
+            .replacement_zeroed()
+            .map_err(LockedSecretBytesGenerateError::Memory)
+            .map_err(SecretIntegrityError::Operation)?;
         let mut make_byte = make_byte;
         let mut index = 0;
         while index < N {
@@ -506,7 +472,9 @@ impl<const N: usize> LockedSecretBytes<N> {
                 Ok(byte) => replacement.as_mut_slice()[index] = byte,
                 Err(error) => {
                     replacement.secure_clear();
-                    return Err(LockedSecretBytesGenerateError::Generate(error));
+                    return Err(SecretIntegrityError::Operation(
+                        LockedSecretBytesGenerateError::Generate(error),
+                    ));
                 }
             }
             index += 1;
@@ -522,9 +490,11 @@ impl<const N: usize> LockedSecretBytes<N> {
     pub fn replace_from_fill(
         &mut self,
         fill: impl FnOnce(&mut [u8; N]),
-    ) -> Result<(), MemoryLockError> {
-        self.assert_canaries_intact();
-        let mut replacement = self.replacement_zeroed()?;
+    ) -> Result<(), SecretIntegrityError<MemoryLockError>> {
+        self.verify_integrity()?;
+        let mut replacement = self
+            .replacement_zeroed()
+            .map_err(SecretIntegrityError::Operation)?;
         compiler_fence(Ordering::SeqCst);
         fill(replacement.as_mut_array());
         compiler_fence(Ordering::SeqCst);
@@ -538,13 +508,18 @@ impl<const N: usize> LockedSecretBytes<N> {
     pub fn try_replace_from_fill<E>(
         &mut self,
         fill: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
-    ) -> Result<(), LockedSecretBytesGenerateError<E>> {
-        self.assert_canaries_intact();
-        let mut replacement = self.replacement_zeroed()?;
+    ) -> Result<(), SecretIntegrityError<LockedSecretBytesGenerateError<E>>> {
+        self.verify_integrity()?;
+        let mut replacement = self
+            .replacement_zeroed()
+            .map_err(LockedSecretBytesGenerateError::Memory)
+            .map_err(SecretIntegrityError::Operation)?;
         compiler_fence(Ordering::SeqCst);
         if let Err(error) = fill(replacement.as_mut_array()) {
             replacement.secure_clear();
-            return Err(LockedSecretBytesGenerateError::Generate(error));
+            return Err(SecretIntegrityError::Operation(
+                LockedSecretBytesGenerateError::Generate(error),
+            ));
         }
         compiler_fence(Ordering::SeqCst);
         self.secure_clear();
@@ -558,15 +533,18 @@ impl<const N: usize> LockedSecretBytes<N> {
 
     /// Fill a caller-provided destination with a copy of the secret bytes.
     #[inline]
-    pub fn copy_to_slice(&self, destination: &mut [u8]) -> Result<(), crate::LengthError> {
+    pub fn copy_to_slice(
+        &self,
+        destination: &mut [u8],
+    ) -> Result<(), LockedSecretBytesCheckedCopyError> {
         if destination.len() != N {
-            return Err(crate::LengthError {
+            return Err(SecretIntegrityError::Operation(crate::LengthError {
                 expected: N,
                 actual: destination.len(),
-            });
+            }));
         }
 
-        self.assert_canaries_intact();
+        self.verify_integrity()?;
         destination.copy_from_slice(self.as_slice());
         compiler_fence(Ordering::SeqCst);
         core::hint::black_box(destination);
@@ -575,25 +553,7 @@ impl<const N: usize> LockedSecretBytes<N> {
 
     /// Run a closure with read-only access to the secret bytes.
     #[inline]
-    pub fn expose_secret<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
-        self.assert_canaries_intact();
-        inspect(self.as_array())
-    }
-
-    /// Verify integrity, copy into temporary stack storage, and expose the copy.
-    ///
-    /// The temporary is volatile-cleared on normal return and unwinding. It
-    /// cannot be cleared if the WASM instance aborts or traps without unwinding.
-    #[inline]
-    pub fn expose_secret_copy<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
-        self.assert_canaries_intact();
-        crate::owned::expose_array_copy(self.as_array(), inspect)
-    }
-
-    /// Verify canary integrity before exposing the secret bytes.
-    #[cfg(feature = "canary-check")]
-    #[inline]
-    pub fn expose_secret_checked<R>(
+    pub fn expose_secret<R>(
         &self,
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
@@ -601,10 +561,12 @@ impl<const N: usize> LockedSecretBytes<N> {
         Ok(inspect(self.as_array()))
     }
 
-    /// Verify canary integrity before exposing a temporary plaintext copy.
-    #[cfg(feature = "canary-check")]
+    /// Verify integrity, copy into temporary stack storage, and expose the copy.
+    ///
+    /// The temporary is volatile-cleared on normal return and unwinding. It
+    /// cannot be cleared if the WASM instance aborts or traps without unwinding.
     #[inline]
-    pub fn expose_secret_copy_checked<R>(
+    pub fn expose_secret_copy<R>(
         &self,
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
@@ -612,19 +574,35 @@ impl<const N: usize> LockedSecretBytes<N> {
         Ok(crate::owned::expose_array_copy(self.as_array(), inspect))
     }
 
-    /// Verify canary integrity before copying secret bytes out.
-    #[cfg(feature = "canary-check")]
+    /// Compatibility alias for [`LockedSecretBytes::expose_secret`].
+    #[inline]
+    pub fn expose_secret_checked<R>(
+        &self,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> Result<R, CanaryCorruptedError> {
+        self.expose_secret(inspect)
+    }
+
+    /// Compatibility alias for [`LockedSecretBytes::expose_secret_copy`].
+    #[inline]
+    pub fn expose_secret_copy_checked<R>(
+        &self,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> Result<R, CanaryCorruptedError> {
+        self.expose_secret_copy(inspect)
+    }
+
+    /// Compatibility alias for [`LockedSecretBytes::copy_to_slice`].
     #[inline]
     pub fn copy_to_slice_checked(
         &self,
         destination: &mut [u8],
     ) -> Result<(), LockedSecretBytesCheckedCopyError> {
         if destination.len() != N {
-            return Err(crate::LengthError {
+            return Err(SecretIntegrityError::Operation(crate::LengthError {
                 expected: N,
                 actual: destination.len(),
-            }
-            .into());
+            }));
         }
 
         self.verify_integrity()?;
@@ -634,8 +612,7 @@ impl<const N: usize> LockedSecretBytes<N> {
         Ok(())
     }
 
-    /// Verify canary integrity before comparing secret bytes.
-    #[cfg(feature = "canary-check")]
+    /// Compatibility alias for [`LockedSecretBytes::constant_time_eq`].
     #[inline]
     pub fn constant_time_eq_checked(&self, other: &[u8]) -> Result<bool, CanaryCorruptedError> {
         self.verify_integrity()?;
@@ -643,9 +620,13 @@ impl<const N: usize> LockedSecretBytes<N> {
     }
 
     /// Verify canaries.
-    #[cfg(feature = "canary-check")]
     #[inline]
     pub fn verify_integrity(&self) -> Result<(), CanaryCorruptedError> {
+        #[cfg(not(feature = "canary-check"))]
+        {
+            return Ok(());
+        }
+        #[cfg(feature = "canary-check")]
         if self.canaries_intact() {
             Ok(())
         } else {
@@ -655,11 +636,10 @@ impl<const N: usize> LockedSecretBytes<N> {
     }
 
     /// Compare against a slice without early exit for equal-length inputs.
-    #[must_use]
     #[inline]
-    pub fn constant_time_eq(&self, other: &[u8]) -> bool {
-        self.assert_canaries_intact();
-        crate::constant_time_eq_slices(self.as_slice(), other)
+    pub fn constant_time_eq(&self, other: &[u8]) -> Result<bool, CanaryCorruptedError> {
+        self.verify_integrity()?;
+        Ok(crate::constant_time_eq_slices(self.as_slice(), other))
     }
 
     /// Clear the full WASM-owned storage with volatile writes.
@@ -684,6 +664,28 @@ impl<const N: usize> LockedSecretBytes<N> {
     #[inline]
     pub fn into_cleared(mut self) {
         self.secure_clear();
+    }
+
+    /// Run a closure with read-only access, panicking on canary corruption.
+    #[inline]
+    pub fn expose_secret_or_panic<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+        self.expose_secret(inspect)
+            .unwrap_or_else(|_| panic!("locked secret canary corrupted"))
+    }
+
+    /// Expose a temporary copy, panicking on canary corruption.
+    #[inline]
+    pub fn expose_secret_copy_or_panic<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+        self.expose_secret_copy(inspect)
+            .unwrap_or_else(|_| panic!("locked secret canary corrupted"))
+    }
+
+    /// Compare, panicking on canary corruption.
+    #[must_use]
+    #[inline]
+    pub fn constant_time_eq_or_panic(&self, other: &[u8]) -> bool {
+        self.constant_time_eq(other)
+            .unwrap_or_else(|_| panic!("locked secret canary corrupted"))
     }
 
     #[inline]
@@ -754,18 +756,6 @@ impl<const N: usize> LockedSecretBytes<N> {
     #[cfg(not(feature = "canary-check"))]
     #[inline]
     fn write_canaries(&mut self) {}
-
-    #[cfg(feature = "canary-check")]
-    #[inline]
-    fn assert_canaries_intact(&self) {
-        if self.verify_integrity().is_err() {
-            panic!("locked secret canary corrupted");
-        }
-    }
-
-    #[cfg(not(feature = "canary-check"))]
-    #[inline]
-    fn assert_canaries_intact(&self) {}
 
     #[cfg(feature = "canary-check")]
     #[inline]
@@ -1109,15 +1099,18 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
 
     /// Replace all slot bytes from a same-length slice.
     #[inline]
-    pub fn copy_from_slice(&mut self, source: &[u8]) -> Result<(), crate::LengthError> {
+    pub fn copy_from_slice(
+        &mut self,
+        source: &[u8],
+    ) -> Result<(), SecretIntegrityError<crate::LengthError>> {
         if source.len() != N {
-            return Err(crate::LengthError {
+            return Err(SecretIntegrityError::Operation(crate::LengthError {
                 expected: N,
                 actual: source.len(),
-            });
+            }));
         }
 
-        self.assert_canaries_intact();
+        self.verify_integrity()?;
         self.as_mut_slice().copy_from_slice(source);
         compiler_fence(Ordering::SeqCst);
         Ok(())
@@ -1125,29 +1118,40 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
 
     /// Compatibility alias for [`SecretPoolSlot::copy_from_slice`].
     #[inline]
-    pub fn replace_from_slice(&mut self, source: &[u8]) -> Result<(), crate::LengthError> {
+    pub fn replace_from_slice(
+        &mut self,
+        source: &[u8],
+    ) -> Result<(), SecretIntegrityError<crate::LengthError>> {
         self.copy_from_slice(source)
     }
 
     /// Replace all slot bytes from an owned array, then clear the input.
     #[inline]
-    pub fn replace_from_array(&mut self, mut bytes: [u8; N]) {
-        self.assert_canaries_intact();
+    pub fn replace_from_array(&mut self, mut bytes: [u8; N]) -> Result<(), CanaryCorruptedError> {
+        if let Err(error) = self.verify_integrity() {
+            crate::wipe::bytes(&mut bytes);
+            return Err(error);
+        }
         self.as_mut_slice().copy_from_slice(&bytes);
         compiler_fence(Ordering::SeqCst);
         crate::wipe::bytes(&mut bytes);
+        Ok(())
     }
 
     /// Replace all slot bytes with generated bytes.
     #[inline]
-    pub fn replace_from_fn(&mut self, mut make_byte: impl FnMut(usize) -> u8) {
-        self.assert_canaries_intact();
+    pub fn replace_from_fn(
+        &mut self,
+        mut make_byte: impl FnMut(usize) -> u8,
+    ) -> Result<(), CanaryCorruptedError> {
+        self.verify_integrity()?;
         let mut index = 0;
         while index < N {
             self.as_mut_slice()[index] = make_byte(index);
             index += 1;
         }
         compiler_fence(Ordering::SeqCst);
+        Ok(())
     }
 
     /// Replace all slot bytes with fallibly generated bytes.
@@ -1155,15 +1159,15 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     pub fn try_replace_from_fn<E>(
         &mut self,
         mut make_byte: impl FnMut(usize) -> Result<u8, E>,
-    ) -> Result<(), E> {
-        self.assert_canaries_intact();
+    ) -> Result<(), SecretIntegrityError<E>> {
+        self.verify_integrity()?;
         let mut index = 0;
         while index < N {
             match make_byte(index) {
                 Ok(byte) => self.as_mut_slice()[index] = byte,
                 Err(error) => {
                     self.secure_clear();
-                    return Err(error);
+                    return Err(SecretIntegrityError::Operation(error));
                 }
             }
             index += 1;
@@ -1174,15 +1178,18 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
 
     /// Fill a caller-provided destination with a copy of the slot bytes.
     #[inline]
-    pub fn copy_to_slice(&self, destination: &mut [u8]) -> Result<(), crate::LengthError> {
+    pub fn copy_to_slice(
+        &self,
+        destination: &mut [u8],
+    ) -> Result<(), SecretIntegrityError<crate::LengthError>> {
         if destination.len() != N {
-            return Err(crate::LengthError {
+            return Err(SecretIntegrityError::Operation(crate::LengthError {
                 expected: N,
                 actual: destination.len(),
-            });
+            }));
         }
 
-        self.assert_canaries_intact();
+        self.verify_integrity()?;
         destination.copy_from_slice(self.as_slice());
         compiler_fence(Ordering::SeqCst);
         core::hint::black_box(destination);
@@ -1191,32 +1198,7 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
 
     /// Run a closure with read-only access to the slot bytes.
     #[inline]
-    pub fn expose_secret<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
-        self.assert_canaries_intact();
-        inspect(self.as_array())
-    }
-
-    /// Verify integrity, copy into temporary stack storage, and expose the copy.
-    ///
-    /// The temporary is volatile-cleared on normal return and unwinding. It
-    /// cannot be cleared if the WASM instance aborts or traps without unwinding.
-    #[inline]
-    pub fn expose_secret_copy<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
-        self.assert_canaries_intact();
-        crate::owned::expose_array_copy(self.as_array(), inspect)
-    }
-
-    /// Run a closure with mutable access to the slot bytes.
-    #[inline]
-    pub fn with_secret_mut<R>(&mut self, inspect: impl FnOnce(&mut [u8; N]) -> R) -> R {
-        self.assert_canaries_intact();
-        inspect(self.as_array_mut())
-    }
-
-    /// Verify canary integrity before exposing the pooled slot bytes.
-    #[cfg(feature = "canary-check")]
-    #[inline]
-    pub fn expose_secret_checked<R>(
+    pub fn expose_secret<R>(
         &self,
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
@@ -1224,10 +1206,12 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
         Ok(inspect(self.as_array()))
     }
 
-    /// Verify canary integrity before exposing a temporary plaintext copy.
-    #[cfg(feature = "canary-check")]
+    /// Verify integrity, copy into temporary stack storage, and expose the copy.
+    ///
+    /// The temporary is volatile-cleared on normal return and unwinding. It
+    /// cannot be cleared if the WASM instance aborts or traps without unwinding.
     #[inline]
-    pub fn expose_secret_copy_checked<R>(
+    pub fn expose_secret_copy<R>(
         &self,
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
@@ -1235,8 +1219,35 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
         Ok(crate::owned::expose_array_copy(self.as_array(), inspect))
     }
 
-    /// Verify canary integrity before comparing pooled slot bytes.
-    #[cfg(feature = "canary-check")]
+    /// Run a closure with mutable access to the slot bytes.
+    #[inline]
+    pub fn with_secret_mut<R>(
+        &mut self,
+        inspect: impl FnOnce(&mut [u8; N]) -> R,
+    ) -> Result<R, CanaryCorruptedError> {
+        self.verify_integrity()?;
+        Ok(inspect(self.as_array_mut()))
+    }
+
+    /// Compatibility alias for [`SecretPoolSlot::expose_secret`].
+    #[inline]
+    pub fn expose_secret_checked<R>(
+        &self,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> Result<R, CanaryCorruptedError> {
+        self.expose_secret(inspect)
+    }
+
+    /// Compatibility alias for [`SecretPoolSlot::expose_secret_copy`].
+    #[inline]
+    pub fn expose_secret_copy_checked<R>(
+        &self,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> Result<R, CanaryCorruptedError> {
+        self.expose_secret_copy(inspect)
+    }
+
+    /// Compatibility alias for [`SecretPoolSlot::constant_time_eq`].
     #[inline]
     pub fn constant_time_eq_checked(&self, other: &[u8]) -> Result<bool, CanaryCorruptedError> {
         self.verify_integrity()?;
@@ -1244,9 +1255,13 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     }
 
     /// Verify this slot's canaries.
-    #[cfg(feature = "canary-check")]
     #[inline]
     pub fn verify_integrity(&self) -> Result<(), CanaryCorruptedError> {
+        #[cfg(not(feature = "canary-check"))]
+        {
+            return Ok(());
+        }
+        #[cfg(feature = "canary-check")]
         if self.canaries_intact() {
             Ok(())
         } else {
@@ -1256,11 +1271,10 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     }
 
     /// Compare against a slice without early exit for equal-length inputs.
-    #[must_use]
     #[inline]
-    pub fn constant_time_eq(&self, other: &[u8]) -> bool {
-        self.assert_canaries_intact();
-        crate::constant_time_eq_slices(self.as_slice(), other)
+    pub fn constant_time_eq(&self, other: &[u8]) -> Result<bool, CanaryCorruptedError> {
+        self.verify_integrity()?;
+        Ok(crate::constant_time_eq_slices(self.as_slice(), other))
     }
 
     /// Clear only this slot with volatile writes.
@@ -1285,6 +1299,35 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     #[inline]
     pub fn into_cleared(mut self) {
         self.secure_clear();
+    }
+
+    /// Run a closure with shared access, panicking on canary corruption.
+    #[inline]
+    pub fn expose_secret_or_panic<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+        self.expose_secret(inspect)
+            .unwrap_or_else(|_| panic!("pooled secret slot canary corrupted"))
+    }
+
+    /// Expose a temporary copy, panicking on canary corruption.
+    #[inline]
+    pub fn expose_secret_copy_or_panic<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+        self.expose_secret_copy(inspect)
+            .unwrap_or_else(|_| panic!("pooled secret slot canary corrupted"))
+    }
+
+    /// Run a closure with mutable access, panicking on canary corruption.
+    #[inline]
+    pub fn with_secret_mut_or_panic<R>(&mut self, inspect: impl FnOnce(&mut [u8; N]) -> R) -> R {
+        self.with_secret_mut(inspect)
+            .unwrap_or_else(|_| panic!("pooled secret slot canary corrupted"))
+    }
+
+    /// Compare, panicking on canary corruption.
+    #[must_use]
+    #[inline]
+    pub fn constant_time_eq_or_panic(&self, other: &[u8]) -> bool {
+        self.constant_time_eq(other)
+            .unwrap_or_else(|_| panic!("pooled secret slot canary corrupted"))
     }
 
     #[inline]
@@ -1387,18 +1430,6 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     #[cfg(not(feature = "canary-check"))]
     #[inline]
     fn write_canaries(&mut self) {}
-
-    #[cfg(feature = "canary-check")]
-    #[inline]
-    fn assert_canaries_intact(&self) {
-        if self.verify_integrity().is_err() {
-            panic!("pooled secret slot canary corrupted");
-        }
-    }
-
-    #[cfg(not(feature = "canary-check"))]
-    #[inline]
-    fn assert_canaries_intact(&self) {}
 
     #[cfg(feature = "canary-check")]
     #[inline]
@@ -1506,11 +1537,14 @@ fn wasm_protection_report(
         ProtectionControl::DumpExclusion,
         &report,
     )?;
-    report.fork_exclusion = wasm_compatibility_state(
-        request.fork_exclusion,
-        ProtectionControl::ForkExclusion,
-        &report,
-    )?;
+    report.fork.state = match request.fork.policy {
+        ForkPolicy::Inherit => ProtectionState::NotApplicable,
+        ForkPolicy::Exclude | ForkPolicy::WipeChild => wasm_compatibility_state(
+            request.fork.requirement,
+            ProtectionControl::ForkPolicy,
+            &report,
+        )?,
+    };
     report.guard_pages =
         wasm_unavailable_state(request.guard_pages, ProtectionControl::GuardPages, &report)?;
     report.cache_policy = wasm_unavailable_state(
@@ -1571,7 +1605,7 @@ fn wasm_required_error(
         ProtectionControl::Mapping => report.mapping = failed,
         ProtectionControl::MemoryLock => report.memory_lock = failed,
         ProtectionControl::DumpExclusion => report.dump_exclusion = failed,
-        ProtectionControl::ForkExclusion => report.fork_exclusion = failed,
+        ProtectionControl::ForkPolicy => report.fork.state = failed,
         ProtectionControl::GuardPages => report.guard_pages = failed,
         ProtectionControl::Canary => report.canary = failed,
         ProtectionControl::CachePolicy => report.cache_policy = failed,
@@ -1589,7 +1623,10 @@ fn protection_error_as_memory_lock(error: ProtectionError) -> MemoryLockError {
             ProtectionControl::Mapping => MemoryLockOperation::Map,
             ProtectionControl::MemoryLock => MemoryLockOperation::Lock,
             ProtectionControl::DumpExclusion => MemoryLockOperation::DontDump,
-            ProtectionControl::ForkExclusion => MemoryLockOperation::DontFork,
+            ProtectionControl::ForkPolicy => match error.partial_report.fork.policy {
+                ForkPolicy::WipeChild => MemoryLockOperation::WipeOnFork,
+                ForkPolicy::Inherit | ForkPolicy::Exclude => MemoryLockOperation::DontFork,
+            },
             ProtectionControl::GuardPages | ProtectionControl::CachePolicy => {
                 MemoryLockOperation::Map
             }

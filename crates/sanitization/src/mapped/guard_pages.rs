@@ -5,8 +5,9 @@ use core::{
 };
 
 use super::{
-    ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport, ProtectionRequest,
-    ProtectionState, Requirement, RollbackReport, RollbackState,
+    CanaryCorruptedError, ForkPolicy, ForkProtectionRequest, ProtectionControl, ProtectionError,
+    ProtectionFailure, ProtectionReport, ProtectionRequest, ProtectionState, Requirement,
+    RollbackReport, RollbackState, SecretIntegrityError,
 };
 
 #[cfg(all(
@@ -121,6 +122,9 @@ const MADV_DONTFORK: usize = 10;
 #[cfg(feature = "memory-lock")]
 #[cfg(target_os = "linux")]
 const MADV_DONTDUMP: usize = 16;
+#[cfg(feature = "memory-lock")]
+#[cfg(target_os = "linux")]
+const MADV_WIPEONFORK: usize = 18;
 
 #[cfg(target_os = "windows")]
 const MEM_COMMIT: u32 = 0x1000;
@@ -257,6 +261,8 @@ pub enum GuardPageOperation {
     DontDump,
     /// Fork inheritance exclusion failed.
     DontFork,
+    /// Child-process wipe-on-fork policy failed.
+    WipeOnFork,
     /// Page locking failed.
     Lock,
     /// Page unlocking failed.
@@ -492,16 +498,13 @@ impl GuardedSecretVec {
             writable_len,
             guard_mark_dontdump,
         )?;
-        report.fork_exclusion = apply_guard_control(
-            request.fork_exclusion,
-            fork_exclusion_supported(),
-            ProtectionControl::ForkExclusion,
+        report.fork.state = apply_guard_fork_policy(
+            request.fork,
             &mut report,
             base,
             total_len,
             data,
             writable_len,
-            guard_mark_dontfork,
         )?;
         report.memory_lock = apply_guard_control(
             request.memory_lock,
@@ -666,36 +669,46 @@ impl GuardedSecretVec {
 
     /// Run a closure with read-only access to initialized secret bytes.
     #[inline]
-    pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8]) -> R) -> R {
-        self.assert_canaries_intact();
-        inspect(self.as_slice())
-    }
-
-    /// Run a closure with mutable access to initialized secret bytes.
-    #[inline]
-    pub fn with_secret_mut<R>(&mut self, edit: impl FnOnce(&mut [u8]) -> R) -> R {
-        self.assert_canaries_intact();
-        edit(self.as_mut_slice())
-    }
-
-    /// Verify canary integrity before exposing guarded secret bytes.
-    #[cfg(feature = "canary-check")]
-    #[inline]
-    pub fn expose_secret_checked<R>(
+    pub fn with_secret<R>(
         &self,
         inspect: impl FnOnce(&[u8]) -> R,
-    ) -> Result<R, crate::CanaryCorruptedError> {
+    ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
         Ok(inspect(self.as_slice()))
     }
 
+    /// Run a closure with mutable access to initialized secret bytes.
+    #[inline]
+    pub fn with_secret_mut<R>(
+        &mut self,
+        edit: impl FnOnce(&mut [u8]) -> R,
+    ) -> Result<R, CanaryCorruptedError> {
+        self.verify_integrity()?;
+        Ok(edit(self.as_mut_slice()))
+    }
+
+    /// Compatibility alias for [`GuardedSecretVec::with_secret`].
+    #[inline]
+    pub fn expose_secret_checked<R>(
+        &self,
+        inspect: impl FnOnce(&[u8]) -> R,
+    ) -> Result<R, CanaryCorruptedError> {
+        self.with_secret(inspect)
+    }
+
     /// Append bytes, growing into a new guarded mapping if needed.
-    pub fn extend_from_slice(&mut self, bytes: &[u8]) -> Result<(), GuardPageError> {
-        self.assert_canaries_intact();
-        let required = self.len.checked_add(bytes.len()).ok_or(GuardPageError {
-            operation: GuardPageOperation::Length,
-            errno: 0,
-        })?;
+    pub fn extend_from_slice(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<(), SecretIntegrityError<GuardPageError>> {
+        self.verify_integrity()?;
+        let required = self
+            .len
+            .checked_add(bytes.len())
+            .ok_or(SecretIntegrityError::Operation(GuardPageError {
+                operation: GuardPageOperation::Length,
+                errno: 0,
+            }))?;
 
         if required > self.data_capacity {
             self.grow_to(required)?;
@@ -715,12 +728,16 @@ impl GuardedSecretVec {
     /// value requires a larger mapping, a replacement mapping is allocated
     /// with the same lock state, populated with the new bytes, and then the
     /// old mapping is cleared before it is unmapped.
-    pub fn replace_from_slice(&mut self, bytes: &[u8]) -> Result<(), GuardPageError> {
-        self.assert_canaries_intact();
+    pub fn replace_from_slice(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<(), SecretIntegrityError<GuardPageError>> {
+        self.verify_integrity()?;
 
         if bytes.len() > self.data_capacity {
             let mut replacement = Self::with_capacity_with_protection(bytes.len(), self.request)
-                .map_err(protection_error_as_guard_page)?;
+                .map_err(protection_error_as_guard_page)
+                .map_err(SecretIntegrityError::Operation)?;
             replacement.as_mut_capacity_slice()[..bytes.len()].copy_from_slice(bytes);
             replacement.finish_initialization(bytes.len());
 
@@ -743,10 +760,11 @@ impl GuardedSecretVec {
         &mut self,
         len: usize,
         mut make_byte: impl FnMut(usize) -> u8,
-    ) -> Result<(), GuardPageError> {
-        self.assert_canaries_intact();
+    ) -> Result<(), SecretIntegrityError<GuardPageError>> {
+        self.verify_integrity()?;
         let mut replacement = Self::with_capacity_with_protection(len, self.request)
-            .map_err(protection_error_as_guard_page)?;
+            .map_err(protection_error_as_guard_page)
+            .map_err(SecretIntegrityError::Operation)?;
         replacement.fill_from_fn(len, &mut make_byte);
 
         self.clear_secret();
@@ -763,13 +781,16 @@ impl GuardedSecretVec {
         &mut self,
         len: usize,
         mut make_byte: impl FnMut(usize) -> Result<u8, E>,
-    ) -> Result<(), GuardedSecretVecGenerateError<E>> {
-        self.assert_canaries_intact();
+    ) -> Result<(), SecretIntegrityError<GuardedSecretVecGenerateError<E>>> {
+        self.verify_integrity()?;
         let mut replacement = Self::with_capacity_with_protection(len, self.request)
-            .map_err(protection_error_as_guard_page)?;
+            .map_err(protection_error_as_guard_page)
+            .map_err(GuardedSecretVecGenerateError::Guard)
+            .map_err(SecretIntegrityError::Operation)?;
         replacement
             .fill_from_try_fn(len, &mut make_byte)
-            .map_err(GuardedSecretVecGenerateError::Generate)?;
+            .map_err(GuardedSecretVecGenerateError::Generate)
+            .map_err(SecretIntegrityError::Operation)?;
 
         self.clear_secret();
         core::mem::swap(self, &mut replacement);
@@ -815,38 +836,37 @@ impl GuardedSecretVec {
     /// exit, but it is not a formal hardware-level constant-time
     /// guarantee. On x86_64 or AArch64, enable `asm-compare` for a
     /// stronger compiler boundary.
-    #[must_use]
     #[inline]
-    pub fn constant_time_eq(&self, other: &[u8]) -> bool {
-        self.assert_canaries_intact();
-        crate::constant_time_eq_slices(self.as_slice(), other)
+    pub fn constant_time_eq(&self, other: &[u8]) -> Result<bool, CanaryCorruptedError> {
+        self.verify_integrity()?;
+        Ok(crate::constant_time_eq_slices(self.as_slice(), other))
     }
 
-    /// Verify canary integrity before comparing guarded secret bytes.
-    #[cfg(feature = "canary-check")]
+    /// Compatibility alias for [`GuardedSecretVec::constant_time_eq`].
     #[inline]
-    pub fn constant_time_eq_checked(
-        &self,
-        other: &[u8],
-    ) -> Result<bool, crate::CanaryCorruptedError> {
+    pub fn constant_time_eq_checked(&self, other: &[u8]) -> Result<bool, CanaryCorruptedError> {
         self.verify_integrity()?;
         Ok(crate::constant_time_eq_slices(self.as_slice(), other))
     }
 
     /// Verify guarded mapping canaries.
-    #[cfg(feature = "canary-check")]
     #[inline]
-    pub fn verify_integrity(&self) -> Result<(), crate::CanaryCorruptedError> {
+    pub fn verify_integrity(&self) -> Result<(), CanaryCorruptedError> {
+        #[cfg(not(feature = "canary-check"))]
+        {
+            return Ok(());
+        }
+        #[cfg(feature = "canary-check")]
         if self.canaries_intact() {
             Ok(())
         } else {
             self.clear_after_canary_failure();
-            Err(crate::CanaryCorruptedError)
+            Err(CanaryCorruptedError)
         }
     }
 
-    fn grow_to(&mut self, required: usize) -> Result<(), GuardPageError> {
-        self.assert_canaries_intact();
+    fn grow_to(&mut self, required: usize) -> Result<(), SecretIntegrityError<GuardPageError>> {
+        self.verify_integrity()?;
         let page_granule = platform_page_granule();
         let next_capacity = self
             .data_capacity
@@ -854,13 +874,36 @@ impl GuardedSecretVec {
             .max(required)
             .max(page_granule);
         let mut replacement = Self::with_capacity_with_protection(next_capacity, self.request)
-            .map_err(protection_error_as_guard_page)?;
+            .map_err(protection_error_as_guard_page)
+            .map_err(SecretIntegrityError::Operation)?;
         replacement.as_mut_capacity_slice()[..self.len].copy_from_slice(self.as_slice());
         replacement.finish_initialization(self.len);
 
         self.clear_secret();
         core::mem::swap(self, &mut replacement);
         Ok(())
+    }
+
+    /// Run a closure with shared access, panicking on canary corruption.
+    #[inline]
+    pub fn with_secret_or_panic<R>(&self, inspect: impl FnOnce(&[u8]) -> R) -> R {
+        self.with_secret(inspect)
+            .unwrap_or_else(|_| panic!("guarded secret canary corrupted"))
+    }
+
+    /// Run a closure with mutable access, panicking on canary corruption.
+    #[inline]
+    pub fn with_secret_mut_or_panic<R>(&mut self, edit: impl FnOnce(&mut [u8]) -> R) -> R {
+        self.with_secret_mut(edit)
+            .unwrap_or_else(|_| panic!("guarded secret canary corrupted"))
+    }
+
+    /// Compare, panicking on canary corruption.
+    #[must_use]
+    #[inline]
+    pub fn constant_time_eq_or_panic(&self, other: &[u8]) -> bool {
+        self.constant_time_eq(other)
+            .unwrap_or_else(|_| panic!("guarded secret canary corrupted"))
     }
 
     fn fill_from_fn(&mut self, len: usize, make_byte: &mut impl FnMut(usize) -> u8) {
@@ -1023,18 +1066,6 @@ impl GuardedSecretVec {
 
     #[cfg(feature = "canary-check")]
     #[inline]
-    fn assert_canaries_intact(&self) {
-        if self.verify_integrity().is_err() {
-            panic!("guarded secret canary corrupted");
-        }
-    }
-
-    #[cfg(not(feature = "canary-check"))]
-    #[inline]
-    fn assert_canaries_intact(&self) {}
-
-    #[cfg(feature = "canary-check")]
-    #[inline]
     fn clear_after_canary_failure(&self) {
         // Fail-closed clearing intentionally mutates the owned guarded
         // mapping through `&self`. `GuardedSecretVec` is `Send` but not
@@ -1145,6 +1176,42 @@ fn guard_pre_mapping_error(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn apply_guard_fork_policy(
+    request: ForkProtectionRequest,
+    report: &mut ProtectionReport,
+    base: NonNull<u8>,
+    total_len: usize,
+    data: NonNull<u8>,
+    writable_len: usize,
+) -> Result<ProtectionState, ProtectionError> {
+    match request.policy {
+        ForkPolicy::Inherit => Ok(ProtectionState::Established),
+        ForkPolicy::Exclude => apply_guard_control(
+            request.requirement,
+            fork_exclusion_supported(),
+            ProtectionControl::ForkPolicy,
+            report,
+            base,
+            total_len,
+            data,
+            writable_len,
+            guard_mark_dontfork,
+        ),
+        ForkPolicy::WipeChild => apply_guard_control(
+            request.requirement,
+            wipe_child_supported(),
+            ProtectionControl::ForkPolicy,
+            report,
+            base,
+            total_len,
+            data,
+            writable_len,
+            guard_mark_wipeonfork,
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn apply_guard_control(
     requirement: Requirement,
     supported: bool,
@@ -1222,7 +1289,7 @@ fn set_guard_failed_state(report: &mut ProtectionReport, control: ProtectionCont
         ProtectionControl::Mapping => report.mapping = state,
         ProtectionControl::MemoryLock => report.memory_lock = state,
         ProtectionControl::DumpExclusion => report.dump_exclusion = state,
-        ProtectionControl::ForkExclusion => report.fork_exclusion = state,
+        ProtectionControl::ForkPolicy => report.fork.state = state,
         ProtectionControl::GuardPages => report.guard_pages = state,
         ProtectionControl::Canary => report.canary = state,
         ProtectionControl::CachePolicy => report.cache_policy = state,
@@ -1248,7 +1315,10 @@ fn protection_error_as_guard_page(error: ProtectionError) -> GuardPageError {
             ProtectionControl::Mapping => GuardPageOperation::Map,
             ProtectionControl::MemoryLock => GuardPageOperation::Lock,
             ProtectionControl::DumpExclusion => GuardPageOperation::DontDump,
-            ProtectionControl::ForkExclusion => GuardPageOperation::DontFork,
+            ProtectionControl::ForkPolicy => match error.partial_report.fork.policy {
+                ForkPolicy::WipeChild => GuardPageOperation::WipeOnFork,
+                ForkPolicy::Inherit | ForkPolicy::Exclude => GuardPageOperation::DontFork,
+            },
             ProtectionControl::GuardPages => GuardPageOperation::Protect,
             ProtectionControl::Canary => GuardPageOperation::Random,
             ProtectionControl::CachePolicy => GuardPageOperation::Protect,
@@ -1272,6 +1342,11 @@ const fn dump_exclusion_supported() -> bool {
 
 #[inline]
 const fn fork_exclusion_supported() -> bool {
+    cfg!(all(feature = "memory-lock", target_os = "linux"))
+}
+
+#[inline]
+const fn wipe_child_supported() -> bool {
     cfg!(all(feature = "memory-lock", target_os = "linux"))
 }
 
@@ -1310,6 +1385,19 @@ fn guard_mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageErro
 fn guard_mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
     Err(GuardPageError {
         operation: GuardPageOperation::DontFork,
+        errno: 0,
+    })
+}
+
+#[cfg(feature = "memory-lock")]
+fn guard_mark_wipeonfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+    mark_wipeonfork(ptr, len)
+}
+
+#[cfg(not(feature = "memory-lock"))]
+fn guard_mark_wipeonfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
+    Err(GuardPageError {
+        operation: GuardPageOperation::WipeOnFork,
         errno: 0,
     })
 }
@@ -1693,6 +1781,25 @@ fn mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
     } else {
         Ok(())
     }
+}
+
+#[cfg(all(feature = "memory-lock", target_os = "linux"))]
+fn mark_wipeonfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+    let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_WIPEONFORK);
+    if syscall_failed(ret) {
+        Err(syscall_error(GuardPageOperation::WipeOnFork, ret))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "memory-lock", not(target_os = "linux")))]
+#[inline]
+fn mark_wipeonfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
+    Err(GuardPageError {
+        operation: GuardPageOperation::WipeOnFork,
+        errno: 0,
+    })
 }
 
 #[cfg(all(

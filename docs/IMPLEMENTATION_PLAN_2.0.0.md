@@ -118,8 +118,8 @@ its retest.
 | `CP-09` | Accepted |
 | `CP-10` | Accepted |
 | `CP-11` | Accepted |
-| `CP-12` | Pentest |
-| `CP-13` | Planned |
+| `CP-12` | Accepted |
+| `CP-13` | Pentest |
 | `CP-14` | Planned |
 | `CP-15` | Planned |
 | `CP-16` | Planned |

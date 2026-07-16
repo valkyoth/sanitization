@@ -227,7 +227,9 @@ mod subtle_interop {
     impl<const N: usize> ConstantTimeEq for LockedSecretBytes<N> {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
-            Choice::from(other.expose_secret(|bytes| self.constant_time_eq(bytes)) as u8)
+            Choice::from(
+                other.expose_secret_or_panic(|bytes| self.constant_time_eq_or_panic(bytes)) as u8,
+            )
         }
     }
 
@@ -235,7 +237,9 @@ mod subtle_interop {
     impl ConstantTimeEq for LockedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
-            Choice::from(other.with_secret(|bytes| self.constant_time_eq(bytes)) as u8)
+            Choice::from(
+                other.with_secret_or_panic(|bytes| self.constant_time_eq_or_panic(bytes)) as u8,
+            )
         }
     }
 
@@ -246,7 +250,8 @@ mod subtle_interop {
             Choice::from(
                 other
                     .inner
-                    .with_secret(|bytes| self.inner.constant_time_eq(bytes)) as u8,
+                    .with_secret_or_panic(|bytes| self.inner.constant_time_eq_or_panic(bytes))
+                    as u8,
             )
         }
     }
@@ -255,7 +260,9 @@ mod subtle_interop {
     impl ConstantTimeEq for GuardedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
-            Choice::from(other.with_secret(|bytes| self.constant_time_eq(bytes)) as u8)
+            Choice::from(
+                other.with_secret_or_panic(|bytes| self.constant_time_eq_or_panic(bytes)) as u8,
+            )
         }
     }
 
@@ -266,7 +273,8 @@ mod subtle_interop {
             Choice::from(
                 other
                     .inner
-                    .with_secret(|bytes| self.inner.constant_time_eq(bytes)) as u8,
+                    .with_secret_or_panic(|bytes| self.inner.constant_time_eq_or_panic(bytes))
+                    as u8,
             )
         }
     }

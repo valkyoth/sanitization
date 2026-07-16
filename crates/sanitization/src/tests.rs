@@ -2741,11 +2741,11 @@ fn locked_secret_string_preserves_utf8_and_lock_lifecycle() {
     secret
         .try_with_secret_mut(|text| text.make_ascii_uppercase())
         .unwrap();
-    assert!(secret.constant_time_eq("TOKEN-V2"));
+    assert!(secret.constant_time_eq_or_panic("TOKEN-V2"));
 
     let bytes = secret.into_locked_secret_vec();
     let mut text = LockedSecretString::from_locked_secret_vec(bytes).unwrap();
-    assert!(text.constant_time_eq("TOKEN-V2"));
+    assert!(text.constant_time_eq_or_panic("TOKEN-V2"));
     text.clear_secret();
     assert!(text.is_empty());
 }
@@ -2780,11 +2780,11 @@ fn guarded_secret_string_preserves_utf8_and_guard_lifecycle() {
     secret
         .try_with_secret_mut(|text| text.make_ascii_uppercase())
         .unwrap();
-    assert!(secret.constant_time_eq("TOKEN-V2"));
+    assert!(secret.constant_time_eq_or_panic("TOKEN-V2"));
 
     let bytes = secret.into_guarded_secret_vec();
     let mut text = GuardedSecretString::from_guarded_secret_vec(bytes).unwrap();
-    assert!(text.constant_time_eq("TOKEN-V2"));
+    assert!(text.constant_time_eq_or_panic("TOKEN-V2"));
     text.clear_secret();
     assert!(text.is_empty());
 }
@@ -2942,13 +2942,14 @@ fn protection_request_profiles_are_explicit() {
     assert_eq!(locked.memory_lock, Requirement::Required);
     assert_eq!(locked.dump_exclusion, Requirement::Preferred);
     assert_eq!(
-        locked.fork_exclusion,
+        locked.fork.requirement,
         if cfg!(feature = "require-fork-exclusion") {
             Requirement::Required
         } else {
             Requirement::Preferred
         }
     );
+    assert_eq!(locked.fork.policy, ForkPolicy::Exclude);
     assert_eq!(locked.guard_pages, Requirement::NotRequested);
 
     let guarded = ProtectionRequest::guarded();
@@ -2971,7 +2972,7 @@ fn explicit_protection_reports_achieved_native_state() {
     let request = ProtectionRequest {
         memory_lock: Requirement::Preferred,
         dump_exclusion: Requirement::NotRequested,
-        fork_exclusion: Requirement::NotRequested,
+        fork: ForkProtectionRequest::inherit(),
         guard_pages: Requirement::NotRequested,
         canary: if cfg!(feature = "canary-check") {
             Requirement::Required
@@ -2987,7 +2988,8 @@ fn explicit_protection_reports_achieved_native_state() {
     assert_eq!(report.requested_bytes, 32);
     assert!(report.mapped_bytes >= 32);
     assert_eq!(report.dump_exclusion, ProtectionState::NotRequested);
-    assert_eq!(report.fork_exclusion, ProtectionState::NotRequested);
+    assert_eq!(report.fork.policy, ForkPolicy::Inherit);
+    assert_eq!(report.fork.state, ProtectionState::Established);
     assert!(matches!(
         report.memory_lock,
         ProtectionState::Established | ProtectionState::Failed { .. }
@@ -2996,6 +2998,45 @@ fn explicit_protection_reports_achieved_native_state() {
         report.locked_bytes == report.mapped_bytes,
         report.memory_lock == ProtectionState::Established
     );
+}
+
+#[cfg(all(
+    feature = "std",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn wipe_child_policy_zeroes_payload_in_forked_child() {
+    let request = ProtectionRequest {
+        memory_lock: Requirement::NotRequested,
+        dump_exclusion: Requirement::NotRequested,
+        fork: ForkProtectionRequest::wipe_child(Requirement::Preferred),
+        guard_pages: Requirement::NotRequested,
+        canary: if cfg!(feature = "canary-check") {
+            Requirement::Required
+        } else {
+            Requirement::NotRequested
+        },
+        cache_policy: Requirement::NotRequested,
+    };
+    let mut secret = match LockedSecretBytes::<4>::zeroed_with_protection(request) {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+    secret.copy_from_slice(&[1, 2, 3, 4]).unwrap();
+
+    assert_eq!(
+        secret.protection_report().fork.policy,
+        ForkPolicy::WipeChild
+    );
+    if secret.protection_report().fork.state != ProtectionState::Established {
+        return;
+    }
+
+    assert!(secret.child_observes_zero_payload_after_fork_for_test());
+    assert_eq!(secret.constant_time_eq(&[1, 2, 3, 4]), Ok(true));
 }
 
 #[cfg(all(
@@ -3009,7 +3050,7 @@ fn required_unavailable_protection_fails_before_mapping() {
     let request = ProtectionRequest {
         memory_lock: Requirement::NotRequested,
         dump_exclusion: Requirement::NotRequested,
-        fork_exclusion: Requirement::NotRequested,
+        fork: ForkProtectionRequest::inherit(),
         guard_pages: Requirement::Required,
         canary: Requirement::NotRequested,
         cache_policy: Requirement::NotRequested,
@@ -3033,7 +3074,7 @@ fn required_lock_failure_rolls_back_guarded_mapping() {
     let request = ProtectionRequest {
         memory_lock: Requirement::Required,
         dump_exclusion: Requirement::NotRequested,
-        fork_exclusion: Requirement::NotRequested,
+        fork: ForkProtectionRequest::inherit(),
         guard_pages: Requirement::Required,
         canary: Requirement::NotRequested,
         cache_policy: Requirement::NotRequested,
@@ -3062,7 +3103,7 @@ fn preferred_unavailable_guarded_controls_are_reported() {
     let request = ProtectionRequest {
         memory_lock: Requirement::Preferred,
         dump_exclusion: Requirement::Preferred,
-        fork_exclusion: Requirement::Preferred,
+        fork: ForkProtectionRequest::exclude(Requirement::Preferred),
         guard_pages: Requirement::Required,
         canary: Requirement::NotRequested,
         cache_policy: Requirement::NotRequested,
@@ -3073,7 +3114,8 @@ fn preferred_unavailable_guarded_controls_are_reported() {
     assert_eq!(report.guard_pages, ProtectionState::Established);
     assert_eq!(report.memory_lock, ProtectionState::Unsupported);
     assert_eq!(report.dump_exclusion, ProtectionState::Unsupported);
-    assert_eq!(report.fork_exclusion, ProtectionState::Unsupported);
+    assert_eq!(report.fork.policy, ForkPolicy::Exclude);
+    assert_eq!(report.fork.state, ProtectionState::Unsupported);
     assert_eq!(report.locked_bytes, 0);
 }
 
@@ -3090,10 +3132,10 @@ fn locked_secret_bytes_round_trip_and_clear() {
 
     assert!(secret.copy_to_slice(&mut out).is_ok());
     assert_eq!(out, [1, 2, 3, 4]);
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
-    assert!(!secret.constant_time_eq(&[1, 2, 3]));
-    let direct_address = secret.expose_secret(|bytes| bytes.as_ptr() as usize);
-    let copy_address = secret.expose_secret_copy(|bytes| bytes.as_ptr() as usize);
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
+    assert!(!secret.constant_time_eq_or_panic(&[1, 2, 3]));
+    let direct_address = secret.expose_secret_or_panic(|bytes| bytes.as_ptr() as usize);
+    let copy_address = secret.expose_secret_copy_or_panic(|bytes| bytes.as_ptr() as usize);
     assert_ne!(direct_address, copy_address);
 
     secret.secure_clear();
@@ -3103,7 +3145,7 @@ fn locked_secret_bytes_round_trip_and_clear() {
         assert!(secret.copy_to_slice(&mut out).is_ok());
         assert_eq!(out, [0, 0, 0, 0]);
         assert!(secret.copy_from_slice(&[9, 8, 7, 6]).is_ok());
-        assert!(secret.constant_time_eq(&[9, 8, 7, 6]));
+        assert!(secret.constant_time_eq_or_panic(&[9, 8, 7, 6]));
     }
     #[cfg(not(feature = "canary-check"))]
     {
@@ -3127,7 +3169,7 @@ fn locked_secret_bytes_can_load_from_slice() {
 
     assert!(secret.copy_to_slice(&mut out).is_ok());
     assert_eq!(out, [1, 2, 3, 4]);
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     assert_eq!(
         LockedSecretBytes::<4>::from_slice(&[1, 2]).err(),
@@ -3153,7 +3195,7 @@ fn locked_secret_bytes_can_initialize_from_fn() {
 
     assert!(secret.copy_to_slice(&mut out).is_ok());
     assert_eq!(out, [1, 2, 3, 4]);
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     secret.secure_clear();
 }
@@ -3179,7 +3221,7 @@ fn locked_secret_bytes_can_initialize_from_fallible_fn() {
 
     assert!(secret.copy_to_slice(&mut out).is_ok());
     assert_eq!(out, [1, 2, 3, 4]);
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     match LockedSecretBytes::<4>::try_from_fn(|index| {
         if index == 2 {
@@ -3212,7 +3254,9 @@ fn locked_secret_bytes_can_replace_secret() {
     };
     let mut out = [0; 4];
 
-    if let Err(LockedSecretBytesError::Memory(_)) = secret.replace_from_slice(&[9, 8, 7, 6]) {
+    if let Err(SecretIntegrityError::Operation(LockedSecretBytesError::Memory(_))) =
+        secret.replace_from_slice(&[9, 8, 7, 6])
+    {
         return;
     }
     assert!(secret.copy_to_slice(&mut out).is_ok());
@@ -3226,17 +3270,19 @@ fn locked_secret_bytes_can_replace_secret() {
 
     assert_eq!(
         secret.replace_from_slice(&[1, 2]).err(),
-        Some(LockedSecretBytesError::Length(LengthError {
-            expected: 4,
-            actual: 2,
-        }))
+        Some(SecretIntegrityError::Operation(
+            LockedSecretBytesError::Length(LengthError {
+                expected: 4,
+                actual: 2,
+            })
+        ))
     );
-    assert!(secret.constant_time_eq(&[6, 7, 8, 9]));
+    assert!(secret.constant_time_eq_or_panic(&[6, 7, 8, 9]));
 
     if secret.replace_from_fn(|index| (index as u8) + 1).is_err() {
         return;
     }
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     match secret.try_replace_from_fn(|index| {
         if index == 2 {
@@ -3246,21 +3292,27 @@ fn locked_secret_bytes_can_replace_secret() {
         }
     }) {
         Ok(_) => panic!("generation should have failed"),
-        Err(LockedSecretBytesGenerateError::Memory(_)) => return,
-        Err(LockedSecretBytesGenerateError::Generate(error)) => {
+        Err(SecretIntegrityError::Operation(LockedSecretBytesGenerateError::Memory(_))) => return,
+        Err(SecretIntegrityError::Operation(LockedSecretBytesGenerateError::Generate(error))) => {
             assert_eq!(error, "generation failed");
         }
+        Err(SecretIntegrityError::Canary(error)) => {
+            panic!("unexpected integrity error: {error}")
+        }
     }
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     match secret.try_replace_from_fn(|index| Ok::<u8, &'static str>((index as u8) + 7)) {
         Ok(()) => {}
-        Err(LockedSecretBytesGenerateError::Memory(_)) => return,
-        Err(LockedSecretBytesGenerateError::Generate(error)) => {
+        Err(SecretIntegrityError::Operation(LockedSecretBytesGenerateError::Memory(_))) => return,
+        Err(SecretIntegrityError::Operation(LockedSecretBytesGenerateError::Generate(error))) => {
             panic!("unexpected generator error: {error}")
         }
+        Err(SecretIntegrityError::Canary(error)) => {
+            panic!("unexpected integrity error: {error}")
+        }
     }
-    assert!(secret.constant_time_eq(&[7, 8, 9, 10]));
+    assert!(secret.constant_time_eq_or_panic(&[7, 8, 9, 10]));
 
     secret.secure_clear();
 }
@@ -3280,7 +3332,7 @@ fn locked_secret_bytes_can_fill_in_place() {
         Err(_) => return,
     };
 
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     match LockedSecretBytes::<4>::try_from_fill(|output| {
         output[..2].copy_from_slice(&[9, 8]);
@@ -3296,16 +3348,18 @@ fn locked_secret_bytes_can_fill_in_place() {
     secret
         .replace_from_fill(|output| output.copy_from_slice(&[5, 6, 7, 8]))
         .unwrap();
-    assert!(secret.constant_time_eq(&[5, 6, 7, 8]));
+    assert!(secret.constant_time_eq_or_panic(&[5, 6, 7, 8]));
 
     assert_eq!(
         secret.try_replace_from_fill(|output| {
             output[0] = 0;
             Err("decode failed")
         }),
-        Err(LockedSecretBytesGenerateError::Generate("decode failed"))
+        Err(SecretIntegrityError::Operation(
+            LockedSecretBytesGenerateError::Generate("decode failed")
+        ))
     );
-    assert!(secret.constant_time_eq(&[5, 6, 7, 8]));
+    assert!(secret.constant_time_eq_or_panic(&[5, 6, 7, 8]));
 }
 
 #[cfg(all(
@@ -3324,17 +3378,17 @@ fn locked_secret_vec_round_trip_grow_replace_and_clear() {
     assert_eq!(secret.len(), 3);
     assert!(secret.capacity() >= 3);
     assert!(secret.locked_len() >= 3);
-    assert_eq!(secret.with_secret(|bytes| bytes[0]), b'k');
-    assert!(secret.constant_time_eq(b"key"));
-    assert!(!secret.constant_time_eq(b"ke"));
+    assert_eq!(secret.with_secret_or_panic(|bytes| bytes[0]), b'k');
+    assert!(secret.constant_time_eq_or_panic(b"key"));
+    assert!(!secret.constant_time_eq_or_panic(b"ke"));
 
     secret.extend_from_slice(b"-material").unwrap();
-    assert!(secret.constant_time_eq(b"key-material"));
+    assert!(secret.constant_time_eq_or_panic(b"key-material"));
 
     secret
         .replace_from_fn(4, |index| (index as u8) + 1)
         .unwrap();
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     assert_eq!(
         secret.try_replace_from_fn(4, |index| {
@@ -3344,12 +3398,14 @@ fn locked_secret_vec_round_trip_grow_replace_and_clear() {
                 Ok(index as u8)
             }
         }),
-        Err(LockedSecretVecGenerateError::Generate("generation failed"))
+        Err(SecretIntegrityError::Operation(
+            LockedSecretVecGenerateError::Generate("generation failed")
+        ))
     );
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
-    secret.with_secret_mut(|bytes| bytes[0] = 9);
-    assert!(secret.constant_time_eq(&[9, 2, 3, 4]));
+    secret.with_secret_mut_or_panic(|bytes| bytes[0] = 9);
+    assert!(secret.constant_time_eq_or_panic(&[9, 2, 3, 4]));
 
     secret.clear_secret();
     assert!(secret.is_empty());
@@ -3357,7 +3413,7 @@ fn locked_secret_vec_round_trip_grow_replace_and_clear() {
     assert_eq!(secret.verify_integrity(), Ok(()));
 
     secret.extend_from_slice(b"next").unwrap();
-    assert!(secret.constant_time_eq(b"next"));
+    assert!(secret.constant_time_eq_or_panic(b"next"));
 }
 
 #[cfg(all(
@@ -3374,7 +3430,7 @@ fn locked_secret_vec_can_fill_in_place() {
         Ok(secret) => secret,
         Err(_) => return,
     };
-    assert!(exact.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(exact.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     match LockedSecretVec::try_from_exact_len(4, |output| {
         output[..2].copy_from_slice(&[9, 8]);
@@ -3398,7 +3454,7 @@ fn locked_secret_vec_can_fill_in_place() {
     };
     assert_eq!(bounded.len(), 5);
     assert!(bounded.capacity() >= 8);
-    assert!(bounded.constant_time_eq(b"token"));
+    assert!(bounded.constant_time_eq_or_panic(b"token"));
 
     match LockedSecretVec::try_from_capacity(4, |output| {
         output.copy_from_slice(b"abcd");
@@ -3418,25 +3474,29 @@ fn locked_secret_vec_can_fill_in_place() {
     exact
         .replace_from_exact_len(3, |output| output.copy_from_slice(b"key"))
         .unwrap();
-    assert!(exact.constant_time_eq(b"key"));
+    assert!(exact.constant_time_eq_or_panic(b"key"));
 
     assert_eq!(
         exact.try_replace_from_exact_len(4, |output| {
             output[..2].copy_from_slice(&[9, 8]);
             Err("decode failed")
         }),
-        Err(LockedSecretVecGenerateError::Generate("decode failed"))
+        Err(SecretIntegrityError::Operation(
+            LockedSecretVecGenerateError::Generate("decode failed")
+        ))
     );
-    assert!(exact.constant_time_eq(b"key"));
+    assert!(exact.constant_time_eq_or_panic(b"key"));
 
     assert_eq!(
         exact.try_replace_from_exact_len(4, |output| {
             output.copy_from_slice(b"fail");
             Err("decode failed")
         }),
-        Err(LockedSecretVecGenerateError::Generate("decode failed"))
+        Err(SecretIntegrityError::Operation(
+            LockedSecretVecGenerateError::Generate("decode failed")
+        ))
     );
-    assert!(exact.constant_time_eq(b"key"));
+    assert!(exact.constant_time_eq_or_panic(b"key"));
 
     bounded
         .replace_from_capacity(8, |output| {
@@ -3444,19 +3504,21 @@ fn locked_secret_vec_can_fill_in_place() {
             6
         })
         .unwrap();
-    assert!(bounded.constant_time_eq(b"secret"));
+    assert!(bounded.constant_time_eq_or_panic(b"secret"));
 
     assert_eq!(
         bounded.try_replace_from_capacity(4, |output| {
             output.copy_from_slice(b"abcd");
             Ok::<usize, &'static str>(5)
         }),
-        Err(LockedSecretVecFillError::Length(LengthError {
-            expected: 4,
-            actual: 5,
-        }))
+        Err(SecretIntegrityError::Operation(
+            LockedSecretVecFillError::Length(LengthError {
+                expected: 4,
+                actual: 5,
+            })
+        ))
     );
-    assert!(bounded.constant_time_eq(b"secret"));
+    assert!(bounded.constant_time_eq_or_panic(b"secret"));
 }
 
 #[cfg(all(
@@ -3479,7 +3541,7 @@ fn locked_secret_vec_zero_capacity_is_reusable() {
     if secret.extend_from_slice(b"x").is_err() {
         return;
     }
-    assert!(secret.constant_time_eq(b"x"));
+    assert!(secret.constant_time_eq_or_panic(b"x"));
 }
 
 #[cfg(all(
@@ -3498,13 +3560,25 @@ fn locked_secret_vec_canaries_detect_corruption() {
     };
 
     assert_eq!(secret.verify_integrity(), Ok(()));
-    assert_eq!(secret.expose_secret_checked(|bytes| bytes[0]), Ok(b's'));
-    assert_eq!(secret.constant_time_eq_checked(b"secret"), Ok(true));
+    assert_eq!(secret.with_secret(|bytes| bytes[0]), Ok(b's'));
+    assert_eq!(secret.constant_time_eq(b"secret"), Ok(true));
 
     secret.corrupt_prefix_canary_for_test();
 
     assert_eq!(
-        secret.expose_secret_checked(|bytes| bytes[0]),
+        secret.with_secret(|bytes| bytes[0]),
+        Err(CanaryCorruptedError)
+    );
+    assert_eq!(
+        secret.with_secret_mut(|bytes| bytes[0] = b'x'),
+        Err(CanaryCorruptedError)
+    );
+    assert_eq!(
+        secret.replace_from_slice(b"replacement"),
+        Err(SecretIntegrityError::Canary(CanaryCorruptedError))
+    );
+    assert_eq!(
+        secret.constant_time_eq(b"secret"),
         Err(CanaryCorruptedError)
     );
 }
@@ -3549,14 +3623,14 @@ fn locked_secret_canary_checked_apis_detect_corruption() {
     let mut out = [0; 4];
 
     assert_eq!(secret.verify_integrity(), Ok(()));
-    assert_eq!(secret.expose_secret_checked(|bytes| bytes[0]), Ok(1));
-    assert_eq!(secret.expose_secret_copy_checked(|bytes| bytes[3]), Ok(4));
-    assert_eq!(secret.copy_to_slice_checked(&mut out), Ok(()));
+    assert_eq!(secret.expose_secret(|bytes| bytes[0]), Ok(1));
+    assert_eq!(secret.expose_secret_copy(|bytes| bytes[3]), Ok(4));
+    assert_eq!(secret.copy_to_slice(&mut out), Ok(()));
     assert_eq!(out, [1, 2, 3, 4]);
-    assert_eq!(secret.constant_time_eq_checked(&[1, 2, 3, 4]), Ok(true));
+    assert_eq!(secret.constant_time_eq(&[1, 2, 3, 4]), Ok(true));
     assert_eq!(
-        secret.copy_to_slice_checked(&mut [0; 2]),
-        Err(LockedSecretBytesCheckedCopyError::Length(LengthError {
+        secret.copy_to_slice(&mut [0; 2]),
+        Err(SecretIntegrityError::Operation(LengthError {
             expected: 4,
             actual: 2,
         }))
@@ -3565,7 +3639,25 @@ fn locked_secret_canary_checked_apis_detect_corruption() {
     secret.corrupt_prefix_canary_for_test();
 
     assert_eq!(
-        secret.expose_secret_checked(|bytes| bytes[0]),
+        secret.expose_secret(|bytes| bytes[0]),
+        Err(CanaryCorruptedError)
+    );
+    assert_eq!(
+        secret.copy_from_slice(&[9, 8, 7, 6]),
+        Err(SecretIntegrityError::Canary(CanaryCorruptedError))
+    );
+    out.fill(0xA5);
+    assert_eq!(
+        secret.copy_to_slice(&mut out),
+        Err(SecretIntegrityError::Canary(CanaryCorruptedError))
+    );
+    assert_eq!(out, [0xA5; 4]);
+    assert_eq!(
+        secret.replace_from_slice(&[9, 8, 7, 6]),
+        Err(SecretIntegrityError::Canary(CanaryCorruptedError))
+    );
+    assert_eq!(
+        secret.constant_time_eq(&[1, 2, 3, 4]),
         Err(CanaryCorruptedError)
     );
 }
@@ -3587,7 +3679,7 @@ fn locked_secret_canary_legacy_exposure_fails_closed() {
     secret.corrupt_prefix_canary_for_test();
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = secret.expose_secret(|bytes| bytes[0]);
+        let _ = secret.expose_secret_or_panic(|bytes| bytes[0]);
     }));
 
     assert!(result.is_err());
@@ -3618,23 +3710,23 @@ fn secret_pool_allocates_reuses_and_clears_slots() {
     assert_eq!(pool.available_slots(), 0);
     assert!(pool.allocate().is_none());
     assert!(pool.try_allocate().unwrap().is_none());
-    assert!(first.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(first.constant_time_eq_or_panic(&[1, 2, 3, 4]));
     assert!(second.copy_to_slice(&mut out).is_ok());
     assert_eq!(out, [5, 6, 7, 8]);
-    let direct_address = second.expose_secret(|bytes| bytes.as_ptr() as usize);
-    let copy_address = second.expose_secret_copy(|bytes| bytes.as_ptr() as usize);
+    let direct_address = second.expose_secret_or_panic(|bytes| bytes.as_ptr() as usize);
+    let copy_address = second.expose_secret_copy_or_panic(|bytes| bytes.as_ptr() as usize);
     assert_ne!(direct_address, copy_address);
 
-    first.with_secret_mut(|bytes| bytes[0] = 9);
-    assert!(first.constant_time_eq(&[9, 2, 3, 4]));
+    first.with_secret_mut_or_panic(|bytes| bytes[0] = 9);
+    assert!(first.constant_time_eq_or_panic(&[9, 2, 3, 4]));
     first.secure_clear();
     #[cfg(feature = "canary-check")]
     assert_eq!(first.verify_integrity(), Ok(()));
-    assert!(first.constant_time_eq(&[0, 0, 0, 0]));
+    assert!(first.constant_time_eq_or_panic(&[0, 0, 0, 0]));
     first.copy_from_slice(&[4, 3, 2, 1]).unwrap();
-    assert!(first.constant_time_eq(&[4, 3, 2, 1]));
+    assert!(first.constant_time_eq_or_panic(&[4, 3, 2, 1]));
     first.secure_clear();
-    assert!(first.constant_time_eq(&[0, 0, 0, 0]));
+    assert!(first.constant_time_eq_or_panic(&[0, 0, 0, 0]));
 
     let freed_index = first.slot_index();
     drop(first);
@@ -3642,10 +3734,10 @@ fn secret_pool_allocates_reuses_and_clears_slots() {
 
     let reused = pool.allocate_from_slice(&[7, 7, 7, 7]).unwrap().unwrap();
     assert_eq!(reused.slot_index(), freed_index);
-    assert!(reused.constant_time_eq(&[7, 7, 7, 7]));
+    assert!(reused.constant_time_eq_or_panic(&[7, 7, 7, 7]));
 
-    second.replace_from_array([8, 8, 8, 8]);
-    assert!(second.constant_time_eq(&[8, 8, 8, 8]));
+    second.replace_from_array([8, 8, 8, 8]).unwrap();
+    assert!(second.constant_time_eq_or_panic(&[8, 8, 8, 8]));
 }
 
 #[cfg(all(
@@ -3669,7 +3761,7 @@ fn secret_pool_handles_generation_and_zero_slot_cases() {
         Err(error) => panic!("unexpected generator error: {error}"),
     };
 
-    assert!(slot.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(slot.constant_time_eq_or_panic(&[1, 2, 3, 4]));
     assert_eq!(
         slot.try_replace_from_fn(|index| {
             if index == 2 {
@@ -3678,13 +3770,13 @@ fn secret_pool_handles_generation_and_zero_slot_cases() {
                 Ok(index as u8)
             }
         }),
-        Err("generation failed")
+        Err(SecretIntegrityError::Operation("generation failed"))
     );
     #[cfg(feature = "canary-check")]
     assert_eq!(slot.verify_integrity(), Ok(()));
-    assert!(slot.constant_time_eq(&[0, 0, 0, 0]));
+    assert!(slot.constant_time_eq_or_panic(&[0, 0, 0, 0]));
     slot.copy_from_slice(&[9, 9, 9, 9]).unwrap();
-    assert!(slot.constant_time_eq(&[9, 9, 9, 9]));
+    assert!(slot.constant_time_eq_or_panic(&[9, 9, 9, 9]));
     drop(slot);
 
     match pool.try_allocate_from_fn(|index| {
@@ -3723,14 +3815,22 @@ fn secret_pool_slot_canaries_detect_corruption() {
     let mut slot = pool.allocate_from_array([1, 2, 3, 4]).unwrap();
 
     assert_eq!(slot.verify_integrity(), Ok(()));
-    assert_eq!(slot.expose_secret_checked(|bytes| bytes[0]), Ok(1));
-    assert_eq!(slot.expose_secret_copy_checked(|bytes| bytes[3]), Ok(4));
-    assert_eq!(slot.constant_time_eq_checked(&[1, 2, 3, 4]), Ok(true));
+    assert_eq!(slot.expose_secret(|bytes| bytes[0]), Ok(1));
+    assert_eq!(slot.expose_secret_copy(|bytes| bytes[3]), Ok(4));
+    assert_eq!(slot.constant_time_eq(&[1, 2, 3, 4]), Ok(true));
 
     slot.corrupt_prefix_canary_for_test();
 
     assert_eq!(
-        slot.expose_secret_checked(|bytes| bytes[0]),
+        slot.expose_secret(|bytes| bytes[0]),
+        Err(CanaryCorruptedError)
+    );
+    assert_eq!(
+        slot.copy_from_slice(&[9, 8, 7, 6]),
+        Err(SecretIntegrityError::Canary(CanaryCorruptedError))
+    );
+    assert_eq!(
+        slot.constant_time_eq(&[1, 2, 3, 4]),
         Err(CanaryCorruptedError)
     );
 }
@@ -3813,11 +3913,11 @@ fn guarded_secret_vec_round_trip_grow_and_clear() {
     assert_eq!(secret.len(), 3);
     assert!(secret.capacity() >= 3);
     assert!(!secret.is_memory_locked());
-    assert_eq!(secret.with_secret(|bytes| bytes[0]), 1);
-    assert!(secret.constant_time_eq(&[1, 2, 3]));
-    assert!(!secret.constant_time_eq(&[1, 2]));
+    assert_eq!(secret.with_secret_or_panic(|bytes| bytes[0]), 1);
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3]));
+    assert!(!secret.constant_time_eq_or_panic(&[1, 2]));
 
-    secret.with_secret_mut(|bytes| bytes[0] = 9);
+    secret.with_secret_mut_or_panic(|bytes| bytes[0] = 9);
     let original_capacity = secret.capacity();
     let extra = [4_u8; 5000];
     secret.extend_from_slice(&extra).unwrap();
@@ -3825,7 +3925,7 @@ fn guarded_secret_vec_round_trip_grow_and_clear() {
     assert!(secret.capacity() > original_capacity);
     assert_eq!(secret.len(), 5003);
     assert_eq!(
-        secret.with_secret(|bytes| (bytes[0], bytes[2], bytes[5002])),
+        secret.with_secret_or_panic(|bytes| (bytes[0], bytes[2], bytes[5002])),
         (9, 3, 4)
     );
 
@@ -3834,7 +3934,7 @@ fn guarded_secret_vec_round_trip_grow_and_clear() {
     #[cfg(feature = "canary-check")]
     assert_eq!(secret.verify_integrity(), Ok(()));
     secret.extend_from_slice(b"world").unwrap();
-    assert!(secret.constant_time_eq(b"world"));
+    assert!(secret.constant_time_eq_or_panic(b"world"));
 
     secret.into_cleared();
 }
@@ -3854,7 +3954,7 @@ fn guarded_secret_vec_can_replace_secret() {
 
     assert_eq!(secret.len(), 2);
     assert_eq!(secret.capacity(), original_capacity);
-    assert!(secret.constant_time_eq(&[9, 8]));
+    assert!(secret.constant_time_eq_or_panic(&[9, 8]));
 
     let larger = [7_u8; 70_000];
     secret.replace_from_slice(&larger).unwrap();
@@ -3862,7 +3962,7 @@ fn guarded_secret_vec_can_replace_secret() {
     assert_eq!(secret.len(), larger.len());
     assert!(secret.capacity() >= larger.len());
     assert_eq!(
-        secret.with_secret(|bytes| (bytes[0], bytes[69_999])),
+        secret.with_secret_or_panic(|bytes| (bytes[0], bytes[69_999])),
         (7, 7)
     );
 
@@ -3884,7 +3984,7 @@ fn guarded_secret_vec_can_replace_from_fn() {
         .unwrap();
 
     assert_eq!(secret.len(), 3);
-    assert!(secret.constant_time_eq(&[7, 8, 9]));
+    assert!(secret.constant_time_eq_or_panic(&[7, 8, 9]));
 
     assert_eq!(
         secret
@@ -3896,15 +3996,17 @@ fn guarded_secret_vec_can_replace_from_fn() {
                 }
             })
             .err(),
-        Some(GuardedSecretVecGenerateError::Generate("generation failed"))
+        Some(SecretIntegrityError::Operation(
+            GuardedSecretVecGenerateError::Generate("generation failed")
+        ))
     );
-    assert!(secret.constant_time_eq(&[7, 8, 9]));
+    assert!(secret.constant_time_eq_or_panic(&[7, 8, 9]));
 
     secret
         .try_replace_from_fn(4, |index| Ok::<u8, &'static str>((index as u8) + 1))
         .unwrap();
 
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     secret.clear_secret();
     assert!(secret.is_empty());
@@ -3927,7 +4029,7 @@ fn guarded_secret_vec_can_clear_and_flush() {
     #[cfg(feature = "canary-check")]
     assert_eq!(secret.verify_integrity(), Ok(()));
     #[cfg(not(feature = "canary-check"))]
-    assert_eq!(secret.with_secret(|bytes| bytes.len()), 0);
+    assert_eq!(secret.with_secret_or_panic(|bytes| bytes.len()), 0);
 
     let wrapped = crate::cache_flush::CacheFlushOnDrop::new(
         GuardedSecretVec::from_slice(&[5, 6, 7, 8]).unwrap(),
@@ -3949,16 +4051,28 @@ fn guarded_secret_vec_canaries_detect_corruption() {
     let mut secret = GuardedSecretVec::from_slice(&[1, 2, 3, 4]).unwrap();
 
     assert_eq!(secret.verify_integrity(), Ok(()));
-    assert_eq!(secret.expose_secret_checked(|bytes| bytes[0]), Ok(1));
-    assert_eq!(secret.constant_time_eq_checked(&[1, 2, 3, 4]), Ok(true));
+    assert_eq!(secret.with_secret(|bytes| bytes[0]), Ok(1));
+    assert_eq!(secret.constant_time_eq(&[1, 2, 3, 4]), Ok(true));
 
     secret.extend_from_slice(&[5, 6]).unwrap();
-    assert_eq!(secret.expose_secret_checked(|bytes| bytes[5]), Ok(6));
+    assert_eq!(secret.with_secret(|bytes| bytes[5]), Ok(6));
 
     secret.corrupt_suffix_canary_for_test();
 
     assert_eq!(
-        secret.expose_secret_checked(|bytes| bytes[0]),
+        secret.with_secret(|bytes| bytes[0]),
+        Err(CanaryCorruptedError)
+    );
+    assert_eq!(
+        secret.with_secret_mut(|bytes| bytes[0] = 9),
+        Err(CanaryCorruptedError)
+    );
+    assert_eq!(
+        secret.replace_from_slice(&[9, 8, 7, 6]),
+        Err(SecretIntegrityError::Canary(CanaryCorruptedError))
+    );
+    assert_eq!(
+        secret.constant_time_eq(&[1, 2, 3, 4]),
         Err(CanaryCorruptedError)
     );
 }
@@ -3975,8 +4089,11 @@ fn guarded_secret_vec_can_initialize_from_fn() {
 
     assert_eq!(secret.len(), 4);
     assert!(!secret.is_memory_locked());
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
-    assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[3])), (1, 4));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
+    assert_eq!(
+        secret.with_secret_or_panic(|bytes| (bytes[0], bytes[3])),
+        (1, 4)
+    );
 
     secret.clear_secret();
     assert!(secret.is_empty());
@@ -3995,7 +4112,7 @@ fn guarded_secret_vec_can_initialize_from_fallible_fn() {
             .unwrap();
 
     assert_eq!(secret.len(), 4);
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
     assert_eq!(
         GuardedSecretVec::try_from_fn(4, |index| {
             if index == 2 {
@@ -4032,26 +4149,32 @@ fn guarded_secret_vec_can_be_memory_locked() {
     };
 
     assert!(secret.is_memory_locked());
-    assert!(secret.constant_time_eq(&[1, 2, 3]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3]));
 
     secret.extend_from_slice(&[4]).unwrap();
 
     assert!(secret.is_memory_locked());
-    assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[3])), (1, 4));
+    assert_eq!(
+        secret.with_secret_or_panic(|bytes| (bytes[0], bytes[3])),
+        (1, 4)
+    );
 
     let larger = [9_u8; 5000];
     secret.replace_from_slice(&larger).unwrap();
 
     assert!(secret.is_memory_locked());
     assert_eq!(secret.len(), larger.len());
-    assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[4999])), (9, 9));
+    assert_eq!(
+        secret.with_secret_or_panic(|bytes| (bytes[0], bytes[4999])),
+        (9, 9)
+    );
 
     secret
         .replace_from_fn(4, |index| (index as u8) + 1)
         .unwrap();
 
     assert!(secret.is_memory_locked());
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     match secret.try_replace_from_fn(4, |index| {
         if index == 2 {
@@ -4061,16 +4184,19 @@ fn guarded_secret_vec_can_be_memory_locked() {
         }
     }) {
         Ok(_) => panic!("generation should have failed"),
-        Err(GuardedSecretVecGenerateError::Generate(error)) => {
+        Err(SecretIntegrityError::Operation(GuardedSecretVecGenerateError::Generate(error))) => {
             assert_eq!(error, "generation failed");
         }
-        Err(GuardedSecretVecGenerateError::Guard(error)) => {
+        Err(SecretIntegrityError::Operation(GuardedSecretVecGenerateError::Guard(error))) => {
             panic!("unexpected guarded setup error: {error:?}")
+        }
+        Err(SecretIntegrityError::Canary(error)) => {
+            panic!("unexpected integrity error: {error}")
         }
     }
 
     assert!(secret.is_memory_locked());
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     secret.clear_secret();
     assert!(secret.is_empty());
@@ -4096,8 +4222,11 @@ fn guarded_secret_vec_can_initialize_locked_from_fn() {
     };
 
     assert!(secret.is_memory_locked());
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
-    assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[3])), (1, 4));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
+    assert_eq!(
+        secret.with_secret_or_panic(|bytes| (bytes[0], bytes[3])),
+        (1, 4)
+    );
 
     secret.clear_secret();
     assert!(secret.is_empty());
@@ -4126,7 +4255,7 @@ fn guarded_secret_vec_can_initialize_locked_from_fallible_fn() {
 
     assert!(secret.is_memory_locked());
     assert_eq!(secret.len(), 4);
-    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
 
     match GuardedSecretVec::locked_try_from_fn(4, |index| {
         if index == 2 {

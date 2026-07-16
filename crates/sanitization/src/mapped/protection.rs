@@ -1,5 +1,56 @@
 use core::fmt;
 
+/// Error returned when a mapped secret's integrity canaries are corrupted.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CanaryCorruptedError;
+
+impl fmt::Display for CanaryCorruptedError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("mapped secret canary corrupted")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for CanaryCorruptedError {}
+
+/// Error returned by an operation that checks mapped-secret integrity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SecretIntegrityError<E> {
+    /// Prefix or suffix canary verification failed.
+    Canary(CanaryCorruptedError),
+    /// The requested operation failed for a non-integrity reason.
+    Operation(E),
+}
+
+impl<E: fmt::Display> fmt::Display for SecretIntegrityError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Canary(error) => error.fmt(formatter),
+            Self::Operation(error) => error.fmt(formatter),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<E> std::error::Error for SecretIntegrityError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Canary(error) => Some(error),
+            Self::Operation(error) => Some(error),
+        }
+    }
+}
+
+impl<E> From<CanaryCorruptedError> for SecretIntegrityError<E> {
+    #[inline]
+    fn from(error: CanaryCorruptedError) -> Self {
+        Self::Canary(error)
+    }
+}
+
 /// Whether a runtime memory-protection control is mandatory.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Requirement {
@@ -9,6 +60,55 @@ pub enum Requirement {
     Preferred,
     /// The control is not requested.
     NotRequested,
+}
+
+/// Desired treatment of secret mappings across process fork.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ForkPolicy {
+    /// Allow the child process to inherit the mapping.
+    Inherit,
+    /// Exclude the mapping from the child process.
+    Exclude,
+    /// Replace the child process's inherited mapping contents with zeroes.
+    WipeChild,
+}
+
+/// Fork behavior requested for a mapped secret allocation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ForkProtectionRequest {
+    /// Desired fork behavior.
+    pub policy: ForkPolicy,
+    /// Whether construction may continue when the behavior is unavailable.
+    pub requirement: Requirement,
+}
+
+impl ForkProtectionRequest {
+    /// Explicitly allow ordinary fork inheritance.
+    #[must_use]
+    pub const fn inherit() -> Self {
+        Self {
+            policy: ForkPolicy::Inherit,
+            requirement: Requirement::NotRequested,
+        }
+    }
+
+    /// Request exclusion from child processes.
+    #[must_use]
+    pub const fn exclude(requirement: Requirement) -> Self {
+        Self {
+            policy: ForkPolicy::Exclude,
+            requirement,
+        }
+    }
+
+    /// Request zero-filled contents in child processes.
+    #[must_use]
+    pub const fn wipe_child(requirement: Requirement) -> Self {
+        Self {
+            policy: ForkPolicy::WipeChild,
+            requirement,
+        }
+    }
 }
 
 /// Runtime protections requested for a mapped secret allocation.
@@ -21,8 +121,8 @@ pub struct ProtectionRequest {
     pub memory_lock: Requirement,
     /// Request exclusion from supported process core dumps.
     pub dump_exclusion: Requirement,
-    /// Request exclusion from fork inheritance where supported.
-    pub fork_exclusion: Requirement,
+    /// Requested process-fork behavior.
+    pub fork: ForkProtectionRequest,
     /// Require inaccessible pages around writable secret storage.
     pub guard_pages: Requirement,
     /// Require integrity canaries around secret storage.
@@ -45,7 +145,7 @@ impl ProtectionRequest {
         Self {
             memory_lock: Requirement::Required,
             dump_exclusion: Requirement::Preferred,
-            fork_exclusion: compiled_fork_requirement(),
+            fork: ForkProtectionRequest::exclude(compiled_fork_requirement()),
             guard_pages: Requirement::NotRequested,
             canary: compiled_canary_requirement(),
             cache_policy: Requirement::NotRequested,
@@ -58,7 +158,7 @@ impl ProtectionRequest {
         Self {
             memory_lock: Requirement::NotRequested,
             dump_exclusion: Requirement::NotRequested,
-            fork_exclusion: Requirement::NotRequested,
+            fork: ForkProtectionRequest::inherit(),
             guard_pages: Requirement::Required,
             canary: compiled_canary_requirement(),
             cache_policy: Requirement::NotRequested,
@@ -71,7 +171,7 @@ impl ProtectionRequest {
         Self {
             memory_lock: Requirement::Required,
             dump_exclusion: Requirement::Preferred,
-            fork_exclusion: compiled_fork_requirement(),
+            fork: ForkProtectionRequest::exclude(compiled_fork_requirement()),
             guard_pages: Requirement::Required,
             canary: compiled_canary_requirement(),
             cache_policy: Requirement::NotRequested,
@@ -84,7 +184,7 @@ impl ProtectionRequest {
         Self {
             memory_lock: Requirement::Preferred,
             dump_exclusion: Requirement::Preferred,
-            fork_exclusion: Requirement::Preferred,
+            fork: ForkProtectionRequest::exclude(Requirement::Preferred),
             guard_pages: Requirement::NotRequested,
             canary: compiled_canary_requirement(),
             cache_policy: Requirement::NotRequested,
@@ -133,6 +233,15 @@ pub enum ProtectionState {
     CompatibilityOnly,
 }
 
+/// Actual outcome of the requested process-fork behavior.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ForkProtectionReport {
+    /// Fork behavior requested by the caller.
+    pub policy: ForkPolicy,
+    /// Whether that behavior was established.
+    pub state: ProtectionState,
+}
+
 /// Runtime report retained by a mapped secret container.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProtectionReport {
@@ -142,8 +251,8 @@ pub struct ProtectionReport {
     pub memory_lock: ProtectionState,
     /// Core-dump exclusion outcome.
     pub dump_exclusion: ProtectionState,
-    /// Fork-inheritance exclusion outcome.
-    pub fork_exclusion: ProtectionState,
+    /// Process-fork behavior outcome.
+    pub fork: ForkProtectionReport,
     /// Guard-page outcome.
     pub guard_pages: ProtectionState,
     /// Canary integrity outcome.
@@ -175,7 +284,10 @@ impl ProtectionReport {
             mapping: ProtectionState::NotRequested,
             memory_lock: initial_state(request.memory_lock),
             dump_exclusion: initial_state(request.dump_exclusion),
-            fork_exclusion: initial_state(request.fork_exclusion),
+            fork: ForkProtectionReport {
+                policy: request.fork.policy,
+                state: initial_fork_state(request.fork),
+            },
             guard_pages: initial_state(request.guard_pages),
             canary: initial_state(request.canary),
             cache_policy: initial_state(request.cache_policy),
@@ -196,6 +308,14 @@ const fn initial_state(requirement: Requirement) -> ProtectionState {
     }
 }
 
+#[allow(dead_code)]
+const fn initial_fork_state(request: ForkProtectionRequest) -> ProtectionState {
+    match request.policy {
+        ForkPolicy::Inherit => ProtectionState::Established,
+        ForkPolicy::Exclude | ForkPolicy::WipeChild => initial_state(request.requirement),
+    }
+}
+
 /// Runtime control that failed during protected allocation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProtectionControl {
@@ -205,8 +325,8 @@ pub enum ProtectionControl {
     MemoryLock,
     /// Core-dump exclusion.
     DumpExclusion,
-    /// Fork inheritance exclusion.
-    ForkExclusion,
+    /// Process-fork behavior.
+    ForkPolicy,
     /// Guard-page establishment.
     GuardPages,
     /// Canary generation or establishment.
@@ -326,6 +446,14 @@ mod verification {
         assert_eq!(
             failed_state(Requirement::NotRequested, 7),
             Ok(ProtectionState::NotRequested)
+        );
+    }
+
+    #[kani::proof]
+    fn inherit_policy_is_explicitly_established() {
+        assert_eq!(
+            initial_fork_state(ForkProtectionRequest::inherit()),
+            ProtectionState::Established
         );
     }
 }

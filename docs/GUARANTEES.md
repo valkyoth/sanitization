@@ -77,7 +77,9 @@ The stronger native storage types guarantee:
 - `LockedSecretString` delegates its storage lifecycle to `LockedSecretVec`
   while restricting safe exposure to valid UTF-8;
 - failed constructors do not intentionally leak successfully created mappings;
-- canary-enabled mappings verify prefix/suffix integrity before exposure;
+- canary-enabled mappings verify prefix/suffix integrity before exposure,
+  mutation, replacement, copying, and comparison, clear corrupted storage, and
+  return a structured error from ordinary APIs;
 - guarded dynamic storage places inaccessible guard pages around the writable
   region on supported native targets.
 - `GuardedSecretString` delegates its storage lifecycle to
@@ -87,6 +89,9 @@ The stronger native storage types guarantee:
 
 When `require-fork-exclusion` is enabled, native locked constructors fail
 closed on platforms where fork-inheritance exclusion is unavailable.
+Explicit Linux policies can alternatively allow inheritance or request
+`MADV_WIPEONFORK`; the retained report records the requested policy and actual
+outcome.
 
 On WASM, `memory-lock` is available only with `wasm-compat` and is an
 API-compatibility backend. It guarantees owned WASM storage and drop-time

@@ -209,9 +209,10 @@ Operations:
   and explicit rollback outcomes.
 - Linux: `mmap` creates a private anonymous read/write mapping,
   `madvise(MADV_DONTDUMP)` asks the kernel to exclude that mapping from
-  ordinary Linux core dumps, `madvise(MADV_DONTFORK)` asks the kernel to
-  prevent accidental fork inheritance, `mlock` locks the mapping, and
-  `munlock`/`munmap` release it.
+  ordinary Linux core dumps. Explicit fork policy either permits inheritance,
+  uses `madvise(MADV_DONTFORK)` to exclude the mapping, or uses
+  `madvise(MADV_WIPEONFORK)` to present zero-filled pages in the child.
+  `mlock` locks the mapping, and `munlock`/`munmap` release it.
 - Android, macOS, iOS, and BSD: system `mmap` creates a private anonymous
   read/write mapping, `mlock` locks it, and `munlock`/`munmap` release it.
   FreeBSD additionally requests core-dump exclusion with `MADV_NOCORE`.
@@ -285,10 +286,12 @@ Invariant:
 - Canary verification compares both prefix and suffix with the expected value
   using the crate constant-time slice comparison helper and boolean `&`, so both
   canaries are checked without data-dependent early exit at this layer.
-- If canary verification fails, the full mapping is volatile-cleared before the
-  checked API returns `CanaryCorruptedError` or the legacy API panics.
+- If canary verification fails, the full mapping is volatile-cleared before
+  the ordinary operation returns `CanaryCorruptedError` or
+  `SecretIntegrityError`. Explicitly named `_or_panic` helpers retain
+  panic-on-corruption behavior for compatibility and trait bridges.
 - Secret bytes are not copied into the mapping until platform setup succeeds:
-  Linux dump exclusion, fork exclusion, and `mlock`;
+  Linux dump exclusion, the requested fork policy, and `mlock`;
   FreeBSD core-dump exclusion and `mlock`; Android/macOS/iOS/other-BSD
   `mlock`; Windows `VirtualLock`.
 - Fallible direct generation writes only after mapping setup succeeds; partial
@@ -449,8 +452,9 @@ Operations:
   initialized length or full writable capacity.
 - When `memory-lock` is also enabled, locked constructors apply supported
   platform memory-lock policies on the writable data pages before copying
-  secret bytes into them. Linux also applies `MADV_DONTDUMP` and
-  `MADV_DONTFORK`; FreeBSD also applies `MADV_NOCORE`.
+  secret bytes into them. Linux also applies `MADV_DONTDUMP` and the requested
+  inherit, exclude, or wipe-child fork policy; FreeBSD also applies
+  `MADV_NOCORE`.
 - `from_fn` constructors generate bytes directly into the writable data pages
   after mapping setup and optional lock policies have succeeded.
 - `try_from_fn` constructors generate bytes directly into the writable data
@@ -569,8 +573,8 @@ container directly. They introduce no raw-pointer operations of their own.
 Construction from an existing mapped byte container validates UTF-8 before
 wrapping it and clears invalid input. Safe mutable exposure is limited to
 `&mut str`, so the UTF-8 invariant cannot be invalidated through the wrapper.
-Their checked canary access validates mapping integrity first and reports
-invalid payload UTF-8 separately.
+Their ordinary access validates mapping integrity first and reports invalid
+payload UTF-8 separately.
 
 ## Non-Goals
 

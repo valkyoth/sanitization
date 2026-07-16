@@ -731,7 +731,7 @@ API-compatible volatile-only storage without host memory locking.
 
 | Platform | Backend | Extra policy |
 | --- | --- | --- |
-| Linux `x86_64`/`aarch64` | raw `mmap`/`mlock` syscalls | `MADV_DONTDUMP` and `MADV_DONTFORK` |
+| Linux `x86_64`/`aarch64` | raw `mmap`/`mlock` syscalls | `MADV_DONTDUMP`, `MADV_DONTFORK`, and `MADV_WIPEONFORK` |
 | Android | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
 | macOS/iOS | system `mmap`/`mlock` ABI | no crate-level dump/fork exclusion |
 | FreeBSD | system `mmap`/`mlock` ABI | `MADV_NOCORE`, no fork exclusion |
@@ -743,7 +743,7 @@ API-compatible volatile-only storage without host memory locking.
 
 Compiled features make platform backends available; they do not prove that an
 OS control succeeded. Mapped constructors retain a `ProtectionReport` with the
-actual mapping, lock, dump-exclusion, fork-exclusion, guard-page, canary, and
+actual mapping, lock, dump-exclusion, fork policy, guard-page, canary, and
 cache-policy outcomes.
 
 The existing constructors use named policies:
@@ -759,13 +759,14 @@ required/preferred behavior:
 
 ```rust
 use sanitization::{
-    LockedSecretBytes, ProtectionRequest, ProtectionState, Requirement,
+    ForkPolicy, ForkProtectionRequest, LockedSecretBytes, ProtectionRequest,
+    ProtectionState, Requirement,
 };
 
 let request = ProtectionRequest {
     memory_lock: Requirement::Required,
     dump_exclusion: Requirement::Preferred,
-    fork_exclusion: Requirement::Preferred,
+    fork: ForkProtectionRequest::wipe_child(Requirement::Preferred),
     guard_pages: Requirement::NotRequested,
     canary: Requirement::NotRequested,
     cache_policy: Requirement::NotRequested,
@@ -777,9 +778,23 @@ key.copy_from_slice(&[7; 32]).unwrap();
 let report = key.protection_report();
 assert_eq!(report.memory_lock, ProtectionState::Established);
 assert_eq!(report.locked_bytes, report.mapped_bytes);
+assert_eq!(report.fork.policy, ForkPolicy::WipeChild);
 
 # Ok::<(), sanitization::ProtectionError>(())
 ```
+
+Fork policy is explicit:
+
+- `ForkProtectionRequest::inherit()` allows the child to inherit the mapping;
+- `ForkProtectionRequest::exclude(...)` requests Linux `MADV_DONTFORK`;
+- `ForkProtectionRequest::wipe_child(...)` requests Linux
+  `MADV_WIPEONFORK`, which preserves the parent mapping and presents zeroed
+  pages in the child.
+
+Non-Linux native backends report exclusion and wipe-child policies as
+`Unsupported` when preferred and fail construction when required. WASM reports
+fork policy as not applicable, compatibility-only, or unsupported; it never
+reports a native fork control as established.
 
 A failed `Required` control returns `ProtectionError`, including the partial
 report and explicit unlock/unmap rollback outcomes. A failed `Preferred`
@@ -955,12 +970,10 @@ use sanitization::LockedSecretBytes;
 
 let key = LockedSecretBytes::<32>::from_array([7; 32]).unwrap();
 
-let first = key
-    .expose_secret_checked(|bytes| bytes[0])
-    .unwrap();
+let first = key.expose_secret(|bytes| bytes[0]).unwrap();
 
 assert_eq!(first, 7);
-assert_eq!(key.constant_time_eq_checked(&[7; 32]), Ok(true));
+assert_eq!(key.constant_time_eq(&[7; 32]), Ok(true));
 ```
 
 With `canary-check`, non-empty `LockedSecretBytes<N>` mappings,
@@ -971,13 +984,12 @@ With `canary-check`, non-empty `LockedSecretBytes<N>` mappings,
 ```
 
 Existing exposure APIs such as `expose_secret`, `copy_to_slice`, and
-`constant_time_eq` verify the canaries before reading secret bytes. If
-corruption is detected, the full mapping or slot is volatile-cleared and those
-infallible APIs panic with a fixed message. Use `expose_secret_checked`,
-`expose_secret_copy_checked`, `copy_to_slice_checked`,
-`constant_time_eq_checked`, or `verify_integrity` on `LockedSecretBytes<N>`,
-and the applicable checked methods on `LockedSecretVec` and pool slots, when
-callers need explicit error handling with `CanaryCorruptedError`.
+`constant_time_eq` verify the canaries before reading secret bytes and return a
+structured integrity error. Mutation, growth, replacement, and copying also
+verify first. If corruption is detected, the full mapping or slot is
+volatile-cleared before the error is returned. Compatibility aliases ending in
+`_checked` remain available, while explicitly named `_or_panic` helpers are the
+only mapped accessors that panic on corruption.
 
 Standalone canaries are derived from the mapping address and a fixed mask on
 native mapped backends. Deterministic pool-slot canaries additionally mix in a
@@ -1044,8 +1056,8 @@ let mut first = pool.allocate_from_array([7; 32]).unwrap();
 let second = pool.allocate_from_fn(|index| index as u8).unwrap();
 
 assert_eq!(pool.capacity_slots(), 64);
-assert!(first.constant_time_eq(&[7; 32]));
-assert_eq!(second.expose_secret(|bytes| bytes[0]), 0);
+assert_eq!(first.constant_time_eq(&[7; 32]), Ok(true));
+assert_eq!(second.expose_secret(|bytes| bytes[0]), Ok(0));
 
 first.replace_from_slice(&[8; 32]).unwrap();
 first.secure_clear();
@@ -1063,8 +1075,9 @@ clears all WASM-owned slots on WASM.
 
 With `canary-check`, each non-empty pool slot has its own prefix and suffix
 canary. Slot exposure, copying, mutation, and comparison verify those canaries
-before accessing the payload. Checked slot APIs return `CanaryCorruptedError`;
-infallible APIs clear the slot and panic.
+before accessing the payload. Ordinary slot APIs return
+`CanaryCorruptedError` or `SecretIntegrityError`; explicitly named
+`_or_panic` helpers clear the slot and panic.
 
 This feature is explicit because OS memory locking has platform limits. It can
 fail due to resource limits or policy. Linux `MADV_DONTDUMP` reduces ordinary
@@ -1148,9 +1161,10 @@ With `canary-check`, `GuardedSecretVec` reserves an 8-byte canary before the
 initialized payload and another immediately after it. This catches in-region
 overwrites that guard pages cannot catch, such as writes that overrun the
 initialized length but stay inside the writable capacity. Exposure, mutation,
-growth, replacement, and comparison verify canaries first. Use
-`expose_secret_checked`, `constant_time_eq_checked`, or `verify_integrity` when
-callers need explicit `CanaryCorruptedError` handling.
+growth, replacement, and comparison verify canaries first. Ordinary operations
+return `CanaryCorruptedError` or `SecretIntegrityError`; explicitly named
+`_or_panic` helpers are available only where panic-on-corruption behavior is
+required.
 
 When both `guard-pages` and `memory-lock` are enabled, guarded dynamic secrets
 can also lock their writable data pages:
@@ -1365,6 +1379,10 @@ owned secret containers by routing to their existing clear methods.
 `subtle-interop` implements `ConstantTimeEq` for self-type comparisons where
 the `subtle` trait can represent the comparison. Slice and string comparisons
 remain available through this crate's native `constant_time_eq` methods.
+Because `subtle::ConstantTimeEq` cannot return an integrity error, its mapped
+container bridges use the explicitly documented panic-on-corruption path.
+Call native mapped comparison methods when corruption must be handled as a
+`Result`.
 
 ## Serde Loading
 

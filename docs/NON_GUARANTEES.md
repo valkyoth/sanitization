@@ -93,9 +93,10 @@ or to privileged attackers.
 
 A compiled feature or successful mapping allocation does not prove that every
 requested control was established. Callers must inspect `ProtectionReport`.
-Even a report showing established locking, dump exclusion, fork exclusion, and
-guard pages does not cover hibernation, privileged reads, hypervisor snapshots,
-DMA, firmware, or every platform-specific crash-dump mechanism.
+Even a report showing established locking, dump exclusion, an exclude or
+wipe-child fork policy, and guard pages does not cover hibernation, privileged
+reads, hypervisor snapshots, DMA, firmware, or every platform-specific
+crash-dump mechanism.
 
 ## Rust Move And Stack History
 

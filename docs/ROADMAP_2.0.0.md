@@ -835,10 +835,10 @@ pub enum Requirement {
 pub struct ProtectionRequest {
     pub memory_lock: Requirement,
     pub dump_exclusion: Requirement,
-    pub fork_policy: ForkProtectionRequest,
+    pub fork: ForkProtectionRequest,
     pub guard_pages: Requirement,
-    pub canary: CanaryProtectionRequest,
-    pub cache_policy: CacheProtectionRequest,
+    pub canary: Requirement,
+    pub cache_policy: Requirement,
 }
 ```
 
@@ -850,12 +850,12 @@ Add a structured report of actual outcomes:
 
 ```rust
 pub struct ProtectionReport {
-    pub locked: ProtectionState,
-    pub dump_excluded: ProtectionState,
-    pub fork_policy: ForkProtectionState,
+    pub memory_lock: ProtectionState,
+    pub dump_exclusion: ProtectionState,
+    pub fork: ForkProtectionReport,
     pub guard_pages: ProtectionState,
-    pub canary: CanaryProtectionState,
-    pub cache_policy: CacheProtectionState,
+    pub canary: ProtectionState,
+    pub cache_policy: ProtectionState,
 }
 ```
 
