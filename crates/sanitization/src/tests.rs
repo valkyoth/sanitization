@@ -207,14 +207,17 @@ fn ct_arrays_and_public_len_slices_compare() {
 fn ct_oblivious_lookup_scans_public_table() {
     let table = [10u8, 20, 30, 40];
 
-    let selected = ct::oblivious_lookup(&table, ct::Secret::new(2usize), &99);
+    let selected = ct::oblivious_lookup(&table, ct::SecretIndex::new(2usize), &99);
     assert_eq!(selected, 30);
 
-    let fallback = ct::oblivious_lookup(&table, ct::Secret::new(7usize), &99);
+    let fallback = ct::oblivious_lookup(&table, ct::SecretIndex::new(7usize), &99);
     assert_eq!(fallback, 99);
 
-    let secret_selected = ct::oblivious_lookup_secret(&table, ct::Secret::new(1usize), &99);
-    assert_eq!(*secret_selected.expose_secret(), 20);
+    let secret_selected = ct::oblivious_lookup_secret(&table, ct::SecretIndex::new(1usize), &99);
+    assert_eq!(
+        secret_selected.declassify("test reveals selected table value"),
+        20
+    );
 }
 
 #[test]
@@ -702,6 +705,269 @@ fn ct_result_keeps_success_as_choice() {
     assert_eq!(selected.unwrap_or(&0), 42);
     assert_eq!(ok.declassify("test exposes result success"), Ok(7));
     assert_eq!(err.declassify("test exposes result error"), Err(99));
+}
+
+#[test]
+fn ct_secret_scalar_clears_on_drop_and_transfers_on_declassification() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    struct Probe {
+        clears: Arc<AtomicUsize>,
+        value: u8,
+    }
+
+    impl SecureSanitize for Probe {
+        fn secure_sanitize(&mut self) {
+            self.value.secure_sanitize();
+            self.clears.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let dropped_clears = Arc::new(AtomicUsize::new(0));
+    drop(ct::SecretScalar::new(Probe {
+        clears: Arc::clone(&dropped_clears),
+        value: 7,
+    }));
+    assert_eq!(dropped_clears.load(Ordering::SeqCst), 1);
+
+    let transferred_clears = Arc::new(AtomicUsize::new(0));
+    let mut transferred = ct::SecretScalar::new(Probe {
+        clears: Arc::clone(&transferred_clears),
+        value: 9,
+    })
+    .declassify("test assumes cleanup responsibility for scalar");
+    assert_eq!(transferred_clears.load(Ordering::SeqCst), 0);
+    transferred.secure_sanitize();
+    assert_eq!(transferred_clears.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn secret_ct_option_clears_dummy_and_preserves_selected_ownership() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    struct Probe(Arc<AtomicUsize>);
+
+    impl SecureSanitize for Probe {
+        fn secure_sanitize(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let dummy_clears = Arc::new(AtomicUsize::new(0));
+    let absent = ct::SecretCtOption::secret(Probe(Arc::clone(&dummy_clears)), ct::Choice::FALSE);
+    assert!(absent
+        .declassify("test exposes secret optional absence")
+        .is_none());
+    assert_eq!(dummy_clears.load(Ordering::SeqCst), 1);
+
+    let selected_clears = Arc::new(AtomicUsize::new(0));
+    let present = ct::SecretCtOption::secret(Probe(Arc::clone(&selected_clears)), ct::Choice::TRUE);
+    let mut selected = present
+        .declassify("test assumes cleanup responsibility for selected option")
+        .expect("present secret option");
+    assert_eq!(selected_clears.load(Ordering::SeqCst), 0);
+    selected.secure_sanitize();
+    assert_eq!(selected_clears.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn secret_ct_result_clears_unselected_secret_backing() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    struct Probe(Arc<AtomicUsize>);
+
+    impl SecureSanitize for Probe {
+        fn secure_sanitize(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let value_clears = Arc::new(AtomicUsize::new(0));
+    let error_clears = Arc::new(AtomicUsize::new(0));
+    let result = ct::SecretCtResult::secret(
+        Probe(Arc::clone(&value_clears)),
+        Probe(Arc::clone(&error_clears)),
+        ct::Choice::TRUE,
+    );
+    let mut selected = match result.declassify("test exposes secret result success") {
+        Ok(value) => value,
+        Err(_) => panic!("expected successful secret result"),
+    };
+
+    assert_eq!(value_clears.load(Ordering::SeqCst), 0);
+    assert_eq!(error_clears.load(Ordering::SeqCst), 1);
+    selected.secure_sanitize();
+    assert_eq!(value_clears.load(Ordering::SeqCst), 1);
+
+    struct PublicError;
+
+    let result = ct::SecretCtResult::secret_success([7u8; 4], PublicError, ct::Choice::FALSE);
+    assert!(result
+        .declassify("test exposes public error metadata")
+        .is_err());
+}
+
+#[test]
+fn secret_ct_mapping_panic_clears_still_owned_values() {
+    use std::{
+        panic::{catch_unwind, AssertUnwindSafe},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+    };
+
+    struct Probe(Arc<AtomicUsize>);
+
+    impl SecureSanitize for Probe {
+        fn secure_sanitize(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let option_clears = Arc::new(AtomicUsize::new(0));
+    let option = ct::SecretCtOption::secret(Probe(Arc::clone(&option_clears)), ct::Choice::TRUE);
+    let option_result = catch_unwind(AssertUnwindSafe(|| {
+        let _: ct::SecretCtOption<ct::SecretValue<Probe>> =
+            option.map_secret(|_| panic!("secret option mapping panic"));
+    }));
+    assert!(option_result.is_err());
+    assert_eq!(option_clears.load(Ordering::SeqCst), 1);
+
+    let value_clears = Arc::new(AtomicUsize::new(0));
+    let error_clears = Arc::new(AtomicUsize::new(0));
+    let result = ct::SecretCtResult::secret(
+        Probe(Arc::clone(&value_clears)),
+        Probe(Arc::clone(&error_clears)),
+        ct::Choice::FALSE,
+    );
+    let result_panic = catch_unwind(AssertUnwindSafe(|| {
+        let _: ct::SecretCtResult<ct::SecretValue<Probe>, ct::SecretValue<Probe>> =
+            result.map_secret_success(|_| panic!("secret result mapping panic"));
+    }));
+    assert!(result_panic.is_err());
+    assert_eq!(value_clears.load(Ordering::SeqCst), 1);
+    assert_eq!(error_clears.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn secret_ct_sanitize_panic_is_not_retried() {
+    use std::{
+        panic::{catch_unwind, AssertUnwindSafe},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+    };
+
+    struct PanicProbe(Arc<AtomicUsize>);
+
+    impl SecureSanitize for PanicProbe {
+        fn secure_sanitize(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            panic!("intentional sanitize panic");
+        }
+    }
+
+    let clears = Arc::new(AtomicUsize::new(0));
+    let option = ct::SecretCtOption::secret(PanicProbe(Arc::clone(&clears)), ct::Choice::FALSE);
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = option.declassify("test exposes absent state before panic");
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(clears.load(Ordering::SeqCst), 1);
+
+    struct SelectedProbe(Arc<AtomicUsize>);
+
+    impl SecureSanitize for SelectedProbe {
+        fn secure_sanitize(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let selected_clears = Arc::new(AtomicUsize::new(0));
+    let unselected_clears = Arc::new(AtomicUsize::new(0));
+    let result = ct::SecretCtResult::secret(
+        SelectedProbe(Arc::clone(&selected_clears)),
+        PanicProbe(Arc::clone(&unselected_clears)),
+        ct::Choice::TRUE,
+    );
+    let panic_result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = result.declassify("test exposes success before cleanup panic");
+    }));
+
+    assert!(panic_result.is_err());
+    assert_eq!(selected_clears.load(Ordering::SeqCst), 1);
+    assert_eq!(unselected_clears.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn secret_ct_selection_creates_independent_owned_value() {
+    use ct::ConditionallySelectable;
+
+    let left = ct::SecretScalar::new([1u8, 2, 3, 4]);
+    let right = ct::SecretScalar::new([9u8, 8, 7, 6]);
+    let selected = ct::SecretScalar::conditional_select(&left, &right, ct::Choice::TRUE);
+
+    assert_eq!(
+        selected.declassify("test reveals selected scalar"),
+        [9, 8, 7, 6]
+    );
+    assert_eq!(
+        left.declassify("test reveals still-owned left scalar"),
+        [1, 2, 3, 4]
+    );
+    assert_eq!(
+        right.declassify("test reveals still-owned right scalar"),
+        [9, 8, 7, 6]
+    );
+
+    let zst = ct::SecretCtOption::secret((), ct::Choice::FALSE);
+    assert_eq!(zst.declassify("test exposes absent zero-sized value"), None);
+
+    let left_option = ct::SecretCtOption::secret([1u8; 4], ct::Choice::TRUE);
+    let right_option = ct::SecretCtOption::secret([2u8; 4], ct::Choice::TRUE);
+    let selected_option =
+        ct::SecretCtOption::conditional_select(&left_option, &right_option, ct::Choice::TRUE);
+    assert_eq!(
+        selected_option.declassify("test reveals selected secret option"),
+        Some([2u8; 4])
+    );
+    assert_eq!(
+        left_option.declassify("test reveals original left secret option"),
+        Some([1u8; 4])
+    );
+    assert_eq!(
+        right_option.declassify("test reveals original right secret option"),
+        Some([2u8; 4])
+    );
+
+    let left_result = ct::SecretCtResult::secret([3u8; 4], [4u8; 4], ct::Choice::TRUE);
+    let right_result = ct::SecretCtResult::secret([5u8; 4], [6u8; 4], ct::Choice::FALSE);
+    let selected_result =
+        ct::SecretCtResult::conditional_select(&left_result, &right_result, ct::Choice::TRUE);
+    assert_eq!(
+        selected_result.declassify("test reveals selected secret result"),
+        Err([6u8; 4])
+    );
+    assert_eq!(
+        left_result.declassify("test reveals original left secret result"),
+        Ok([3u8; 4])
+    );
+    assert_eq!(
+        right_result.declassify("test reveals original right secret result"),
+        Err([6u8; 4])
+    );
 }
 
 #[test]

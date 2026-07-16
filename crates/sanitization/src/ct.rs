@@ -7,12 +7,16 @@
 
 use core::{cmp::Ordering, fmt, hint::black_box, marker::PhantomData, ops};
 
+use crate::SecureSanitize;
+
 /// Opaque normalized 0/1 value used by data-oblivious operations.
 ///
-/// `Choice` is for secret-derived booleans that should remain branchless
-/// while they are combined, selected on, or carried through `CtOption` and
-/// `CtResult`. Turning a `Choice` into a normal `bool` is declassification
-/// and should happen only through [`Choice::declassify`].
+/// `Choice` is for secret-derived booleans that should remain branchless while
+/// they are combined, selected on, or carried through public-backing
+/// [`CtOption`]/[`CtResult`] and secret-backing
+/// [`SecretCtOption`]/[`SecretCtResult`] state. Turning a `Choice` into a
+/// normal `bool` is declassification and should happen only through
+/// [`Choice::declassify`].
 #[repr(transparent)]
 #[derive(Clone, Copy, Default)]
 pub struct Choice(u8);
@@ -363,12 +367,12 @@ impl<T: fmt::Debug> fmt::Debug for Mask<T> {
     }
 }
 
-/// Marker wrapper for values that are public by contract.
+/// Wrapper for values that are explicitly public by contract.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Public<T>(T);
+pub struct PublicValue<T>(T);
 
-impl<T> Public<T> {
+impl<T> PublicValue<T> {
     /// Wrap a public value.
     #[inline]
     pub const fn new(value: T) -> Self {
@@ -388,30 +392,230 @@ impl<T> Public<T> {
     }
 }
 
-/// Marker wrapper for values that must not drive ordinary control flow or
-/// memory access without an oblivious API.
-#[repr(transparent)]
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub struct Secret<T>(T);
+/// Secret-controlled table index with clear-on-drop storage.
+///
+/// The index cannot be copied, compared, printed, or borrowed through the
+/// public API. Full-scan lookup helpers consume it directly. Explicitly
+/// revealing the index requires a reason-bearing consuming declassification.
+///
+/// Clearing covers this wrapper's live storage. Rust moves, compiler-created
+/// temporaries, registers, and caller-created copies remain outside that
+/// guarantee.
+pub struct SecretIndex {
+    value: usize,
+}
 
-impl<T> Secret<T> {
-    /// Wrap a secret-controlled value.
+impl SecretIndex {
+    /// Wrap a secret-controlled index.
     #[inline]
-    pub const fn new(value: T) -> Self {
-        Self(value)
+    pub const fn new(value: usize) -> Self {
+        Self { value }
     }
 
-    /// Borrow the secret-controlled value for data-oblivious operations.
+    /// Explicitly reveal this index as public metadata.
+    ///
+    /// This consumes the wrapper and clears its remaining storage before
+    /// returning the copied scalar.
     #[inline]
-    pub const fn expose_secret(&self) -> &T {
-        &self.0
+    pub fn declassify(mut self, reason: &'static str) -> usize {
+        black_box(reason);
+        let value = self.value;
+        self.secure_sanitize();
+        value
+    }
+
+    #[inline]
+    const fn value(&self) -> usize {
+        self.value
     }
 }
 
-impl<T> fmt::Debug for Secret<T> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("Secret(..)")
+impl SecureSanitize for SecretIndex {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.value.secure_sanitize();
     }
+}
+
+impl Drop for SecretIndex {
+    #[inline]
+    fn drop(&mut self) {
+        self.secure_sanitize();
+    }
+}
+
+impl fmt::Debug for SecretIndex {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SecretIndex(..)")
+    }
+}
+
+/// Owned secret-controlled scalar with clear-on-drop storage.
+///
+/// This type intentionally has no generic borrow or exposure closure. Reviewed
+/// data-oblivious operations are provided through trait-bounded methods, while
+/// conversion back to an ordinary value is a consuming, reason-bearing
+/// declassification.
+///
+/// Clearing covers this wrapper's live storage. Rust moves, compiler-created
+/// temporaries, registers, and caller-created copies remain outside that
+/// guarantee.
+pub struct SecretScalar<T: SecureSanitize> {
+    value: Option<T>,
+}
+
+impl<T: SecureSanitize> SecretScalar<T> {
+    /// Wrap a secret-controlled scalar.
+    #[inline]
+    pub const fn new(value: T) -> Self {
+        Self { value: Some(value) }
+    }
+
+    /// Compare two wrapped scalars without declassifying the result.
+    #[inline]
+    pub fn ct_eq(&self, other: &Self) -> Choice
+    where
+        T: ConstantTimeEq,
+    {
+        self.value_ref().ct_eq(other.value_ref())
+    }
+
+    /// Order two wrapped scalars without declassifying the result.
+    #[inline]
+    pub fn ct_cmp(&self, other: &Self) -> CtOrdering
+    where
+        T: ConstantTimeOrd,
+    {
+        self.value_ref().ct_cmp(other.value_ref())
+    }
+
+    /// Select one wrapped scalar without consuming either source.
+    ///
+    /// The returned wrapper owns a third value. Both source wrappers remain
+    /// live and retain their independent clear-on-drop obligations.
+    #[inline]
+    pub fn conditional_select(left: &Self, right: &Self, choice: Choice) -> Self
+    where
+        T: ConditionallySelectable,
+    {
+        Self::new(T::conditional_select(
+            left.value_ref(),
+            right.value_ref(),
+            choice,
+        ))
+    }
+
+    /// Explicitly reveal this scalar as a normal value.
+    ///
+    /// The caller assumes responsibility for sanitizing the returned value.
+    /// The consumed wrapper is left empty so its destructor cannot clean the
+    /// moved value a second time.
+    #[inline]
+    pub fn declassify(mut self, reason: &'static str) -> T {
+        black_box(reason);
+        self.value
+            .take()
+            .expect("SecretScalar value must exist before declassification")
+    }
+
+    #[inline]
+    fn value_ref(&self) -> &T {
+        self.value
+            .as_ref()
+            .expect("SecretScalar value must exist while borrowed")
+    }
+}
+
+impl<T: SecureSanitize> SecureSanitize for SecretScalar<T> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        sanitize_owned_option(&mut self.value);
+    }
+}
+
+impl<T: SecureSanitize> Drop for SecretScalar<T> {
+    #[inline]
+    fn drop(&mut self) {
+        self.secure_sanitize();
+    }
+}
+
+impl<T: SecureSanitize> fmt::Debug for SecretScalar<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SecretScalar(..)")
+    }
+}
+
+/// Explicitly secret-classified backing value for secret CT containers.
+///
+/// The value is clear-on-drop and non-copying. Consuming declassification
+/// transfers cleanup responsibility for the returned value to the caller.
+pub struct SecretValue<T: SecureSanitize> {
+    value: Option<T>,
+}
+
+impl<T: SecureSanitize> SecretValue<T> {
+    /// Classify a backing value as secret.
+    #[inline]
+    pub const fn new(value: T) -> Self {
+        Self { value: Some(value) }
+    }
+
+    /// Explicitly reveal the classified value.
+    #[inline]
+    pub fn declassify(mut self, reason: &'static str) -> T {
+        black_box(reason);
+        self.take_value()
+    }
+
+    #[inline]
+    fn value_ref(&self) -> &T {
+        self.value
+            .as_ref()
+            .expect("SecretValue must contain a value while borrowed")
+    }
+
+    #[inline]
+    fn value_mut(&mut self) -> &mut T {
+        self.value
+            .as_mut()
+            .expect("SecretValue must contain a value while borrowed")
+    }
+
+    #[inline]
+    fn take_value(&mut self) -> T {
+        self.value
+            .take()
+            .expect("SecretValue must contain a value before extraction")
+    }
+}
+
+impl<T: SecureSanitize> SecureSanitize for SecretValue<T> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        sanitize_owned_option(&mut self.value);
+    }
+}
+
+impl<T: SecureSanitize> Drop for SecretValue<T> {
+    #[inline]
+    fn drop(&mut self) {
+        self.secure_sanitize();
+    }
+}
+
+impl<T: SecureSanitize> fmt::Debug for SecretValue<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SecretValue(..)")
+    }
+}
+
+#[inline]
+fn sanitize_owned_option<T: SecureSanitize>(value: &mut Option<T>) {
+    if let Some(value) = value.as_mut() {
+        value.secure_sanitize();
+    }
+    *value = None;
 }
 
 /// Optional value with a hidden presence bit.
@@ -663,6 +867,442 @@ where
     }
 }
 
+/// Optional CT state whose backing value is explicitly classified as public
+/// or secret.
+///
+/// Unlike [`CtOption`], this container is non-copying, has redacted `Debug`,
+/// exposes no raw backing getter, and can own a [`SecretValue`] that clears on
+/// drop. The backing closure used by [`SecretCtOption::map_secret`] runs for
+/// both present and absent states.
+pub struct SecretCtOption<V> {
+    value: Option<V>,
+    is_some: Choice,
+}
+
+impl<V> SecretCtOption<V> {
+    /// Return the hidden presence bit.
+    #[inline]
+    pub const fn is_some(&self) -> Choice {
+        self.is_some
+    }
+
+    /// Return the hidden absence bit.
+    #[inline]
+    pub fn is_none(&self) -> Choice {
+        !self.is_some
+    }
+
+    #[inline]
+    fn classified(value: V, is_some: Choice) -> Self {
+        Self {
+            value: Some(value),
+            is_some,
+        }
+    }
+
+    #[inline]
+    fn take_value(&mut self) -> V {
+        self.value
+            .take()
+            .expect("SecretCtOption backing value must exist before extraction")
+    }
+}
+
+impl<T> SecretCtOption<PublicValue<T>> {
+    /// Construct optional state with explicitly public backing data.
+    #[inline]
+    pub fn public(value: T, is_some: Choice) -> Self {
+        Self::classified(PublicValue::new(value), is_some)
+    }
+
+    /// Transform the public backing value without declassifying presence.
+    ///
+    /// The closure always runs, including for a logically absent value.
+    #[inline]
+    pub fn map_public<U>(
+        mut self,
+        transform: impl FnOnce(T) -> U,
+    ) -> SecretCtOption<PublicValue<U>> {
+        let is_some = self.is_some;
+        let value = self.take_value().into_inner();
+        SecretCtOption::classified(PublicValue::new(transform(value)), is_some)
+    }
+
+    /// Explicitly declassify presence and return public backing data.
+    #[inline]
+    pub fn declassify(mut self, reason: &'static str) -> Option<T> {
+        let is_some = self.is_some.declassify(reason);
+        let value = self.take_value().into_inner();
+        is_some.then_some(value)
+    }
+}
+
+impl<T: SecureSanitize> SecretCtOption<SecretValue<T>> {
+    /// Construct optional state with clear-on-drop secret backing data.
+    #[inline]
+    pub fn secret(value: T, is_some: Choice) -> Self {
+        Self::classified(SecretValue::new(value), is_some)
+    }
+
+    /// Transform secret backing data without moving it out of its owner.
+    ///
+    /// The closure always runs, including for a logically absent dummy value.
+    /// If the closure panics, this container remains the owner and clears the
+    /// original backing value during unwind.
+    #[inline]
+    pub fn map_secret<U: SecureSanitize>(
+        mut self,
+        transform: impl FnOnce(&mut T) -> U,
+    ) -> SecretCtOption<SecretValue<U>> {
+        let is_some = self.is_some;
+        let mapped = transform(
+            self.value
+                .as_mut()
+                .expect("SecretCtOption backing value must exist while mapped")
+                .value_mut(),
+        );
+        SecretCtOption::classified(SecretValue::new(mapped), is_some)
+    }
+
+    /// Explicitly declassify presence and transfer a selected secret value.
+    ///
+    /// An absent dummy value is sanitized before this method returns `None`.
+    /// For `Some`, cleanup responsibility for the returned value transfers to
+    /// the caller.
+    #[inline]
+    pub fn declassify(mut self, reason: &'static str) -> Option<T> {
+        if self.is_some.declassify(reason) {
+            Some(self.take_value().declassify(reason))
+        } else {
+            drop(self.take_value());
+            None
+        }
+    }
+}
+
+impl<T> ConditionallySelectable for SecretCtOption<PublicValue<T>>
+where
+    T: ConditionallySelectable,
+{
+    #[inline]
+    fn conditional_select(left: &Self, right: &Self, choice: Choice) -> Self {
+        let left_value = left
+            .value
+            .as_ref()
+            .expect("left SecretCtOption must contain public backing data")
+            .expose();
+        let right_value = right
+            .value
+            .as_ref()
+            .expect("right SecretCtOption must contain public backing data")
+            .expose();
+        Self::public(
+            T::conditional_select(left_value, right_value, choice),
+            Choice::conditional_select(&left.is_some, &right.is_some, choice),
+        )
+    }
+}
+
+impl<T> ConditionallySelectable for SecretCtOption<SecretValue<T>>
+where
+    T: SecureSanitize + ConditionallySelectable,
+{
+    #[inline]
+    fn conditional_select(left: &Self, right: &Self, choice: Choice) -> Self {
+        let left_value = left
+            .value
+            .as_ref()
+            .expect("left SecretCtOption must contain secret backing data")
+            .value_ref();
+        let right_value = right
+            .value
+            .as_ref()
+            .expect("right SecretCtOption must contain secret backing data")
+            .value_ref();
+        Self::secret(
+            T::conditional_select(left_value, right_value, choice),
+            Choice::conditional_select(&left.is_some, &right.is_some, choice),
+        )
+    }
+}
+
+impl<V> fmt::Debug for SecretCtOption<V> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SecretCtOption(..)")
+    }
+}
+
+/// Result-like CT state with explicitly classified success and error backing
+/// values.
+///
+/// Secret-classified selected values transfer to the caller only after
+/// reason-bearing declassification. Every unselected [`SecretValue`] remains
+/// owned by this container and is sanitized before the method returns.
+pub struct SecretCtResult<V, E> {
+    value: Option<V>,
+    error: Option<E>,
+    is_ok: Choice,
+}
+
+impl<V, E> SecretCtResult<V, E> {
+    /// Return the hidden success bit.
+    #[inline]
+    pub const fn is_ok(&self) -> Choice {
+        self.is_ok
+    }
+
+    /// Return the hidden error bit.
+    #[inline]
+    pub fn is_err(&self) -> Choice {
+        !self.is_ok
+    }
+
+    #[inline]
+    fn classified(value: V, error: E, is_ok: Choice) -> Self {
+        Self {
+            value: Some(value),
+            error: Some(error),
+            is_ok,
+        }
+    }
+
+    #[inline]
+    fn take_value(&mut self) -> V {
+        self.value
+            .take()
+            .expect("SecretCtResult success backing value must exist before extraction")
+    }
+
+    #[inline]
+    fn take_error(&mut self) -> E {
+        self.error
+            .take()
+            .expect("SecretCtResult error backing value must exist before extraction")
+    }
+}
+
+impl<T, E> SecretCtResult<PublicValue<T>, PublicValue<E>> {
+    /// Construct result state with public success and error backing data.
+    #[inline]
+    pub fn public(value: T, error: E, is_ok: Choice) -> Self {
+        Self::classified(PublicValue::new(value), PublicValue::new(error), is_ok)
+    }
+
+    /// Explicitly declassify the result.
+    #[inline]
+    pub fn declassify(mut self, reason: &'static str) -> Result<T, E> {
+        let is_ok = self.is_ok.declassify(reason);
+        let value = self.take_value().into_inner();
+        let error = self.take_error().into_inner();
+        if is_ok {
+            Ok(value)
+        } else {
+            Err(error)
+        }
+    }
+}
+
+impl<T: SecureSanitize, E> SecretCtResult<SecretValue<T>, PublicValue<E>> {
+    /// Construct result state with secret success data and public error data.
+    #[inline]
+    pub fn secret_success(value: T, error: E, is_ok: Choice) -> Self {
+        Self::classified(SecretValue::new(value), PublicValue::new(error), is_ok)
+    }
+
+    /// Explicitly declassify the result.
+    ///
+    /// The secret success value transfers to the caller only on success. It is
+    /// sanitized as an unselected backing value on error.
+    #[inline]
+    pub fn declassify(mut self, reason: &'static str) -> Result<T, E> {
+        if self.is_ok.declassify(reason) {
+            let value = self.take_value();
+            drop(self.take_error());
+            Ok(value.declassify(reason))
+        } else {
+            drop(self.take_value());
+            Err(self.take_error().into_inner())
+        }
+    }
+}
+
+impl<T, E: SecureSanitize> SecretCtResult<PublicValue<T>, SecretValue<E>> {
+    /// Construct result state with public success data and secret error data.
+    #[inline]
+    pub fn secret_error(value: T, error: E, is_ok: Choice) -> Self {
+        Self::classified(PublicValue::new(value), SecretValue::new(error), is_ok)
+    }
+
+    /// Explicitly declassify the result.
+    ///
+    /// The secret error value transfers to the caller only on error. It is
+    /// sanitized as an unselected backing value on success.
+    #[inline]
+    pub fn declassify(mut self, reason: &'static str) -> Result<T, E> {
+        if self.is_ok.declassify(reason) {
+            drop(self.take_error());
+            Ok(self.take_value().into_inner())
+        } else {
+            drop(self.take_value());
+            let error = self.take_error();
+            Err(error.declassify(reason))
+        }
+    }
+}
+
+impl<T: SecureSanitize, E: SecureSanitize> SecretCtResult<SecretValue<T>, SecretValue<E>> {
+    /// Construct result state with secret success and error backing data.
+    #[inline]
+    pub fn secret(value: T, error: E, is_ok: Choice) -> Self {
+        Self::classified(SecretValue::new(value), SecretValue::new(error), is_ok)
+    }
+
+    /// Explicitly declassify the result.
+    ///
+    /// The selected value transfers to the caller. The unselected value is
+    /// sanitized before this method returns.
+    #[inline]
+    pub fn declassify(mut self, reason: &'static str) -> Result<T, E> {
+        if self.is_ok.declassify(reason) {
+            let value = self.take_value();
+            drop(self.take_error());
+            Ok(value.declassify(reason))
+        } else {
+            drop(self.take_value());
+            let error = self.take_error();
+            Err(error.declassify(reason))
+        }
+    }
+}
+
+impl<T: SecureSanitize, E> SecretCtResult<SecretValue<T>, E> {
+    /// Transform secret success backing data without moving it out of its
+    /// clear-on-drop owner.
+    ///
+    /// The closure always runs, including for a logically failed result. If it
+    /// panics, both original backing values remain owned and are dropped.
+    #[inline]
+    pub fn map_secret_success<U: SecureSanitize>(
+        mut self,
+        transform: impl FnOnce(&mut T) -> U,
+    ) -> SecretCtResult<SecretValue<U>, E> {
+        let is_ok = self.is_ok;
+        let mapped = transform(
+            self.value
+                .as_mut()
+                .expect("SecretCtResult success backing value must exist while mapped")
+                .value_mut(),
+        );
+        let error = self.take_error();
+        SecretCtResult::classified(SecretValue::new(mapped), error, is_ok)
+    }
+}
+
+impl<T, E: SecureSanitize> SecretCtResult<T, SecretValue<E>> {
+    /// Transform secret error backing data without moving it out of its
+    /// clear-on-drop owner.
+    ///
+    /// The closure always runs, including for a logically successful result.
+    /// If it panics, both original backing values remain owned and are dropped.
+    #[inline]
+    pub fn map_secret_error<F: SecureSanitize>(
+        mut self,
+        transform: impl FnOnce(&mut E) -> F,
+    ) -> SecretCtResult<T, SecretValue<F>> {
+        let is_ok = self.is_ok;
+        let mapped = transform(
+            self.error
+                .as_mut()
+                .expect("SecretCtResult error backing value must exist while mapped")
+                .value_mut(),
+        );
+        let value = self.take_value();
+        SecretCtResult::classified(value, SecretValue::new(mapped), is_ok)
+    }
+}
+
+macro_rules! impl_secret_ct_result_select {
+    (
+        value = $value_wrapper:ident<$value:ident> $(where $value_bound:path)?,
+        error = $error_wrapper:ident<$error:ident> $(where $error_bound:path)?,
+        constructor = $constructor:ident
+    ) => {
+        impl<$value, $error> ConditionallySelectable
+            for SecretCtResult<$value_wrapper<$value>, $error_wrapper<$error>>
+        where
+            $value: ConditionallySelectable $(+ $value_bound)?,
+            $error: ConditionallySelectable $(+ $error_bound)?,
+        {
+            #[inline]
+            fn conditional_select(left: &Self, right: &Self, choice: Choice) -> Self {
+                let left_value = left
+                    .value
+                    .as_ref()
+                    .expect("left SecretCtResult must contain success backing data");
+                let right_value = right
+                    .value
+                    .as_ref()
+                    .expect("right SecretCtResult must contain success backing data");
+                let left_error = left
+                    .error
+                    .as_ref()
+                    .expect("left SecretCtResult must contain error backing data");
+                let right_error = right
+                    .error
+                    .as_ref()
+                    .expect("right SecretCtResult must contain error backing data");
+
+                SecretCtResult::$constructor(
+                    $value::conditional_select(
+                        impl_secret_ct_result_select!(@borrow left_value, $value_wrapper),
+                        impl_secret_ct_result_select!(@borrow right_value, $value_wrapper),
+                        choice,
+                    ),
+                    $error::conditional_select(
+                        impl_secret_ct_result_select!(@borrow left_error, $error_wrapper),
+                        impl_secret_ct_result_select!(@borrow right_error, $error_wrapper),
+                        choice,
+                    ),
+                    Choice::conditional_select(&left.is_ok, &right.is_ok, choice),
+                )
+            }
+        }
+    };
+    (@borrow $value:ident, PublicValue) => {
+        $value.expose()
+    };
+    (@borrow $value:ident, SecretValue) => {
+        $value.value_ref()
+    };
+}
+
+impl_secret_ct_result_select!(
+    value = PublicValue<T>,
+    error = PublicValue<E>,
+    constructor = public
+);
+impl_secret_ct_result_select!(
+    value = SecretValue<T> where SecureSanitize,
+    error = PublicValue<E>,
+    constructor = secret_success
+);
+impl_secret_ct_result_select!(
+    value = PublicValue<T>,
+    error = SecretValue<E> where SecureSanitize,
+    constructor = secret_error
+);
+impl_secret_ct_result_select!(
+    value = SecretValue<T> where SecureSanitize,
+    error = SecretValue<E> where SecureSanitize,
+    constructor = secret
+);
+
+impl<V, E> fmt::Debug for SecretCtResult<V, E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SecretCtResult(..)")
+    }
+}
+
 macro_rules! impl_unsigned_ct {
         ($($ty:ty),* $(,)?) => {
             $(
@@ -795,7 +1435,7 @@ pub fn eq_public_len(left: &[u8], right: &[u8]) -> Choice {
 /// secret-controlled, prefer [`oblivious_lookup_secret`] so the type system
 /// keeps that boundary visible to reviewers.
 #[inline(never)]
-pub fn oblivious_lookup<T>(table: &[T], secret_index: Secret<usize>, fallback: &T) -> T
+pub fn oblivious_lookup<T>(table: &[T], secret_index: SecretIndex, fallback: &T) -> T
 where
     T: ConditionallySelectable,
 {
@@ -803,7 +1443,7 @@ where
     // This avoids adding `Clone`/`Copy` bounds to `T` while making the
     // fallback behavior explicit.
     let mut output = T::conditional_select(fallback, fallback, Choice::FALSE);
-    let wanted = black_box(*secret_index.expose_secret());
+    let wanted = black_box(secret_index.value());
     let mut index = 0usize;
     while index < table.len() {
         let selected = wanted.ct_eq(&index);
@@ -822,13 +1462,13 @@ where
 #[inline(never)]
 pub fn oblivious_lookup_secret<T>(
     table: &[T],
-    secret_index: Secret<usize>,
+    secret_index: SecretIndex,
     fallback: &T,
-) -> Secret<T>
+) -> SecretScalar<T>
 where
-    T: ConditionallySelectable,
+    T: ConditionallySelectable + SecureSanitize,
 {
-    Secret::new(oblivious_lookup(table, secret_index, fallback))
+    SecretScalar::new(oblivious_lookup(table, secret_index, fallback))
 }
 
 /// Conditionally copy `source` into `destination`.
@@ -1002,7 +1642,7 @@ impl<const N: usize> ConditionallySelectable for [u8; N] {
     }
 }
 
-impl<T> Public<PhantomData<T>> {
+impl<T> PublicValue<PhantomData<T>> {
     /// Construct a public marker value.
     #[inline]
     pub const fn marker() -> Self {

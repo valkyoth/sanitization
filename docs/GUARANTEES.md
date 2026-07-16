@@ -98,7 +98,12 @@ The data-oblivious guarantees apply to the crate's own primitives:
 - public-length equality treats length as public metadata and rejects length
   mismatch without claiming the length is secret;
 - `ct::CtOption` and `ct::CtResult` keep success/failure state inside the CT
-  domain until explicit declassification;
+  domain until explicit declassification for public or non-secret backing
+  values;
+- `ct::SecretIndex` and `ct::SecretScalar<T>` are non-copying, redacted,
+  clear-on-drop owners with consuming reason-bearing declassification;
+- `ct::SecretCtOption` and `ct::SecretCtResult` clear dummy and unselected
+  `ct::SecretValue<T>` backing values before transferring a selected value;
 - `ct::oblivious_lookup` scans the full public table length instead of indexing
   directly by a secret index;
 - conditional copy, swap, and slice selection operate over public lengths.

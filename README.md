@@ -67,6 +67,7 @@ Implemented now:
   `BoundedSecretString<MAX>` input limits.
 - native dependency-free `sanitization::ct` data-oblivious primitives with
   explicit declassification boundaries, `Choice`, `CtOption`, `CtResult`,
+  `SecretIndex`, `SecretScalar`, clear-on-drop secret CT option/result state,
   `CtOrdering`, fixed-size equality and ordering, conditional selection,
   conditional copy/swap, slice selection, and oblivious lookup helpers.
 - optional conservative native `ct` derives through the `derive` feature for
@@ -314,6 +315,35 @@ domain. Their closures are always called, including on dummy backing values, so
 closures that process secret-derived data must also avoid secret-dependent
 branches and memory access.
 
+Use the separate secret-bearing containers when the backing values themselves
+need lifecycle protection:
+
+```rust
+use sanitization::ct::{Choice, SecretCtOption, SecretCtResult};
+
+let maybe_key = SecretCtOption::secret([7u8; 32], Choice::TRUE);
+let mut key = maybe_key
+    .declassify("key presence is public after validation")
+    .expect("key is present");
+sanitization::SecureSanitize::secure_sanitize(&mut key);
+
+let parsed = SecretCtResult::secret_success(
+    [9u8; 32],
+    "invalid key",
+    Choice::FALSE,
+);
+assert!(parsed
+    .declassify("parse result is public")
+    .is_err());
+```
+
+`SecretCtOption` and `SecretCtResult` require explicit `PublicValue` or
+`SecretValue` classification through their constructors. Secret backing values
+are redacted, non-copying, and clear on drop. During declassification, dummy
+and unselected secret values are sanitized before a selected secret transfers
+to the caller. Secret mapping closures borrow the backing value in place so a
+panic leaves the original value owned by a clear-on-drop wrapper.
+
 Slice equality through `ct::eq_public_len` treats length as public metadata.
 Equal-length byte comparisons scan every byte and do not stop at the first
 difference. For x86_64 or AArch64 builds that need a stronger compiler
@@ -326,14 +356,18 @@ The same module includes memory-access helpers for secret-controlled choices
 and indexes:
 
 ```rust
-use sanitization::ct::{self, Choice, Secret};
+use sanitization::ct::{self, Choice, SecretIndex};
 
 let table = [10u8, 20, 30, 40];
-let value = ct::oblivious_lookup(&table, Secret::new(2usize), &0);
+let value = ct::oblivious_lookup(&table, SecretIndex::new(2usize), &0);
 assert_eq!(value, 30);
 
-let secret_value = ct::oblivious_lookup_secret(&table, Secret::new(1usize), &0);
-assert_eq!(*secret_value.expose_secret(), 20);
+let secret_value =
+    ct::oblivious_lookup_secret(&table, SecretIndex::new(1usize), &0);
+assert_eq!(
+    secret_value.declassify("selected table value is public here"),
+    20
+);
 
 let mut destination = [0u8; 4];
 let left = [1u8, 2, 3, 4];
@@ -346,7 +380,9 @@ assert_eq!(destination, right);
 `oblivious_lookup` scans the full public table length and returns the fallback
 for an out-of-range secret index. Its selected value is secret-index-derived;
 use `oblivious_lookup_secret` when the output should remain wrapped in
-`ct::Secret<T>` until an explicit review boundary. `conditional_copy`,
+`ct::SecretScalar<T>` until an explicit review boundary. `SecretIndex` and
+`SecretScalar<T>` are non-copying, redacted, clear-on-drop owners; neither
+offers unrestricted raw borrowing. `conditional_copy`,
 `conditional_swap`, and `select_slice` treat slice lengths as public metadata
 and return `LengthError` on mismatch.
 

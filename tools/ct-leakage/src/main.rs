@@ -1,4 +1,4 @@
-use sanitization::ct::{self, Choice, ConstantTimeEq, Secret};
+use sanitization::ct::{self, Choice, ConstantTimeEq, SecretIndex};
 use sanitization::SecretBytes;
 use std::env;
 use std::fs;
@@ -461,7 +461,11 @@ fn run_oblivious_lookup_16_index(class: Class, inner: usize, rng: &mut XorShift6
         Class::B => 14usize,
     };
     measure(inner, || {
-        ct::oblivious_lookup(black_box(&table), Secret::new(index), black_box(&fallback))
+        ct::oblivious_lookup(
+            black_box(&table),
+            SecretIndex::new(index),
+            black_box(&fallback),
+        )
     })
 }
 

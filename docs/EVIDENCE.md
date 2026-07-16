@@ -151,6 +151,9 @@ Current proof scope:
   interpretation of hidden presence bits;
 - `ct::CtResult` unwrap/map/select behavior matches the public interpretation
   of hidden success bits;
+- secret CT scalar, option, and result ownership tests cover clear-on-drop,
+  selected-value transfer, dummy/unselected cleanup, mapping panic unwind,
+  sanitizer panic without retry, independent selection, and zero-sized values;
 - allocation growth arithmetic does not under-allocate for the bounded harness.
 
 These proofs are functional correctness checks over bounded inputs. They do not

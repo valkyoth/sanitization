@@ -1,7 +1,8 @@
 use sanitization::ct::{
     self, Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd, CtOption, CtResult,
-    Secret,
+    SecretCtOption, SecretCtResult, SecretIndex,
 };
+use sanitization::SecureSanitize;
 
 fn main() {
     let left = [7u8; 32];
@@ -30,8 +31,19 @@ fn main() {
     assert_eq!(checked.declassify("example result is public"), Ok(8));
 
     let table = [10u8, 20, 30, 40];
-    let value = ct::oblivious_lookup(&table, Secret::new(2usize), &0);
+    let value = ct::oblivious_lookup(&table, SecretIndex::new(2usize), &0);
     assert_eq!(value, 30);
+
+    let maybe_secret = SecretCtOption::secret([7u8; 4], Choice::TRUE);
+    let mut secret = maybe_secret
+        .declassify("example secret presence is public")
+        .expect("secret is present");
+    secret.secure_sanitize();
+
+    let secret_result = SecretCtResult::secret_success([9u8; 4], "invalid", Choice::FALSE);
+    assert!(secret_result
+        .declassify("example secret result is public")
+        .is_err());
 
     let mut destination = [0u8; 4];
     let a = [1u8, 2, 3, 4];

@@ -13,7 +13,10 @@
 //!
 //! The [`ct`] module provides dependency-free data-oblivious primitives such as
 //! [`ct::Choice`], [`ct::ConstantTimeEq`], and explicit
-//! [`ct::Choice::declassify`] boundaries. Its claim is no secret-dependent
+//! [`ct::Choice::declassify`] boundaries. Secret-controlled indexes and
+//! scalars use clear-on-drop [`ct::SecretIndex`] and [`ct::SecretScalar`]
+//! owners, while [`ct::SecretCtOption`] and [`ct::SecretCtResult`] manage
+//! secret-bearing dummy and unselected state. Its claim is no secret-dependent
 //! control flow or memory access under documented conditions, not identical
 //! wall-clock timing on every target.
 //!

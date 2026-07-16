@@ -872,7 +872,7 @@ mod kani_verification {
         let fallback: u8 = kani::any();
         let index: usize = kani::any();
 
-        let selected = ct::oblivious_lookup(&table, ct::Secret::new(index), &fallback);
+        let selected = ct::oblivious_lookup(&table, ct::SecretIndex::new(index), &fallback);
 
         if index < 4 {
             assert_eq!(selected, table[index]);

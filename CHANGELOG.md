@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased 2.0.0 development
+
+- Replaced the generic copyable `ct::Secret<T>` control marker with
+  clear-on-drop `SecretIndex` and `SecretScalar<T>` owners.
+- Added explicit `PublicValue<T>` and clear-on-drop `SecretValue<T>`
+  classification for secret-derived CT state.
+- Added redacted, non-copying `SecretCtOption` and `SecretCtResult` containers
+  that sanitize dummy and unselected secret values before declassification.
+- Added panic-unwind and ownership-transition tests for mapping, selection,
+  consuming declassification, zero-sized values, and sanitizer failures.
+
 ## 1.2.5
 
 - Added `BoundedSecretString<MAX>` with byte-length enforcement for

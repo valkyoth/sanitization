@@ -5,7 +5,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
-if rg -n 'unwrap_u8|strict-ct' \
+if rg -n 'unwrap_u8|strict-ct|ct::Secret::new' \
     "${root}/crates" \
     "${root}/tools" \
     "${root}/.github" \
@@ -93,6 +93,36 @@ run_expected_failure \
 pub fn compare() -> bool {
     Mask::<u32>::from_choice(Choice::FALSE)
         == Mask::<u32>::from_choice(Choice::TRUE)
+}'
+
+run_expected_failure \
+    "secret-index-copy-rejected" \
+    'use of moved value' \
+    'use sanitization::ct::SecretIndex;
+
+pub fn copy_index() {
+    let secret = SecretIndex::new(7);
+    let moved = secret;
+    let _ = (moved, secret);
+}'
+
+run_expected_failure \
+    "secret-scalar-raw-borrow-rejected" \
+    'no method named `expose_secret`' \
+    'use sanitization::ct::SecretScalar;
+
+pub fn expose_scalar(secret: &SecretScalar<u64>) -> &u64 {
+    secret.expose_secret()
+}'
+
+run_expected_failure \
+    "secret-ct-option-clone-rejected" \
+    'no method named `clone`' \
+    'use sanitization::ct::{Choice, SecretCtOption};
+
+pub fn clone_secret_state() {
+    let state = SecretCtOption::secret([7u8; 4], Choice::TRUE);
+    let _ = state.clone();
 }'
 
 printf 'CT declassification failure checks passed\n'
