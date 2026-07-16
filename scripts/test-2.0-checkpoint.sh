@@ -51,6 +51,7 @@ EOF
         cp "$source_script" scripts/validate-2.0-checkpoint.sh
         cp "$source_current_script" scripts/validate-current-2.0-checkpoint.sh
         sed -i "s/^CP00_BASE=.*/CP00_BASE='${base}'/" scripts/validate-2.0-checkpoint.sh
+        sed -i "s/^CP00_BASE=.*/CP00_BASE='${base}'/" scripts/validate-current-2.0-checkpoint.sh
         chmod +x \
             scripts/validate-2.0-checkpoint.sh \
             scripts/validate-current-2.0-checkpoint.sh
@@ -105,7 +106,7 @@ accept_cp01() {
 repo="$(make_fixture bad-checkpoint)"
 (
     cd "$repo"
-    assert_fails_with "usage: scripts/validate-2.0-checkpoint.sh CP-XX" \
+    assert_fails_with "usage: scripts/validate-2.0-checkpoint.sh CP-XX \[commit\]" \
         scripts/validate-2.0-checkpoint.sh CP-24
 )
 
@@ -120,7 +121,7 @@ repo="$(make_fixture scratch-pentest)"
 repo="$(make_fixture missing-report)"
 (
     cd "$repo"
-    assert_fails_with "missing checkpoint report" \
+    assert_fails_with "checkpoint report must be committed at" \
         scripts/validate-2.0-checkpoint.sh CP-00
 )
 
@@ -130,7 +131,7 @@ repo="$(make_fixture uncommitted-report)"
     base="$(git rev-parse HEAD~1)"
     reviewed="$(git rev-parse HEAD)"
     write_report CP-00 "$base" "$reviewed"
-    assert_fails_with "checkpoint report must be committed at HEAD" \
+    assert_fails_with "checkpoint report must be committed at" \
         scripts/validate-2.0-checkpoint.sh CP-00
 )
 
@@ -240,6 +241,41 @@ repo="$(make_fixture cp00-ready)"
     scripts/validate-current-2.0-checkpoint.sh
 )
 
+repo="$(make_fixture automatic-batched-tip)"
+(
+    cd "$repo"
+    accept_cp00
+    printf 'checkpoint one\n' >checkpoint-one.txt
+    git add checkpoint-one.txt
+    git commit -q -m "CP-01 implementation pushed with CP-00 acceptance"
+
+    scripts/validate-current-2.0-checkpoint.sh
+)
+
+repo="$(make_fixture automatic-deleted-only-report)"
+(
+    cd "$repo"
+    accept_cp00
+    git rm -q security/pentest/2.0-development/CP-00.md
+    git commit -q -m "delete only accepted report"
+
+    assert_fails_with "checkpoint report must be committed at" \
+        scripts/validate-current-2.0-checkpoint.sh
+)
+
+repo="$(make_fixture automatic-shallow-history)"
+(
+    cd "$repo"
+    accept_cp00
+    shallow="$tmp/automatic-shallow-history-clone"
+    git clone -q --depth 1 "file://${repo}" "$shallow"
+    (
+        cd "$shallow"
+        assert_fails_with "complete history through the CP-00 base is required" \
+            scripts/validate-current-2.0-checkpoint.sh
+    )
+)
+
 repo="$(make_fixture automatic-invalid-report)"
 (
     cd "$repo"
@@ -263,7 +299,7 @@ repo="$(make_fixture automatic-multiple-reports)"
     git add security/pentest/2.0-development
     git commit -q -m "multiple reports"
 
-    assert_fails_with "exactly one checkpoint report may change" \
+    assert_fails_with "changes multiple checkpoint reports" \
         scripts/validate-current-2.0-checkpoint.sh
 )
 
@@ -291,6 +327,35 @@ repo="$(make_fixture cp01-wrong-base)"
     git commit -q -m "Wrong CP-01 report"
 
     assert_fails_with "does not match expected" \
+        scripts/validate-2.0-checkpoint.sh CP-01
+)
+
+repo="$(make_fixture cp01-invalid-prior-metadata)"
+(
+    cd "$repo"
+    base="$(git rev-parse HEAD~1)"
+    reviewed="$(git rev-parse HEAD)"
+    write_report CP-00 "$base" "$reviewed"
+    sed -i \
+        -e 's/^Base-Commit: .*/Base-Commit: 0000000000000000000000000000000000000000/' \
+        -e 's/^Tester: .*/Tester: /' \
+        -e 's/^Review-Type: .*/Review-Type: unsupported/' \
+        -e 's/^Scope: .*/Scope: /' \
+        -e 's/^Date: .*/Date: invalid/' \
+        security/pentest/2.0-development/CP-00.md
+    git add security/pentest/2.0-development/CP-00.md
+    git commit -q -m "Accept malformed CP-00"
+    malformed_acceptance="$(git rev-parse HEAD)"
+
+    printf 'checkpoint one\n' >checkpoint-one.txt
+    git add checkpoint-one.txt
+    git commit -q -m "CP-01 implementation"
+    reviewed="$(git rev-parse HEAD)"
+    write_report CP-01 "$malformed_acceptance" "$reviewed"
+    git add security/pentest/2.0-development/CP-01.md
+    git commit -q -m "CP-01 report"
+
+    assert_fails_with "Tester must not be empty" \
         scripts/validate-2.0-checkpoint.sh CP-01
 )
 

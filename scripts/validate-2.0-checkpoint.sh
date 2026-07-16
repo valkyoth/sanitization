@@ -31,10 +31,11 @@ committed_field() {
 }
 
 checkpoint="${1:-}"
+target_commit="${2:-HEAD}"
 case "$checkpoint" in
     CP-0[0-9] | CP-1[0-9] | CP-2[0-3]) ;;
     *)
-        echo "usage: scripts/validate-2.0-checkpoint.sh CP-XX" >&2
+        echo "usage: scripts/validate-2.0-checkpoint.sh CP-XX [commit]" >&2
         exit 2
         ;;
 esac
@@ -43,36 +44,33 @@ report="${REPORT_DIR}/${checkpoint}.md"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 committed_report="$tmp/report"
-previous_metadata="$tmp/previous-report"
 
 if [ -f PENTEST.md ] || [ -f pentest.md ]; then
     fail "root PENTEST.md is temporary scratch input and must be removed"
 fi
 
-if [ ! -f "$PLAN" ]; then
-    fail "missing implementation plan: ${PLAN}"
-fi
+git cat-file -e "${target_commit}^{commit}" 2>/dev/null \
+    || fail "target commit ${target_commit} was not found"
+target_commit="$(git rev-parse "${target_commit}^{commit}")"
 
-if ! grep -Fq "### \`${checkpoint}\`:" "$PLAN"; then
+if ! git show "${target_commit}:${PLAN}" 2>/dev/null |
+    grep -Fq "### \`${checkpoint}\`:"; then
     fail "checkpoint ${checkpoint} is not defined in ${PLAN}"
 fi
 
-if ! grep -Fq "\`${report}\`" "$PLAN"; then
+if ! git show "${target_commit}:${PLAN}" 2>/dev/null |
+    grep -Fq "\`${report}\`"; then
     fail "report path ${report} is not registered in ${PLAN}"
 fi
 
-if [ ! -f "$report" ]; then
-    fail "missing checkpoint report: ${report}"
+if ! git cat-file -e "${target_commit}:${report}" 2>/dev/null; then
+    fail "checkpoint report must be committed at ${target_commit}: ${report}"
 fi
 
-if ! git cat-file -e "HEAD:${report}" 2>/dev/null; then
-    fail "checkpoint report must be committed at HEAD: ${report}"
-fi
-
-regular_blob_mode HEAD "$report" \
+regular_blob_mode "$target_commit" "$report" \
     || fail "checkpoint report must be a regular non-executable Git blob"
 
-git show "HEAD:${report}" >"$committed_report" \
+git show "${target_commit}:${report}" >"$committed_report" \
     || fail "could not read committed checkpoint report"
 
 status="$(committed_field "$committed_report" Status)"
@@ -126,12 +124,12 @@ if ! git merge-base --is-ancestor "$base_commit" "$reviewed_through"; then
     fail "Base-Commit is not an ancestor of Reviewed-Through"
 fi
 
-head_parent="$(git rev-parse HEAD^)"
+head_parent="$(git rev-parse "${target_commit}^")"
 if [ "$reviewed_through" != "$head_parent" ]; then
     fail "Reviewed-Through ${reviewed_through} does not match report parent ${head_parent}"
 fi
 
-changed_paths="$(git diff-tree --no-commit-id --name-only -r HEAD)"
+changed_paths="$(git diff-tree --no-commit-id --name-only -r "$target_commit")"
 if [ "$changed_paths" != "$report" ]; then
     fail "checkpoint report commit may only change ${report}"
 fi
@@ -157,33 +155,7 @@ else
     [ -n "$acceptance_commit" ] \
         || fail "could not locate acceptance commit for ${previous_checkpoint}"
 
-    regular_blob_mode "$acceptance_commit" "$previous_report" \
-        || fail "previous checkpoint report is not a regular Git blob"
-    git show "${acceptance_commit}:${previous_report}" >"$previous_metadata" \
-        || fail "could not read previous committed report"
-
-    previous_status="$(committed_field "$previous_metadata" Status)"
-    previous_reported_checkpoint="$(committed_field "$previous_metadata" Checkpoint)"
-    previous_reviewed="$(committed_field "$previous_metadata" Reviewed-Through)"
-
-    [ "$previous_status" = "PASS" ] \
-        || fail "previous checkpoint report Status must be PASS"
-    [ "$previous_reported_checkpoint" = "$previous_checkpoint" ] \
-        || fail "previous checkpoint report identity is invalid"
-    printf '%s\n' "$previous_reviewed" | grep -Eq '^[0-9a-f]{40}$' \
-        || fail "previous report contains an invalid Reviewed-Through"
-    git cat-file -e "${previous_reviewed}^{commit}" 2>/dev/null \
-        || fail "previous Reviewed-Through ${previous_reviewed} was not found"
-
-    acceptance_parent="$(git rev-parse "${acceptance_commit}^")"
-    [ "$acceptance_parent" = "$previous_reviewed" ] \
-        || fail "previous acceptance is not the direct child of Reviewed-Through"
-
-    acceptance_paths="$(
-        git diff-tree --no-commit-id --name-only -r "$acceptance_commit"
-    )"
-    [ "$acceptance_paths" = "$previous_report" ] \
-        || fail "previous acceptance commit was not report-only"
+    "$0" "$previous_checkpoint" "$acceptance_commit" >/dev/null
 
     for commit in $(
         git rev-list --first-parent "${acceptance_commit}..${reviewed_through}"

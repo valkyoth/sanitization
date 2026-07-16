@@ -85,6 +85,10 @@ The report-only acceptance commit must:
 `CP-00` adds a validator for these rules. The final `v2.0.0` report continues
 to use the normal release-report and signed-tag process.
 
+The normal CI checks fetch complete Git history and validate every
+report-changing commit from the fixed `CP-00` base through the tested branch
+tip. Batched pushes therefore do not skip an earlier acceptance commit.
+
 ## Version And Tag Policy
 
 - Do not create alpha, beta, RC, or checkpoint tags.
