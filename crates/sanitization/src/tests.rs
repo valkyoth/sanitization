@@ -1987,6 +1987,35 @@ fn split_secret_rejects_constant_nonzero_mask_accumulator() {
 
 #[cfg(feature = "split-secret")]
 #[test]
+fn split_secret_accepts_varying_mask_accumulator_with_zero_first_byte() {
+    let accumulator = [0x00, 0x44, 0xBB, 0xFF];
+    let first_mask = [0x11, 0x22, 0x33, 0x44];
+    let split = SplitSecretBytes::<4, 3>::from_array_with_generator(
+        [9, 8, 7, 6],
+        |share, index| match share {
+            0 => first_mask[index],
+            _ => first_mask[index] ^ accumulator[index],
+        },
+    )
+    .expect("a varying accumulator must not be rejected because its first byte is zero");
+
+    assert!(split
+        .reconstruct()
+        .constant_time_eq_secret(&SecretBytes::from_array([9, 8, 7, 6])));
+}
+
+#[cfg(feature = "split-secret")]
+#[test]
+fn split_secret_one_byte_accumulator_rejects_only_zero() {
+    assert!(matches!(
+        SplitSecretBytes::<1, 2>::from_array_with_generator([9], |_, _| 0),
+        Err(SplitSecretError::TrivialMask)
+    ));
+    assert!(SplitSecretBytes::<1, 2>::from_array_with_generator([9], |_, _| 0xA5).is_ok());
+}
+
+#[cfg(feature = "split-secret")]
+#[test]
 fn split_secret_can_consume_source_secret() {
     let secret = SecretBytes::from_array([9, 8, 7, 6]);
     let split =

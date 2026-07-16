@@ -1730,7 +1730,11 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
             byte_index += 1;
         }
 
-        first_accumulator == 0 || (N > 1 && all_same)
+        if N == 1 {
+            first_accumulator == 0
+        } else {
+            all_same
+        }
     }
 }
 
