@@ -159,6 +159,18 @@ temporaries, Rust move history, and register residue remain outside it.
 Generations are diagnostic reuse identifiers. Rust lifetimes and the atomic
 claim are the stale-handle defense.
 
+## Page-Sealed Review Candidate
+
+With the opt-in `page-seal` feature, `SealedSecretBytes<N>` keeps its data pages
+inaccessible between scoped mutable-borrow access windows. Normal return and
+panic unwinding both attempt to restore no-access protection. A detected
+normal-return reseal failure clears and retires the mapping instead of
+returning the closure result.
+
+This remains a conditional 2.0 guarantee pending the CP-16 unsafe review and
+native target evidence. Existing locked and guarded guarantees do not depend on
+its acceptance.
+
 ## Evidence
 
 The repository carries release evidence in two forms:

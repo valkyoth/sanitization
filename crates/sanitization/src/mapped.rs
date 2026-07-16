@@ -139,6 +139,26 @@ pub use guard_pages::{
     GuardPageError, GuardPageOperation, GuardedSecretVec, GuardedSecretVecGenerateError,
 };
 
+#[cfg(all(
+    feature = "page-seal",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+pub use guard_pages::{SealedSecretAccessError, SealedSecretBytes};
+
 /// Error returned when checked secret-text exposure detects corruption or
 /// invalid UTF-8.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

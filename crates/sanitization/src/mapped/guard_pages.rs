@@ -1,3 +1,5 @@
+#[cfg(feature = "page-seal")]
+use core::mem::ManuallyDrop;
 use core::{
     fmt,
     ptr::NonNull,
@@ -854,14 +856,16 @@ impl GuardedSecretVec {
     pub fn verify_integrity(&self) -> Result<(), CanaryCorruptedError> {
         #[cfg(not(feature = "canary-check"))]
         {
-            return Ok(());
+            Ok(())
         }
         #[cfg(feature = "canary-check")]
-        if self.canaries_intact() {
-            Ok(())
-        } else {
-            self.clear_after_canary_failure();
-            Err(CanaryCorruptedError)
+        {
+            if self.canaries_intact() {
+                Ok(())
+            } else {
+                self.clear_after_canary_failure();
+                Err(CanaryCorruptedError)
+            }
         }
     }
 
@@ -1127,6 +1131,451 @@ impl fmt::Debug for GuardedSecretVec {
             .field("contents", &"<redacted>")
             .finish()
     }
+}
+
+/// Error returned by scoped page-sealed secret access.
+#[cfg(feature = "page-seal")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SealedSecretAccessError {
+    /// A platform page-protection transition failed.
+    Guard(GuardPageError),
+    /// Integrity canaries were corrupted while the page was inaccessible.
+    Canary(CanaryCorruptedError),
+    /// Access was attempted while another access window was active.
+    AccessInProgress,
+    /// A prior reseal failure retired and released the mapping.
+    Retired,
+}
+
+#[cfg(feature = "page-seal")]
+impl fmt::Display for SealedSecretAccessError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Guard(error) => error.fmt(formatter),
+            Self::Canary(error) => error.fmt(formatter),
+            Self::AccessInProgress => {
+                formatter.write_str("page-sealed secret access is already in progress")
+            }
+            Self::Retired => formatter.write_str("page-sealed secret mapping is retired"),
+        }
+    }
+}
+
+#[cfg(all(feature = "page-seal", feature = "std"))]
+impl std::error::Error for SealedSecretAccessError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Guard(error) => Some(error),
+            Self::Canary(error) => Some(error),
+            Self::AccessInProgress | Self::Retired => None,
+        }
+    }
+}
+
+#[cfg(feature = "page-seal")]
+impl From<GuardPageError> for SealedSecretAccessError {
+    #[inline]
+    fn from(error: GuardPageError) -> Self {
+        Self::Guard(error)
+    }
+}
+
+#[cfg(feature = "page-seal")]
+impl From<CanaryCorruptedError> for SealedSecretAccessError {
+    #[inline]
+    fn from(error: CanaryCorruptedError) -> Self {
+        Self::Canary(error)
+    }
+}
+
+#[cfg(feature = "page-seal")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SealedState {
+    Sealed,
+    Exposed,
+    Retired,
+}
+
+/// Fixed-size secret bytes kept on an inaccessible page between accesses.
+///
+/// Every access requires `&mut self`, temporarily changes the data page to
+/// read/write, verifies integrity, invokes the closure, and restores no-access
+/// protection before returning. An unwind guard performs the same reseal
+/// attempt if the closure panics.
+///
+/// This opt-in type is deliberately not `Sync`. Signal handlers, process
+/// abort, privileged remapping, DMA, and copies made by the closure remain
+/// outside the guarantee.
+///
+/// ```compile_fail
+/// use sanitization::SealedSecretBytes;
+///
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<SealedSecretBytes<32>>();
+/// ```
+#[cfg(feature = "page-seal")]
+pub struct SealedSecretBytes<const N: usize> {
+    inner: ManuallyDrop<GuardedSecretVec>,
+    state: SealedState,
+    #[cfg(test)]
+    fail_next_seal: bool,
+}
+
+// SAFETY: The value exclusively owns its mapping. Moving ownership to another
+// thread preserves the mapping and all access still requires `&mut self`.
+// `Sync` is intentionally not implemented.
+#[cfg(feature = "page-seal")]
+unsafe impl<const N: usize> Send for SealedSecretBytes<N> {}
+
+#[cfg(feature = "page-seal")]
+impl<const N: usize> SealedSecretBytes<N> {
+    /// Allocate a zero-filled page-sealed secret.
+    pub fn zeroed() -> Result<Self, GuardPageError> {
+        Self::zeroed_with_protection(ProtectionRequest::guarded())
+            .map_err(protection_error_as_guard_page)
+    }
+
+    /// Allocate a zero-filled page-sealed secret under explicit protection
+    /// policy.
+    pub fn zeroed_with_protection(request: ProtectionRequest) -> Result<Self, ProtectionError> {
+        let mut inner = GuardedSecretVec::with_capacity_with_protection(N, request)?;
+        inner.finish_initialization(N);
+        if let Err(error) = seal_data(inner.data, inner.writable_len) {
+            let mut report = *inner.protection_report();
+            report.guard_pages = ProtectionState::Failed { code: error.errno };
+            let rollback = rollback_sealed_construction(inner);
+            return Err(ProtectionError {
+                failure: ProtectionFailure {
+                    control: ProtectionControl::GuardPages,
+                    code: error.errno,
+                },
+                partial_report: report,
+                rollback,
+            });
+        }
+
+        Ok(Self {
+            inner: ManuallyDrop::new(inner),
+            state: SealedState::Sealed,
+            #[cfg(test)]
+            fail_next_seal: false,
+        })
+    }
+
+    /// Allocate page-sealed storage and copy an owned array into it.
+    pub fn from_array(mut bytes: [u8; N]) -> Result<Self, SealedSecretAccessError> {
+        let result = Self::zeroed()
+            .map_err(SealedSecretAccessError::Guard)
+            .and_then(|mut secret| {
+                secret.with_secret_mut(|target| target.copy_from_slice(&bytes))?;
+                Ok(secret)
+            });
+        crate::wipe::bytes(&mut bytes);
+        result
+    }
+
+    /// Number of secret bytes stored in the sealed mapping.
+    #[must_use]
+    #[inline]
+    pub const fn len(&self) -> usize {
+        N
+    }
+
+    /// Returns true when this fixed secret has zero length.
+    #[must_use]
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        N == 0
+    }
+
+    /// Returns true when the data page is currently inaccessible.
+    #[must_use]
+    #[inline]
+    pub const fn is_sealed(&self) -> bool {
+        matches!(self.state, SealedState::Sealed)
+    }
+
+    /// Returns true after a failed reseal retired the mapping.
+    #[must_use]
+    #[inline]
+    pub const fn is_retired(&self) -> bool {
+        matches!(self.state, SealedState::Retired)
+    }
+
+    /// Actual protections established for the underlying guarded mapping.
+    #[must_use]
+    #[inline]
+    pub fn protection_report(&self) -> &ProtectionReport {
+        self.inner.protection_report()
+    }
+
+    /// Runtime policy requested for the underlying guarded mapping.
+    #[must_use]
+    #[inline]
+    pub fn protection_request(&self) -> ProtectionRequest {
+        self.inner.protection_request()
+    }
+
+    /// Run a closure with scoped shared access to the secret bytes.
+    pub fn with_secret<R>(
+        &mut self,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> Result<R, SealedSecretAccessError> {
+        self.begin_access()?;
+        let guard = SealedAccessGuard::new(self);
+        if let Err(error) = self.inner.verify_integrity() {
+            self.reset_zeroed_payload();
+            guard.finish()?;
+            return Err(error.into());
+        }
+
+        // SAFETY: the page is read/write for this access window, the guarded
+        // mapping owns at least N payload bytes, and the guard reseals before
+        // this method returns or unwinds.
+        let bytes = unsafe { &*(self.inner.payload_ptr() as *const [u8; N]) };
+        let result = inspect(bytes);
+        guard.finish()?;
+        Ok(result)
+    }
+
+    /// Run a closure with scoped mutable access to the secret bytes.
+    pub fn with_secret_mut<R>(
+        &mut self,
+        edit: impl FnOnce(&mut [u8; N]) -> R,
+    ) -> Result<R, SealedSecretAccessError> {
+        self.begin_access()?;
+        let guard = SealedAccessGuard::new(self);
+        if let Err(error) = self.inner.verify_integrity() {
+            self.reset_zeroed_payload();
+            guard.finish()?;
+            return Err(error.into());
+        }
+
+        // SAFETY: `&mut self` provides exclusive access, the page is
+        // read/write for this window, and the guard reseals on every exit.
+        let bytes = unsafe { &mut *(self.inner.payload_ptr() as *mut [u8; N]) };
+        let result = edit(bytes);
+        compiler_fence(Ordering::SeqCst);
+        guard.finish()?;
+        Ok(result)
+    }
+
+    /// Compare with a fixed byte array while the page is temporarily exposed.
+    pub fn constant_time_eq(&mut self, other: &[u8; N]) -> Result<bool, SealedSecretAccessError> {
+        self.with_secret(|bytes| crate::constant_time_eq_slices(bytes, other))
+    }
+
+    /// Clear the payload and restore no-access protection.
+    pub fn clear_secret(&mut self) -> Result<(), SealedSecretAccessError> {
+        self.begin_access()?;
+        let guard = SealedAccessGuard::new(self);
+        self.reset_zeroed_payload();
+        guard.finish()
+    }
+
+    fn begin_access(&mut self) -> Result<(), SealedSecretAccessError> {
+        match self.state {
+            SealedState::Sealed => {}
+            SealedState::Exposed => return Err(SealedSecretAccessError::AccessInProgress),
+            SealedState::Retired => return Err(SealedSecretAccessError::Retired),
+        }
+
+        protect_data(self.inner.data, self.inner.writable_len)?;
+        self.state = SealedState::Exposed;
+        Ok(())
+    }
+
+    fn finish_access(&mut self) -> Result<(), SealedSecretAccessError> {
+        if self.state != SealedState::Exposed {
+            return match self.state {
+                SealedState::Sealed | SealedState::Exposed => {
+                    Err(SealedSecretAccessError::AccessInProgress)
+                }
+                SealedState::Retired => Err(SealedSecretAccessError::Retired),
+            };
+        }
+
+        #[cfg(test)]
+        let seal_result = if core::mem::take(&mut self.fail_next_seal) {
+            Err(GuardPageError {
+                operation: GuardPageOperation::Protect,
+                errno: 0,
+            })
+        } else {
+            seal_data(self.inner.data, self.inner.writable_len)
+        };
+        #[cfg(not(test))]
+        let seal_result = seal_data(self.inner.data, self.inner.writable_len);
+
+        match seal_result {
+            Ok(()) => {
+                self.state = SealedState::Sealed;
+                Ok(())
+            }
+            Err(error) => {
+                self.retire_exposed_mapping();
+                Err(error.into())
+            }
+        }
+    }
+
+    fn reset_zeroed_payload(&mut self) {
+        crate::wipe_backend::erase(self.inner.data.as_ptr(), self.inner.writable_len);
+        self.inner.len = N;
+        self.inner.write_canaries();
+    }
+
+    fn retire_exposed_mapping(&mut self) {
+        self.reset_zeroed_payload();
+        #[cfg(feature = "memory-lock")]
+        if self.inner.locked {
+            let _ = unlock_mapping(self.inner.data, self.inner.writable_len);
+        }
+        if unmap_guarded(self.inner.base, self.inner.map_len).is_ok() {
+            self.state = SealedState::Retired;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_seal_for_test(&mut self) {
+        self.fail_next_seal = true;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mark_access_in_progress_for_test(&mut self) -> Result<(), GuardPageError> {
+        protect_data(self.inner.data, self.inner.writable_len)?;
+        self.state = SealedState::Exposed;
+        Ok(())
+    }
+
+    #[cfg(all(test, feature = "canary-check", feature = "std"))]
+    pub(crate) fn corrupt_canary_for_test(&mut self) -> Result<(), SealedSecretAccessError> {
+        self.begin_access()?;
+        let guard = SealedAccessGuard::new(self);
+        self.inner.corrupt_suffix_canary_for_test();
+        guard.finish()
+    }
+}
+
+#[cfg(feature = "page-seal")]
+struct SealedAccessGuard<const N: usize> {
+    secret: *mut SealedSecretBytes<N>,
+    active: bool,
+}
+
+#[cfg(feature = "page-seal")]
+impl<const N: usize> SealedAccessGuard<N> {
+    fn new(secret: &mut SealedSecretBytes<N>) -> Self {
+        Self {
+            secret,
+            active: true,
+        }
+    }
+
+    fn finish(mut self) -> Result<(), SealedSecretAccessError> {
+        // SAFETY: the guard is created from the exclusive borrow held by the
+        // access method and is finished before that method returns.
+        let result = unsafe { (&mut *self.secret).finish_access() };
+        self.active = false;
+        result
+    }
+}
+
+#[cfg(feature = "page-seal")]
+impl<const N: usize> Drop for SealedAccessGuard<N> {
+    fn drop(&mut self) {
+        if self.active {
+            // SAFETY: this guard owns the active access window and runs before
+            // the originating exclusive borrow can be used again.
+            let _ = unsafe { (&mut *self.secret).finish_access() };
+        }
+    }
+}
+
+#[cfg(feature = "page-seal")]
+impl<const N: usize> Drop for SealedSecretBytes<N> {
+    fn drop(&mut self) {
+        match self.state {
+            SealedState::Sealed => {
+                if protect_data(self.inner.data, self.inner.writable_len).is_ok() {
+                    self.state = SealedState::Exposed;
+                    // SAFETY: the page is writable again and `inner` has not
+                    // previously been dropped.
+                    unsafe { ManuallyDrop::drop(&mut self.inner) };
+                } else {
+                    #[cfg(feature = "memory-lock")]
+                    if self.inner.locked {
+                        let _ = unlock_mapping(self.inner.data, self.inner.writable_len);
+                    }
+                    let _ = unmap_guarded(self.inner.base, self.inner.map_len);
+                    self.state = SealedState::Retired;
+                }
+            }
+            SealedState::Exposed => {
+                // SAFETY: the page is writable and `inner` remains live.
+                unsafe { ManuallyDrop::drop(&mut self.inner) };
+                self.state = SealedState::Retired;
+            }
+            SealedState::Retired => {}
+        }
+    }
+}
+
+#[cfg(feature = "page-seal")]
+impl<const N: usize> crate::SecureSanitize for SealedSecretBytes<N> {
+    fn secure_sanitize(&mut self) {
+        let _ = self.clear_secret();
+    }
+}
+
+#[cfg(feature = "page-seal")]
+impl<const N: usize> crate::StableSharedSecretStorage for SealedSecretBytes<N> {}
+
+#[cfg(feature = "page-seal")]
+impl<const N: usize> crate::StableMutableSecretStorage for SealedSecretBytes<N> {}
+
+#[cfg(feature = "page-seal")]
+impl<const N: usize> fmt::Debug for SealedSecretBytes<N> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SealedSecretBytes")
+            .field("len", &N)
+            .field("sealed", &self.is_sealed())
+            .field("retired", &self.is_retired())
+            .field("contents", &"<redacted>")
+            .finish()
+    }
+}
+
+#[cfg(feature = "page-seal")]
+fn rollback_sealed_construction(mut inner: GuardedSecretVec) -> RollbackReport {
+    inner.clear_secret();
+    let inner = ManuallyDrop::new(inner);
+
+    #[cfg(feature = "memory-lock")]
+    let unlock = if inner.locked {
+        match unlock_mapping(inner.data, inner.writable_len) {
+            Ok(()) => RollbackState::Completed,
+            Err(error) => RollbackState::Failed(ProtectionFailure {
+                control: ProtectionControl::MemoryLock,
+                code: error.errno,
+            }),
+        }
+    } else {
+        RollbackState::NotNeeded
+    };
+    #[cfg(not(feature = "memory-lock"))]
+    let unlock = RollbackState::NotNeeded;
+
+    let unmap = match unmap_guarded(inner.base, inner.map_len) {
+        Ok(()) => RollbackState::Completed,
+        Err(error) => RollbackState::Failed(ProtectionFailure {
+            control: ProtectionControl::Mapping,
+            code: error.errno,
+        }),
+    };
+
+    RollbackReport { unlock, unmap }
 }
 
 fn resolve_guard_unavailable(
@@ -1688,6 +2137,56 @@ fn protect_data(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
             ptr.as_ptr().cast::<c_void>(),
             len,
             PAGE_READWRITE,
+            &mut old_protect,
+        )
+    };
+    if ret == 0 {
+        Err(windows_error(GuardPageOperation::Protect))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "page-seal", target_os = "linux"))]
+fn seal_data(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+    let ret = raw_syscall3(SYS_MPROTECT, ptr.as_ptr() as usize, len, PROT_NONE);
+    if syscall_failed(ret) {
+        Err(syscall_error(GuardPageOperation::Protect, ret))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(any(
+    all(feature = "page-seal", target_os = "macos"),
+    all(feature = "page-seal", target_os = "ios"),
+    all(feature = "page-seal", target_os = "android"),
+    all(feature = "page-seal", target_os = "freebsd"),
+    all(feature = "page-seal", target_os = "openbsd"),
+    all(feature = "page-seal", target_os = "netbsd"),
+    all(feature = "page-seal", target_os = "dragonfly"),
+))]
+fn seal_data(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+    // SAFETY: `ptr` and `len` describe the live data region owned by the
+    // page-sealed value.
+    let ret = unsafe { mprotect(ptr.as_ptr().cast::<c_void>(), len, PROT_NONE as i32) };
+    if ret != 0 {
+        Err(unix_error(GuardPageOperation::Protect))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "page-seal", target_os = "windows"))]
+fn seal_data(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+    let mut old_protect = 0_u32;
+    // SAFETY: `ptr` and `len` describe the live data region owned by the
+    // page-sealed value.
+    let ret = unsafe {
+        VirtualProtect(
+            ptr.as_ptr().cast::<c_void>(),
+            len,
+            PAGE_NOACCESS,
             &mut old_protect,
         )
     };

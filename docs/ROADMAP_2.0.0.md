@@ -958,9 +958,10 @@ Constraints:
 - process abort, signals, privileged remapping, and external copies remain out
   of scope.
 
-This type is a 2.0 target only if native Linux, macOS, Windows, and AArch64
-evidence plus external review are complete. Otherwise defer it without blocking
-the mandatory core redesign.
+The `page-seal` review candidate implements this design without changing the
+existing guarded containers. It is a 2.0 target only if native Linux, macOS,
+Windows, and AArch64 evidence plus external review are complete. Otherwise
+defer it without blocking the mandatory core redesign.
 
 ### 9.5 Secure arena evolution
 

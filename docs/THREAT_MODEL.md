@@ -60,6 +60,8 @@ Rust applications.
   targets.
 - Optional UTF-8-safe guard-page storage with `GuardedSecretString`, backed by
   `GuardedSecretVec`.
+- Optional fixed-size page-sealed storage with `SealedSecretBytes<N>`, whose
+  data pages are inaccessible between scoped mutable-borrow access windows.
 - Optional platform memory locking for `GuardedSecretVec` when both
   `guard-pages` and `memory-lock` are enabled.
 
@@ -300,6 +302,14 @@ With `require-fork-exclusion`, named locked constructors request exclusion as
 required and fail on targets where it is unavailable. Explicit requests can
 instead require wipe-child behavior. This feature is intended for deployments
 where accidental fork inheritance is an audit blocker.
+
+With `page-seal`, fixed-size secret data pages are changed to no-access between
+scoped accesses. The access window itself remains readable/writable, requires
+`&mut self`, and is guarded against ordinary reentry. Normal return and panic
+unwinding attempt to reseal. A reseal failure clears and retires the mapping
+when release succeeds. Signals, process abort, privileged remapping, DMA, and
+failure to make a sealed page writable during `Drop` remain explicit residual
+risks.
 
 `SecretBytes::expose_secret` directly borrows the owned fixed-size storage and
 does not intentionally construct a full-size temporary array. This reduces

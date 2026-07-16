@@ -517,6 +517,40 @@ Invariant:
 - Drop ignores unlock and unmap/free errors because destructors cannot report
   failure.
 
+### Page-sealed fixed mappings
+
+Location: `mapped::guard_pages::SealedSecretBytes`
+
+Purpose: keep a fixed-size secret's middle data pages inaccessible between
+explicit scoped accesses.
+
+Invariant:
+
+- `page-seal` reuses the existing guarded mapping backend and does not define a
+  second syscall ABI.
+- Construction initializes a fixed `N`-byte payload while the middle pages are
+  writable, then changes those pages back to `PROT_NONE` or `PAGE_NOACCESS`.
+- Every public access requires `&mut self`. The type is `Send` but deliberately
+  does not implement `Sync`.
+- An access-state transition rejects reentry while the page is exposed.
+- A raw-pointer unwind guard owns the active access window. It attempts to
+  reseal on normal return and during panic unwinding before the originating
+  exclusive borrow may be used again.
+- Canary verification occurs only after the page becomes readable. Corruption
+  clears the writable region, restores a zeroed fixed payload and fresh
+  canaries, and returns an integrity error after resealing.
+- A normal-return reseal failure clears the writable mapping and attempts to
+  unlock and unmap it. Successful release marks the value retired, so later
+  access returns `Retired` and `Drop` does not touch stale pointers.
+- If retirement unmapping fails, the value remains in the exposed state so
+  `Drop` retries full guarded cleanup.
+- Drop normally makes a sealed page writable, then delegates volatile clear,
+  unlock, and unmap to `GuardedSecretVec`. If making the page writable fails,
+  Drop can only attempt unlock and unmap; it cannot truthfully guarantee a
+  volatile clear of an inaccessible page.
+- Signal-handler reentry, process abort, and privileged page-table changes are
+  outside this Rust ownership boundary.
+
 ## Consume-Once Secrets
 
 `ConsumeOnceSecret<T>` uses an `AtomicBool` claim flag and an `UnsafeCell<T>`.

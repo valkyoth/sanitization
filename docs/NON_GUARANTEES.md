@@ -127,6 +127,19 @@ consume quota concurrently. Variable-size arena allocation is not provided in
 2.0; fragmentation and allocator metadata secrecy remain outside the fixed
 pool's guarantees.
 
+`SealedSecretBytes<N>` does not make a secret inaccessible while its access
+closure is running. The closure may copy or export bytes, trigger signals, call
+unsafe reentry paths, or abort the process before the unwind guard runs.
+No-access page protection does not stop privileged remapping, kernel or
+hypervisor access, DMA, hibernation, or external copies.
+
+If `Drop` cannot change an already sealed page back to read/write, it cannot
+perform the normal volatile clear and instead attempts to unlock and release
+the mapping. The feature therefore does not claim an infallible final wipe
+under page-protection failure. CP-16 acceptance also requires native target
+evidence and external unsafe review; otherwise the feature will be deferred
+from 2.0 stable.
+
 ## Serialization And Interop
 
 Serde support serializes secret-owning types as redacted strings. Deserializing
