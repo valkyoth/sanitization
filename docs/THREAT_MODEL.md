@@ -326,6 +326,17 @@ limit. For many same-size secrets on an untrusted or high-volume path,
 pre-allocate a bounded `SecretPool<N, SLOTS>` during trusted startup and treat
 pool exhaustion as an explicit availability policy.
 
+Fixed pool generations make slot reuse visible and are mixed into deterministic
+pooled canaries. They do not prevent a privileged attacker from modifying
+metadata, are not unforgeable tokens, and eventually wrap. The safe stale-handle
+defense is the lifetime-bound non-clone slot handle plus the atomic allocation
+bitmap.
+
+`arena_report()` helps operators compare payload capacity with reserved,
+mapped, and locked bytes. It does not read `RLIMIT_MEMLOCK`, Windows working-set
+policy, or future system pressure, and therefore cannot guarantee that another
+allocation will succeed.
+
 `ConsumeOnceSecret<T>` protects against accidental repeated access through the
 same wrapper, including racing consumers. It uses scoped shared exposure and
 clears after return or unwind. It does not defend against a malicious winning

@@ -143,6 +143,22 @@ This guarantee covers access through the wrapper. The winning closure can
 deliberately copy or export data, and process abort, compiler-created
 temporaries, Rust move history, and register residue remain outside it.
 
+## Fixed Secure Arenas
+
+`SecretPool<N, SLOTS>` provides a bounded fixed-size arena:
+
+- one atomic bitmap claim prevents overlapping safe handles for a slot;
+- every successful claim receives a new non-zero generation;
+- lifetime-bound handles prevent pool drop or mutable pool clearing while live;
+- slot drop clears before release;
+- the next acquire observes release after cleanup;
+- native pools amortize mapping and lock overhead across all slots; and
+- `arena_report()` exposes capacity and lock-efficiency metadata without
+  exposing secret contents.
+
+Generations are diagnostic reuse identifiers. Rust lifetimes and the atomic
+claim are the stale-handle defense.
+
 ## Evidence
 
 The repository carries release evidence in two forms:

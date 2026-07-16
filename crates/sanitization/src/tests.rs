@@ -983,6 +983,36 @@ fn length_error_formats_clearly() {
     );
 }
 
+#[test]
+fn secret_pool_report_calculates_public_efficiency_metadata() {
+    let report = SecretPoolReport {
+        slot_size: 32,
+        slot_stride: 48,
+        capacity_slots: 64,
+        live_slots: 8,
+        payload_capacity_bytes: 2048,
+        reserved_bytes: 3072,
+        mapped_bytes: 4096,
+        locked_bytes: 4096,
+        mapping_overhead_bytes: 1024,
+        locked_overhead_bytes: 2048,
+        page_granule: 4096,
+        lock_quota_likely: false,
+    };
+
+    assert_eq!(report.storage_efficiency_basis_points(), Some(6666));
+    assert_eq!(report.mapping_efficiency_basis_points(), Some(5000));
+    assert_eq!(report.lock_efficiency_basis_points(), Some(5000));
+
+    let compatibility = SecretPoolReport {
+        mapped_bytes: 0,
+        locked_bytes: 0,
+        ..report
+    };
+    assert_eq!(compatibility.mapping_efficiency_basis_points(), None);
+    assert_eq!(compatibility.lock_efficiency_basis_points(), None);
+}
+
 #[cfg(feature = "zeroize-interop")]
 #[test]
 fn zeroize_interop_clears_secret_bytes() {
@@ -3708,12 +3738,30 @@ fn secret_pool_allocates_reuses_and_clears_slots() {
     assert_eq!(pool.capacity_slots(), 2);
     assert!(pool.locked_len() >= 8);
     assert_eq!(pool.available_slots(), 2);
+    let empty_report = pool.arena_report();
+    assert_eq!(empty_report.slot_size, 4);
+    assert_eq!(empty_report.capacity_slots, 2);
+    assert_eq!(empty_report.live_slots, 0);
+    assert_eq!(empty_report.payload_capacity_bytes, 8);
+    assert_eq!(empty_report.reserved_bytes, empty_report.slot_stride * 2);
+    assert_eq!(
+        empty_report.mapped_bytes,
+        pool.protection_report().mapped_bytes
+    );
+    assert_eq!(pool.protection_report().requested_bytes, 8);
+    assert!(empty_report.storage_efficiency_basis_points().is_some());
+    assert!(empty_report.mapping_efficiency_basis_points().is_some());
 
     let mut first = pool.allocate_from_array([1, 2, 3, 4]).unwrap();
     let mut second = pool.allocate_from_fn(|index| (index as u8) + 5).unwrap();
+    let first_id = first.slot_id();
+    let second_id = second.slot_id();
     let mut out = [0; 4];
 
+    assert_ne!(first_id, second_id);
+    assert_ne!(first.generation(), 0);
     assert_eq!(pool.available_slots(), 0);
+    assert_eq!(pool.arena_report().live_slots, 2);
     assert!(pool.allocate().is_none());
     assert!(pool.try_allocate().unwrap().is_none());
     assert!(first.constant_time_eq_or_panic(&[1, 2, 3, 4]));
@@ -3740,6 +3788,7 @@ fn secret_pool_allocates_reuses_and_clears_slots() {
 
     let reused = pool.allocate_from_slice(&[7, 7, 7, 7]).unwrap().unwrap();
     assert_eq!(reused.slot_index(), freed_index);
+    assert_ne!(reused.slot_id(), first_id);
     assert!(reused.constant_time_eq_or_panic(&[7, 7, 7, 7]));
 
     second.replace_from_array([8, 8, 8, 8]).unwrap();
@@ -3796,12 +3845,61 @@ fn secret_pool_handles_generation_and_zero_slot_cases() {
         Err(error) => assert_eq!(error, "generation failed"),
     }
     assert_eq!(pool.available_slots(), 1);
+    let reused_after_error = pool
+        .allocate()
+        .expect("failed generation must release slot");
+    assert!(reused_after_error.constant_time_eq_or_panic(&[0, 0, 0, 0]));
+    drop(reused_after_error);
+
+    let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = pool.allocate_from_fn(|index| {
+            if index == 2 {
+                panic!("generation panic");
+            }
+            (index as u8).wrapping_add(1)
+        });
+    }));
+    assert!(panic_result.is_err());
+    assert_eq!(pool.available_slots(), 1);
+    let reused_after_panic = pool.allocate().expect("panic must release slot");
+    assert!(reused_after_panic.constant_time_eq_or_panic(&[0, 0, 0, 0]));
+    drop(reused_after_panic);
 
     let empty = SecretPool::<0, 2>::new().unwrap();
     assert!(empty.is_empty());
     assert_eq!(empty.locked_len(), 0);
+    assert_eq!(empty.arena_report().storage_efficiency_basis_points(), None);
     let slot = empty.allocate().unwrap();
     assert!(slot.is_empty());
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn secret_pool_test_quarantine_and_generation_wrap_fail_closed() {
+    let pool = match SecretPool::<4, 2>::new() {
+        Ok(pool) => pool,
+        Err(_) => return,
+    };
+
+    assert!(pool.quarantine_slot_for_test(0, true));
+    let slot = pool.allocate().expect("unquarantined slot must allocate");
+    assert_eq!(slot.slot_index(), 1);
+    assert!(!pool.quarantine_slot_for_test(1, true));
+    drop(slot);
+
+    assert!(pool.quarantine_slot_for_test(0, false));
+    assert!(pool.quarantine_slot_for_test(1, true));
+    assert!(pool.quarantine_slot_for_test(0, true));
+    assert!(pool.set_slot_generation_for_test(0, usize::MAX));
+    assert!(pool.quarantine_slot_for_test(0, false));
+    let wrapped = pool.allocate().expect("generation wrap must remain usable");
+    assert_eq!(wrapped.slot_index(), 0);
+    assert_eq!(wrapped.generation(), 1);
 }
 
 #[cfg(all(

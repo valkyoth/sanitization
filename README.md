@@ -1054,8 +1054,13 @@ let pool = SecretPool::<32, 64>::new().unwrap();
 
 let mut first = pool.allocate_from_array([7; 32]).unwrap();
 let second = pool.allocate_from_fn(|index| index as u8).unwrap();
+let first_id = first.slot_id();
+let arena = pool.arena_report();
 
 assert_eq!(pool.capacity_slots(), 64);
+assert_eq!(arena.payload_capacity_bytes, 32 * 64);
+assert_eq!(arena.live_slots, 2);
+assert_ne!(first_id, second.slot_id());
 assert_eq!(first.constant_time_eq(&[7; 32]), Ok(true));
 assert_eq!(second.expose_secret(|bytes| bytes[0]), Ok(0));
 
@@ -1072,6 +1077,19 @@ borrows the pool, so the pool cannot be dropped while slots are live. Dropping
 a slot volatile-clears that slot before marking it reusable. Dropping the pool
 volatile-clears the full native mapping before unlocking and releasing it, or
 clears all WASM-owned slots on WASM.
+
+Every successful allocation receives a non-zero generation and exposes a
+`SecretPoolSlotId { index, generation }`. Reusing an index advances its
+generation, which makes ABA and reuse visible in logs and tests. The identifier
+is diagnostic metadata, not an access capability; only the lifetime-bound slot
+handle can access storage. Generation values eventually wrap after the full
+`usize` range and therefore are not globally unique forever.
+
+`SecretPool::arena_report()` provides point-in-time slot utilization plus
+payload, per-slot stride, reserved, mapped, and locked byte counts. It also
+reports mapping/lock overhead and basis-point efficiency helpers, making
+page-rounding and lock-quota cost explicit. WASM compatibility pools report
+their inline reserved bytes but zero native mapped and locked bytes.
 
 With `canary-check`, each non-empty pool slot has its own prefix and suffix
 canary. Slot exposure, copying, mutation, and comparison verify those canaries
@@ -1093,6 +1111,10 @@ Locked and guarded constructors also consume mapping entries and locked-memory
 quota. Do not construct one mapping per untrusted event without a bounded
 application policy and rate limiting. For high-volume same-size secrets,
 pre-allocate a bounded `SecretPool<N, SLOTS>` during trusted startup.
+
+The stable arena remains fixed-size. A variable-size locked allocator is
+deferred from 2.0 because fragmentation, metadata secrecy, stale offsets, and
+bounded clear-before-reuse behavior have not yet been established.
 
 ## Guarded Heap Secrets
 

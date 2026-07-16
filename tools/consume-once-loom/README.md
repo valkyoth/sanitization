@@ -1,7 +1,11 @@
-# Consume-Once Loom Model
+# Loom Concurrency Models
 
-This unpublished tool models the atomic claim and cleanup ordering used by
-`sanitization::ConsumeOnceSecret<T>`.
+This unpublished tool models:
+
+- the atomic claim and cleanup ordering used by
+  `sanitization::ConsumeOnceSecret<T>`; and
+- fixed-slot `SecretPool` allocation, clear-before-release, generation reuse,
+  and failed-setup rollback.
 
 Run it with:
 
@@ -9,7 +13,8 @@ Run it with:
 cargo test --release --manifest-path tools/consume-once-loom/Cargo.toml
 ```
 
-The model verifies that two racing consumers cannot both enter the protected
-value and that the winning scope completes cleanup before it exits. Panic and
-application-error cleanup are tested against the production type in the main
-crate's test suite.
+The models verify that racing consumers cannot both enter a consume-once value,
+racing allocators cannot overlap one pool slot, reuse observes a cleared slot
+with a new generation, and failed setup releases its claim exactly once. Panic,
+application-error, native mapping, and canary behavior are tested against the
+production types in the main crate's test suite.

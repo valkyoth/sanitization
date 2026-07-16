@@ -116,6 +116,17 @@ also depends on `T::secure_sanitize` honoring its documented non-panicking
 implementer contract; a downstream sanitizer that panics can leave partial
 cleanup and can abort if it panics during unwinding.
 
+`SecretPoolSlotId` is not a capability, revocation token, or globally unique
+identifier. Its `usize` generation eventually wraps after the complete counter
+range. Retaining an identifier does not retain access; retaining a live safe
+slot handle across release is prevented by ownership and lifetimes.
+
+`SecretPool::arena_report()` is point-in-time accounting, not a reservation or
+quota forecast. Operating-system limits can change and other mappings can
+consume quota concurrently. Variable-size arena allocation is not provided in
+2.0; fragmentation and allocator metadata secrecy remain outside the fixed
+pool's guarantees.
+
 ## Serialization And Interop
 
 Serde support serializes secret-owning types as redacted strings. Deserializing

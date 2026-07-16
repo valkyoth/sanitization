@@ -318,10 +318,11 @@ Invariant:
 - The pool tracks live slots with `[AtomicBool; SLOTS]`. Slot allocation uses a
   compare-exchange from unused to used, preventing two live safe handles for the
   same slot.
-- Deterministic canary mode tracks a per-slot atomic allocation generation.
-  Allocation advances that generation only after the bitmap grants exclusive
-  ownership, and mixes it into the address-derived canary so successive
-  occupants of a reused slot receive different canary values.
+- Every backend tracks a per-slot atomic allocation generation. Allocation
+  advances that generation only after the bitmap grants exclusive ownership.
+  The live handle exposes `(slot_index, generation)` as diagnostic identity.
+  Deterministic canary mode also mixes that generation into the
+  address-derived canary so successive occupants receive different values.
 - Each `SecretPoolSlot` carries a lifetime-bound shared borrow of the pool, so
   Rust prevents the pool from being dropped or mutably cleared while slots are
   live.
@@ -331,9 +332,19 @@ Invariant:
   closure-based access.
 - Dropping a slot volatile-clears exactly that slot before marking it available
   again with release ordering.
+- Acquire ordering on the next successful claim observes the previous release
+  after clearing. The repository's Loom model checks non-overlap,
+  clear-before-reuse, generation advance, and failed-setup release.
+- Test builds provide per-slot quarantine and generation fault-injection hooks.
+  Quarantined slots are skipped before and after bitmap claim, and a claim
+  abandoned during setup releases the bitmap exactly once.
+- `arena_report()` derives payload, reserved, mapped, locked, and overhead
+  counts without exposing secret bytes. Its live-slot count is a point-in-time
+  observation only.
 - Dropping the pool requires no live slots, volatile-clears the full mapping,
   then unlocks and releases it with the same platform backend as
   `LockedSecretBytes<N>`.
+- Variable-size arena allocation is not part of the 2.0 stable design.
 
 ### SIMD/vector register scrub instructions
 

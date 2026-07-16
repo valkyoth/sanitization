@@ -978,8 +978,9 @@ Desired properties:
 - no pool drop while slots are borrowed;
 - Loom coverage of slot allocation and release ordering.
 
-Variable-size arena allocation is optional and should not delay 2.0 unless its
-fragmentation, reuse, and wipe invariants are fully reviewed.
+The 2.0 stable arena remains fixed-size. Variable-size arena allocation is
+deferred because fragmentation, metadata secrecy, stale-offset behavior, and
+bounded wipe-before-reuse invariants have not been reviewed sufficiently.
 
 ## Workstream 10: One-Access Secrets
 

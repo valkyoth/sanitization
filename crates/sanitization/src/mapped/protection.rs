@@ -51,6 +51,87 @@ impl<E> From<CanaryCorruptedError> for SecretIntegrityError<E> {
     }
 }
 
+/// Stable identity of one live allocation from a fixed-size secret pool.
+///
+/// The slot index may be reused after a handle drops. The generation changes
+/// on each successful claim, so retained identifiers can distinguish later
+/// occupants of the same slot. This is diagnostic identity only; it does not
+/// grant access to slot storage.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct SecretPoolSlotId {
+    /// Slot index inside the parent pool.
+    pub index: usize,
+    /// Non-zero allocation generation assigned after the slot is claimed.
+    pub generation: usize,
+}
+
+/// Point-in-time capacity and lock-efficiency report for a fixed-size pool.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SecretPoolReport {
+    /// Secret payload bytes in one slot.
+    pub slot_size: usize,
+    /// Storage bytes reserved per slot, including integrity metadata.
+    pub slot_stride: usize,
+    /// Total fixed slot count.
+    pub capacity_slots: usize,
+    /// Slots with a live handle when the report was captured.
+    pub live_slots: usize,
+    /// Maximum secret payload bytes across all slots.
+    pub payload_capacity_bytes: usize,
+    /// Slot storage bytes before platform page rounding.
+    pub reserved_bytes: usize,
+    /// Bytes in the native mapping, or zero for compatibility storage.
+    pub mapped_bytes: usize,
+    /// Bytes successfully locked against ordinary paging.
+    pub locked_bytes: usize,
+    /// Mapping bytes beyond fixed slot storage, normally page-rounding waste.
+    pub mapping_overhead_bytes: usize,
+    /// Locked bytes beyond secret payload capacity, including canaries and
+    /// page-rounding waste.
+    pub locked_overhead_bytes: usize,
+    /// Page granule used by the backend, or zero for compatibility storage.
+    pub page_granule: usize,
+    /// Whether the underlying protection report associated a failure with
+    /// likely platform lock-quota pressure.
+    pub lock_quota_likely: bool,
+}
+
+impl SecretPoolReport {
+    /// Payload density inside the fixed slot storage, in basis points.
+    ///
+    /// `10_000` means every reserved byte is payload. Zero-sized pools return
+    /// `None`.
+    #[must_use]
+    pub const fn storage_efficiency_basis_points(&self) -> Option<u16> {
+        efficiency_basis_points(self.payload_capacity_bytes, self.reserved_bytes)
+    }
+
+    /// Payload density inside the native mapping, in basis points.
+    ///
+    /// Compatibility backends without a native mapping return `None`.
+    #[must_use]
+    pub const fn mapping_efficiency_basis_points(&self) -> Option<u16> {
+        efficiency_basis_points(self.payload_capacity_bytes, self.mapped_bytes)
+    }
+
+    /// Payload density inside bytes locked against ordinary paging.
+    ///
+    /// Unlocked and compatibility backends return `None`.
+    #[must_use]
+    pub const fn lock_efficiency_basis_points(&self) -> Option<u16> {
+        efficiency_basis_points(self.payload_capacity_bytes, self.locked_bytes)
+    }
+}
+
+const fn efficiency_basis_points(payload: usize, total: usize) -> Option<u16> {
+    if total == 0 {
+        return None;
+    }
+
+    let value = ((payload as u128) * 10_000) / (total as u128);
+    Some(if value > 10_000 { 10_000 } else { value as u16 })
+}
+
 /// Whether a runtime memory-protection control is mandatory.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Requirement {

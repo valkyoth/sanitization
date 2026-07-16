@@ -1,19 +1,21 @@
 use core::{
     cell::UnsafeCell,
     fmt,
-    sync::atomic::{compiler_fence, AtomicBool, Ordering},
+    sync::atomic::{compiler_fence, AtomicBool, AtomicUsize, Ordering},
 };
 
 use super::{
     CanaryCorruptedError, ForkPolicy, ProtectionControl, ProtectionError, ProtectionFailure,
     ProtectionReport, ProtectionRequest, ProtectionState, Requirement, RollbackReport,
-    SecretIntegrityError,
+    SecretIntegrityError, SecretPoolReport, SecretPoolSlotId,
 };
 
 #[cfg(feature = "canary-check")]
 const CANARY_SIZE: usize = 8;
 #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
 const CANARY_MASK: u64 = 0x9E37_79B9_7F4A_7C15;
+#[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+const CANARY_GENERATION_MIX: u64 = 0xD6E8_FEB8_6659_FD93;
 
 /// Platform memory-locking operation that failed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -843,14 +845,18 @@ impl<const N: usize> WasmPoolSlotStorage<N> {
 pub struct SecretPool<const N: usize, const SLOTS: usize> {
     slots: [UnsafeCell<WasmPoolSlotStorage<N>>; SLOTS],
     used: [AtomicBool; SLOTS],
+    generations: [AtomicUsize; SLOTS],
     request: ProtectionRequest,
     report: ProtectionReport,
+    #[cfg(test)]
+    quarantined: [AtomicBool; SLOTS],
 }
 
 /// A live fixed-size secret slot allocated from a [`SecretPool`].
 pub struct SecretPoolSlot<'pool, const N: usize, const SLOTS: usize> {
     slot_index: usize,
     pool: &'pool SecretPool<N, SLOTS>,
+    generation: usize,
     #[cfg(feature = "random-canary")]
     canary: [u8; CANARY_SIZE],
 }
@@ -886,8 +892,11 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
         Ok(Self {
             slots: core::array::from_fn(|_| UnsafeCell::new(WasmPoolSlotStorage::zeroed())),
             used: core::array::from_fn(|_| AtomicBool::new(false)),
+            generations: core::array::from_fn(|_| AtomicUsize::new(0)),
             request,
             report,
+            #[cfg(test)]
+            quarantined: core::array::from_fn(|_| AtomicBool::new(false)),
         })
     }
 
@@ -943,6 +952,32 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
             .count()
     }
 
+    /// Capture fixed-arena capacity and compatibility-storage efficiency.
+    ///
+    /// WASM reports zero native mapped and locked bytes because the runtime
+    /// controls linear-memory paging and snapshots.
+    #[must_use]
+    pub fn arena_report(&self) -> SecretPoolReport {
+        let slot_stride = Self::slot_stride();
+        let payload_capacity_bytes = N.saturating_mul(SLOTS);
+        let reserved_bytes = slot_stride.saturating_mul(SLOTS);
+
+        SecretPoolReport {
+            slot_size: N,
+            slot_stride,
+            capacity_slots: SLOTS,
+            live_slots: SLOTS.saturating_sub(self.available_slots()),
+            payload_capacity_bytes,
+            reserved_bytes,
+            mapped_bytes: 0,
+            locked_bytes: 0,
+            mapping_overhead_bytes: 0,
+            locked_overhead_bytes: 0,
+            page_granule: 0,
+            lock_quota_likely: false,
+        }
+    }
+
     /// Allocate one unused slot from the pool.
     ///
     /// With `random-canary`, operating-system CSPRNG failure is reported as
@@ -958,13 +993,24 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     #[inline]
     pub fn try_allocate(&self) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, MemoryLockError> {
         for (slot_index, flag) in self.used.iter().enumerate() {
+            #[cfg(test)]
+            if self.quarantined[slot_index].load(Ordering::Acquire) {
+                continue;
+            }
             if flag
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
                 .is_ok()
             {
+                #[cfg(test)]
+                if self.quarantined[slot_index].load(Ordering::Acquire) {
+                    flag.store(false, Ordering::Release);
+                    continue;
+                }
+                let generation = advance_generation(&self.generations[slot_index]);
                 let mut slot = SecretPoolSlot {
                     slot_index,
                     pool: self,
+                    generation,
                     #[cfg(feature = "random-canary")]
                     canary: [0; CANARY_SIZE],
                 };
@@ -1073,6 +1119,58 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
         self.secure_clear();
         crate::cache_flush::flush_cache_lines(&[])
     }
+
+    #[cfg(feature = "canary-check")]
+    const fn slot_stride() -> usize {
+        if N == 0 {
+            0
+        } else {
+            N.saturating_add(CANARY_SIZE.saturating_mul(2))
+        }
+    }
+
+    #[cfg(not(feature = "canary-check"))]
+    const fn slot_stride() -> usize {
+        N
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn quarantine_slot_for_test(&self, slot_index: usize, quarantined: bool) -> bool {
+        let Some(flag) = self.quarantined.get(slot_index) else {
+            return false;
+        };
+        if !quarantined {
+            flag.store(false, Ordering::Release);
+            return true;
+        }
+
+        flag.store(true, Ordering::Release);
+        if self.used[slot_index].load(Ordering::Acquire) {
+            flag.store(false, Ordering::Release);
+            return false;
+        }
+        true
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn set_slot_generation_for_test(
+        &self,
+        slot_index: usize,
+        generation: usize,
+    ) -> bool {
+        let Some(counter) = self.generations.get(slot_index) else {
+            return false;
+        };
+        if !self.quarantined[slot_index].load(Ordering::Acquire)
+            || self.used[slot_index].load(Ordering::Acquire)
+        {
+            return false;
+        }
+        counter.store(generation, Ordering::Release);
+        true
+    }
 }
 
 impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> {
@@ -1095,6 +1193,26 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     #[inline]
     pub const fn slot_index(&self) -> usize {
         self.slot_index
+    }
+
+    /// Allocation generation assigned to this live slot handle.
+    #[must_use]
+    #[inline]
+    pub const fn generation(&self) -> usize {
+        self.generation
+    }
+
+    /// Stable diagnostic identity for this live slot allocation.
+    ///
+    /// Retaining this copy after the handle drops does not grant access. A
+    /// later occupant of the same index receives a different generation.
+    #[must_use]
+    #[inline]
+    pub const fn slot_id(&self) -> SecretPoolSlotId {
+        SecretPoolSlotId {
+            index: self.slot_index,
+            generation: self.generation,
+        }
     }
 
     /// Replace all slot bytes from a same-length slice.
@@ -1368,7 +1486,8 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
     #[inline]
     fn canary_value(&self) -> [u8; CANARY_SIZE] {
-        ((self.storage().bytes.as_ptr() as u64) ^ CANARY_MASK).to_ne_bytes()
+        let generation = (self.generation as u64).wrapping_mul(CANARY_GENERATION_MIX);
+        ((self.storage().bytes.as_ptr() as u64) ^ generation ^ CANARY_MASK).to_ne_bytes()
     }
 
     #[cfg(feature = "random-canary")]
@@ -1519,8 +1638,24 @@ impl<'pool, const N: usize, const SLOTS: usize> fmt::Debug for SecretPoolSlot<'p
             .debug_struct("SecretPoolSlot")
             .field("len", &N)
             .field("slot_index", &self.slot_index)
+            .field("generation", &self.generation)
             .field("contents", &"<redacted>")
             .finish()
+    }
+}
+
+#[inline]
+fn advance_generation(generation: &AtomicUsize) -> usize {
+    let mut current = generation.load(Ordering::Relaxed);
+    loop {
+        let mut next = current.wrapping_add(1);
+        if next == 0 {
+            next = 1;
+        }
+        match generation.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Relaxed) {
+            Ok(_) => return next,
+            Err(observed) => current = observed,
+        }
     }
 }
 

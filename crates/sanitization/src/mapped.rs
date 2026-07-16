@@ -16,6 +16,7 @@ pub use protection::{
     CanaryCorruptedError, ForkPolicy, ForkProtectionReport, ForkProtectionRequest,
     ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport, ProtectionRequest,
     ProtectionState, Requirement, RollbackReport, RollbackState, SecretIntegrityError,
+    SecretPoolReport, SecretPoolSlotId,
 };
 
 #[cfg(all(
