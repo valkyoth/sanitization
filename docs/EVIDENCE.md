@@ -83,6 +83,9 @@ Run Miri separately when a nightly toolchain with Miri is installed:
 scripts/verify-miri.sh
 ```
 
+The Miri script covers both the core crate's feature configurations and the
+`sanitization-arrayvec` complete inline-backing wipe.
+
 Miri verifies supported Rust memory-safety paths. It does not execute the native
 OS mapping, locking, protection, dump/fork-policy, or guard-page syscalls, which
 are compiled out under `cfg(miri)`. Native Linux tests cover the new locked and

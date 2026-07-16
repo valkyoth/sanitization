@@ -27,7 +27,10 @@ Small `arrayvec` integration crate for [`sanitization`](https://crates.io/crates
 
 The main `sanitization` crate stays dependency-free. This sister crate provides
 `SecretArrayVec<T, CAP>`, a clear-on-drop wrapper around `arrayvec::ArrayVec`
-for projects that already use `arrayvec`.
+for projects that already use `arrayvec`. Live values are sanitized and
+dropped before the wrapper volatile-clears the complete inline
+`MaybeUninit<T>` backing region, including bytes left by earlier pop, truncate,
+clear, reuse, or wrapping operations.
 
 ```rust
 use sanitization::SecretBytes;
@@ -41,4 +44,6 @@ keys.clear_secret();
 If `push` reaches capacity, `arrayvec::CapacityError` returns the original
 element unchanged. The caller must securely reuse or sanitize it. Use
 `push_or_sanitize` when rejection should consume and clear the element instead;
-that method returns a payload-free `SanitizedCapacityError`.
+that method returns a payload-free `SanitizedCapacityError`. `pop` returns the
+removed secret to the caller but clears its stale inline slot before returning.
+`truncate` sanitizes removed elements before their destructors run.

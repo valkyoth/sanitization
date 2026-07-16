@@ -16,6 +16,12 @@
   duplicate, malformed, empty, or misplaced helper options.
 - Expanded derive pass/fail coverage for unit and tuple structs, renamed crate
   paths, generics, struct-level drop bounds, enums, unions, and diagnostics.
+- Updated `sanitization-arrayvec` to sanitize and drop live elements before
+  volatile-clearing the complete inline `MaybeUninit<T>` backing region.
+- Added secure `pop` and `truncate` paths that clear stale inline slots and
+  preserve valid destructor ordering for removed values.
+- Added coverage for historical spare bytes, wrapping, reuse, zero-sized
+  drop-bearing values, and complete post-clear backing cleanup.
 
 ## 1.2.5
 

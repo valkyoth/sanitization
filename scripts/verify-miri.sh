@@ -12,3 +12,4 @@ fi
 cargo +"${toolchain}" miri test -p sanitization --no-default-features
 cargo +"${toolchain}" miri test -p sanitization --features alloc
 cargo +"${toolchain}" miri test -p sanitization --all-features
+cargo +"${toolchain}" miri test -p sanitization-arrayvec

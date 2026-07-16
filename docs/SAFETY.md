@@ -104,9 +104,42 @@ Unsafe code is allowed only inside narrow, reviewable implementation modules:
   feature is rejected at compile time on WASM.
 - `owned::read_once`, which uses `UnsafeCell` behind an atomic one-consumer
   state machine.
+- `sanitization-arrayvec::backing_wipe`, in the optional sister crate, which
+  converts `ArrayVec::spare_capacity_mut()` from `MaybeUninit<T>` storage into
+  a writable byte slice after excluding every live element.
 
 Public APIs, including `unsafe_wipe`, are safe wrappers around those internal
 backends.
+
+### `sanitization-arrayvec` complete inline backing wipe
+
+Location: `sanitization_arrayvec::backing_wipe`
+
+Purpose: clear historical bytes left in an `ArrayVec<T, CAP>` inline backing
+region after elements have been popped, truncated, cleared, reused, or moved
+into the wrapper.
+
+Invariant:
+
+- `ArrayVec::spare_capacity_mut()` is the stable upstream API used to obtain
+  only non-live `MaybeUninit<T>` slots.
+- Live values are sanitized and dropped before a complete post-clear backing
+  wipe. Pop and truncate operations similarly remove values before their stale
+  slots enter the spare region.
+- The spare slice is exclusively borrowed and writable for its complete
+  lifetime.
+- Reinterpreting the slice as bytes is valid because `u8` has alignment one
+  and every byte pattern is valid in `MaybeUninit<T>` storage.
+- `core::mem::size_of_val` computes the complete slice byte length without
+  separate `CAP * size_of::<T>()` arithmetic.
+- Zero-sized element storage produces a zero byte length and performs no
+  pointer conversion or volatile write.
+- The byte slice does not escape the helper and is passed directly to the core
+  crate's existing volatile-write API.
+- No `T` is reconstructed from the cleared backing bytes.
+- If a user-provided `SecureSanitize` implementation or destructor panics,
+  ordinary Rust unwinding rules apply; the wrapper never raw-zeroes a still-live
+  value to force cleanup through a panic.
 
 ## Unsafe Operations
 

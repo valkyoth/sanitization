@@ -1805,7 +1805,12 @@ These crates use wrapper types because Rust's orphan rules prevent implementing
 `SecureSanitize` directly for external types in a separate crate.
 `SecretArrayVec::push` preserves `arrayvec` semantics and returns the unchanged
 rejected element. Use `push_or_sanitize` to consume and sanitize a rejected
-secret and receive a payload-free `SanitizedCapacityError`.
+secret and receive a payload-free `SanitizedCapacityError`. The wrapper
+sanitizes and drops live elements before volatile-clearing its complete inline
+`MaybeUninit<T>` backing region, including historical bytes left by earlier
+pop, truncate, clear, reuse, or wrapping operations. `pop` clears the stale
+inline slot before returning the still-secret-bearing value to the caller, and
+`truncate` sanitizes removed elements before their destructors run.
 `SecretBytesMut` treats capacity as fixed after construction and returns an
 error instead of reallocating on append, because implicit `BytesMut` growth
 would free an old allocation containing secret bytes before it can be wiped.
