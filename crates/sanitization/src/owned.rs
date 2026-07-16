@@ -509,6 +509,12 @@ impl<T> StableSharedSecretStorage for PhantomData<T> {}
 impl<T> StableMutableSecretStorage for PhantomData<T> {}
 
 #[cfg(feature = "alloc")]
+/// Field-wise sanitization for the currently boxed value.
+///
+/// This does not clear unknown representation padding and cannot recover a
+/// different allocation previously released by caller-controlled replacement.
+/// Byte workloads needing complete fixed-allocation wiping should use
+/// [`SecretBoxBytes`].
 impl<T: SecureSanitize + ?Sized> SecureSanitize for Box<T> {
     #[inline]
     fn secure_sanitize(&mut self) {
@@ -517,6 +523,13 @@ impl<T: SecureSanitize + ?Sized> SecureSanitize for Box<T> {
 }
 
 #[cfg(feature = "alloc")]
+/// Sanitization for the vector's currently reachable allocation.
+///
+/// This sanitizes every live element, drops those elements, and then wipes the
+/// current allocation capacity as bytes. It cannot recover allocations already
+/// released by prior caller-controlled growth or replacement. Byte workloads
+/// should prefer [`SecretVec`] for managed wipe-before-grow behavior or
+/// [`SecretBoxBytes`] when the runtime length is fixed.
 impl<T: SecureSanitize> SecureSanitize for Vec<T> {
     #[inline]
     fn secure_sanitize(&mut self) {
@@ -2396,6 +2409,286 @@ impl<const N: usize> fmt::Debug for ExpiringSecretBytes<N> {
             .field("max_age", &self.max_age)
             .field("contents", &"<redacted>")
             .finish()
+    }
+}
+
+/// Fixed-allocation secret bytes with a runtime length.
+///
+/// This type is available with the `alloc` feature. Unlike [`SecretVec`], its
+/// allocation length cannot grow or shrink after construction. Mutable
+/// exposure receives only `&mut [u8]`, so safe operations cannot reallocate the
+/// backing box.
+///
+/// Replacement requires the same public length. A replacement value is fully
+/// constructed in a separate clear-on-drop allocation before the old
+/// allocation is cleared and exchanged. Use [`SecretVec`] when the secret
+/// length must change over time.
+///
+/// The type deliberately does not implement `Clone`, `Copy`, `Deref`,
+/// `AsRef<[u8]>`, `PartialEq`, or secret-printing `Debug`.
+#[cfg(feature = "alloc")]
+pub struct SecretBoxBytes {
+    pub(crate) inner: Box<[u8]>,
+}
+
+#[cfg(feature = "alloc")]
+impl SecretBoxBytes {
+    /// Allocate `len` zeroed secret bytes.
+    #[must_use]
+    #[inline]
+    pub fn zeroed(len: usize) -> Self {
+        Self {
+            inner: alloc::vec![0; len].into_boxed_slice(),
+        }
+    }
+
+    /// Take ownership of an existing boxed byte slice.
+    ///
+    /// The allocation is not copied. Its complete length is volatile-cleared
+    /// when this value is cleared or dropped.
+    #[must_use]
+    #[inline]
+    pub const fn from_boxed_slice(inner: Box<[u8]>) -> Self {
+        Self { inner }
+    }
+
+    /// Allocate fixed-length storage and copy bytes into it.
+    #[must_use]
+    #[inline]
+    pub fn from_slice(bytes: &[u8]) -> Self {
+        Self {
+            inner: Box::<[u8]>::from(bytes),
+        }
+    }
+
+    /// Generate each byte directly into fixed-length clear-on-drop storage.
+    ///
+    /// If the generator panics, the partially initialized value is cleared
+    /// during unwinding.
+    #[must_use]
+    #[inline]
+    pub fn from_fn(len: usize, mut make_byte: impl FnMut(usize) -> u8) -> Self {
+        let mut secret = Self::zeroed(len);
+        let mut index = 0;
+        while index < len {
+            secret.inner[index] = make_byte(index);
+            index += 1;
+        }
+        secret
+    }
+
+    /// Generate each byte with a fallible generator.
+    ///
+    /// If generation fails, the partially initialized allocation is cleared
+    /// before the error is returned.
+    #[inline]
+    pub fn try_from_fn<E>(
+        len: usize,
+        mut make_byte: impl FnMut(usize) -> Result<u8, E>,
+    ) -> Result<Self, E> {
+        let mut secret = Self::zeroed(len);
+        let mut index = 0;
+        while index < len {
+            secret.inner[index] = make_byte(index)?;
+            index += 1;
+        }
+        Ok(secret)
+    }
+
+    /// Number of bytes in the fixed allocation.
+    #[must_use]
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns true when the fixed allocation has length zero.
+    #[must_use]
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Run a closure with direct shared access to the fixed allocation.
+    ///
+    /// The returned value cannot borrow the secret:
+    ///
+    /// ```compile_fail
+    /// use sanitization::SecretBoxBytes;
+    ///
+    /// let secret = SecretBoxBytes::from_slice(b"token");
+    /// let escaped = secret.with_secret(|bytes| bytes);
+    /// let _ = escaped;
+    /// ```
+    #[inline]
+    pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8]) -> R) -> R {
+        inspect(&self.inner)
+    }
+
+    /// Run a closure with direct mutable access to the fixed allocation.
+    ///
+    /// A mutable slice cannot resize or replace the backing allocation.
+    #[inline]
+    pub fn with_secret_mut<R>(&mut self, edit: impl FnOnce(&mut [u8]) -> R) -> R {
+        edit(&mut self.inner)
+    }
+
+    /// Copy the secret into a caller-provided slice of the same public length.
+    #[inline]
+    pub fn copy_to_slice(&self, destination: &mut [u8]) -> Result<(), LengthError> {
+        if destination.len() != self.len() {
+            return Err(LengthError {
+                expected: self.len(),
+                actual: destination.len(),
+            });
+        }
+
+        destination.copy_from_slice(&self.inner);
+        Ok(())
+    }
+
+    /// Replace the secret from a same-length slice.
+    ///
+    /// The replacement allocation is constructed before the old allocation is
+    /// cleared. A length mismatch leaves the existing secret unchanged.
+    #[inline]
+    pub fn replace_from_slice(&mut self, bytes: &[u8]) -> Result<(), LengthError> {
+        self.ensure_replacement_len(bytes.len())?;
+        let replacement = Self::from_slice(bytes);
+        self.replace_staged(replacement);
+        Ok(())
+    }
+
+    /// Replace the secret by taking ownership of a same-length boxed slice.
+    ///
+    /// On length mismatch, the rejected boxed bytes are cleared before this
+    /// method returns the error.
+    #[inline]
+    pub fn replace_from_boxed_slice(&mut self, bytes: Box<[u8]>) -> Result<(), LengthError> {
+        let replacement = Self::from_boxed_slice(bytes);
+        self.ensure_replacement_len(replacement.len())?;
+        self.replace_staged(replacement);
+        Ok(())
+    }
+
+    /// Replace the secret with same-length generated bytes.
+    ///
+    /// The replacement is generated in a fresh clear-on-drop allocation. If
+    /// generation panics, the old value remains unchanged.
+    #[inline]
+    pub fn replace_from_fn(&mut self, make_byte: impl FnMut(usize) -> u8) {
+        let replacement = Self::from_fn(self.len(), make_byte);
+        self.replace_staged(replacement);
+    }
+
+    /// Replace the secret with same-length fallibly generated bytes.
+    ///
+    /// If generation fails, the old value remains unchanged and the partial
+    /// replacement is cleared before the error is returned.
+    #[inline]
+    pub fn try_replace_from_fn<E>(
+        &mut self,
+        make_byte: impl FnMut(usize) -> Result<u8, E>,
+    ) -> Result<(), E> {
+        let replacement = Self::try_from_fn(self.len(), make_byte)?;
+        self.replace_staged(replacement);
+        Ok(())
+    }
+
+    /// Clear every byte while retaining the fixed allocation and length.
+    #[inline(never)]
+    pub fn clear_secret(&mut self) {
+        sanitize_bytes(&mut self.inner);
+    }
+
+    /// Consume this value after clearing its complete allocation.
+    #[inline]
+    pub fn into_cleared(mut self) {
+        self.clear_secret();
+    }
+
+    /// Compare against a slice without early exit for equal-length inputs.
+    ///
+    /// Length is treated as public metadata.
+    #[must_use]
+    #[inline]
+    pub fn constant_time_eq(&self, other: &[u8]) -> bool {
+        constant_time_eq_slices(&self.inner, other)
+    }
+
+    #[inline]
+    fn ensure_replacement_len(&self, actual: usize) -> Result<(), LengthError> {
+        if actual == self.len() {
+            Ok(())
+        } else {
+            Err(LengthError {
+                expected: self.len(),
+                actual,
+            })
+        }
+    }
+
+    #[inline]
+    fn replace_staged(&mut self, mut replacement: Self) {
+        self.clear_secret();
+        mem::swap(&mut self.inner, &mut replacement.inner);
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Drop for SecretBoxBytes {
+    #[inline]
+    fn drop(&mut self) {
+        self.clear_secret();
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Default for SecretBoxBytes {
+    #[inline]
+    fn default() -> Self {
+        Self::zeroed(0)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl SecureSanitize for SecretBoxBytes {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.clear_secret();
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl StableSharedSecretStorage for SecretBoxBytes {}
+
+#[cfg(feature = "alloc")]
+impl StableMutableSecretStorage for SecretBoxBytes {}
+
+#[cfg(feature = "alloc")]
+impl fmt::Debug for SecretBoxBytes {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SecretBoxBytes")
+            .field("len", &self.len())
+            .field("contents", &"<redacted>")
+            .finish()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl ct::ConstantTimeEq for SecretBoxBytes {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> ct::Choice {
+        ct::eq_public_len(&self.inner, &other.inner)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl ct::ConstantTimeEq<[u8]> for SecretBoxBytes {
+    #[inline]
+    fn ct_eq(&self, other: &[u8]) -> ct::Choice {
+        ct::eq_public_len(&self.inner, other)
     }
 }
 

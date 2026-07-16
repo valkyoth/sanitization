@@ -179,6 +179,13 @@ fn ct_secret_containers_expose_native_traits() {
 
     #[cfg(feature = "alloc")]
     {
+        let boxed_left = SecretBoxBytes::from_slice(b"token");
+        let boxed_same = SecretBoxBytes::from_slice(b"token");
+        let boxed_different = SecretBoxBytes::from_slice(b"other");
+        assert_eq!(boxed_left.ct_eq(&boxed_same).unwrap_u8(), 1);
+        assert_eq!(boxed_left.ct_eq(&boxed_different).unwrap_u8(), 0);
+        assert_eq!(boxed_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+
         let vec_left = SecretVec::from_slice(b"token");
         let vec_same = SecretVec::from_slice(b"token");
         let vec_different = SecretVec::from_slice(b"other");
@@ -429,6 +436,13 @@ fn zeroize_interop_clears_secret_bytes() {
     secret.zeroize();
 
     assert_eq!(secret.expose_secret(|bytes| *bytes), [0; 4]);
+
+    #[cfg(feature = "alloc")]
+    {
+        let mut boxed = SecretBoxBytes::from_slice(&[1, 2, 3, 4]);
+        boxed.zeroize();
+        assert!(boxed.constant_time_eq(&[0, 0, 0, 0]));
+    }
 }
 
 #[cfg(feature = "subtle-interop")]
@@ -442,6 +456,15 @@ fn subtle_interop_compares_secret_bytes() {
 
     assert_eq!(left.ct_eq(&same).unwrap_u8(), 1);
     assert_eq!(left.ct_eq(&different).unwrap_u8(), 0);
+
+    #[cfg(feature = "alloc")]
+    {
+        let boxed_left = SecretBoxBytes::from_slice(&[1, 2, 3, 4]);
+        let boxed_same = SecretBoxBytes::from_slice(&[1, 2, 3, 4]);
+        let boxed_different = SecretBoxBytes::from_slice(&[1, 2, 3, 0]);
+        assert_eq!(boxed_left.ct_eq(&boxed_same).unwrap_u8(), 1);
+        assert_eq!(boxed_left.ct_eq(&boxed_different).unwrap_u8(), 0);
+    }
 }
 
 #[cfg(feature = "serde")]
@@ -457,13 +480,16 @@ fn serde_interop_loads_fixed_secret_bytes_and_redacts_output() {
 #[test]
 fn serde_interop_loads_alloc_secrets_and_redacts_output() {
     let bytes: SecretVec = serde_json::from_str("[1,2,3,4]").unwrap();
+    let boxed: SecretBoxBytes = serde_json::from_str("[1,2,3,4]").unwrap();
     let text: SecretString = serde_json::from_str("\"token\"").unwrap();
     let bounded_text: BoundedSecretString<5> = serde_json::from_str("\"token\"").unwrap();
 
     assert_eq!(bytes.with_secret(|secret| secret.len()), 4);
+    assert!(boxed.constant_time_eq(&[1, 2, 3, 4]));
     assert_eq!(text.try_with_secret(str::len), Ok(5));
     assert_eq!(bounded_text.try_with_secret(str::len), Ok(5));
     assert_eq!(serde_json::to_string(&bytes).unwrap(), "\"<redacted>\"");
+    assert_eq!(serde_json::to_string(&boxed).unwrap(), "\"<redacted>\"");
     assert_eq!(serde_json::to_string(&text).unwrap(), "\"<redacted>\"");
     assert_eq!(
         serde_json::to_string(&bounded_text).unwrap(),
@@ -1093,6 +1119,14 @@ fn debug_output_is_redacted() {
 
     assert!(rendered.contains("redacted"));
     assert!(!rendered.contains("abc"));
+
+    #[cfg(feature = "alloc")]
+    {
+        let boxed = SecretBoxBytes::from_slice(b"boxed-secret");
+        let rendered = std::format!("{boxed:?}");
+        assert!(rendered.contains("redacted"));
+        assert!(!rendered.contains("boxed-secret"));
+    }
 }
 
 #[test]
@@ -1422,6 +1456,12 @@ fn storage_contracts_cover_fixed_builtins_and_tuples() {
     assert_shared::<Secret<[u8; 32]>>();
     assert_mutable::<Secret<[u8; 32]>>();
 
+    #[cfg(feature = "alloc")]
+    {
+        assert_shared::<SecretBoxBytes>();
+        assert_mutable::<SecretBoxBytes>();
+    }
+
     #[cfg(feature = "split-secret")]
     {
         assert_shared::<SplitSecretBytes<4, 2>>();
@@ -1571,6 +1611,124 @@ fn secret_vec_round_trip_and_clear() {
     assert!(secret.is_empty());
 
     secret.into_cleared();
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_box_bytes_owns_fixed_allocation_and_clears_in_place() {
+    let boxed = std::vec![1_u8, 2, 3, 4].into_boxed_slice();
+    let boxed_address = boxed.as_ptr() as usize;
+    let mut secret = SecretBoxBytes::from_boxed_slice(boxed);
+
+    assert_eq!(secret.len(), 4);
+    assert!(!secret.is_empty());
+    assert_eq!(
+        secret.with_secret(|bytes| bytes.as_ptr() as usize),
+        boxed_address
+    );
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    secret.with_secret_mut(|bytes| bytes[0] = 9);
+    assert!(secret.constant_time_eq(&[9, 2, 3, 4]));
+
+    let mut copied = [0_u8; 4];
+    secret.copy_to_slice(&mut copied).unwrap();
+    assert_eq!(copied, [9, 2, 3, 4]);
+    assert_eq!(
+        secret.copy_to_slice(&mut [0_u8; 3]),
+        Err(LengthError {
+            expected: 4,
+            actual: 3,
+        })
+    );
+
+    secret.clear_secret();
+    assert_eq!(secret.len(), 4);
+    assert!(secret.constant_time_eq(&[0, 0, 0, 0]));
+    secret.into_cleared();
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_box_bytes_stages_same_length_replacements() {
+    let mut secret = SecretBoxBytes::from_slice(&[1, 2, 3, 4]);
+    let old_address = secret.with_secret(|bytes| bytes.as_ptr() as usize);
+
+    secret.replace_from_slice(&[9, 8, 7, 6]).unwrap();
+    let replacement_address = secret.with_secret(|bytes| bytes.as_ptr() as usize);
+    assert_ne!(old_address, replacement_address);
+    assert!(secret.constant_time_eq(&[9, 8, 7, 6]));
+
+    assert_eq!(
+        secret.replace_from_slice(&[1, 2, 3]),
+        Err(LengthError {
+            expected: 4,
+            actual: 3,
+        })
+    );
+    assert!(secret.constant_time_eq(&[9, 8, 7, 6]));
+
+    secret
+        .replace_from_boxed_slice(std::vec![4_u8, 5, 6, 7].into_boxed_slice())
+        .unwrap();
+    assert!(secret.constant_time_eq(&[4, 5, 6, 7]));
+
+    assert_eq!(
+        secret.replace_from_boxed_slice(std::vec![1_u8, 2].into_boxed_slice()),
+        Err(LengthError {
+            expected: 4,
+            actual: 2,
+        })
+    );
+    assert!(secret.constant_time_eq(&[4, 5, 6, 7]));
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_box_bytes_generator_replacement_preserves_old_value_on_failure() {
+    let generated = SecretBoxBytes::from_fn(4, |index| (index as u8) + 1);
+    assert!(generated.constant_time_eq(&[1, 2, 3, 4]));
+
+    assert_eq!(
+        SecretBoxBytes::try_from_fn(4, |index| {
+            if index == 2 {
+                Err("generation failed")
+            } else {
+                Ok(index as u8)
+            }
+        })
+        .err(),
+        Some("generation failed")
+    );
+
+    let mut secret = SecretBoxBytes::from_slice(&[1, 2, 3, 4]);
+    secret.replace_from_fn(|index| (index as u8) + 7);
+    assert!(secret.constant_time_eq(&[7, 8, 9, 10]));
+
+    assert_eq!(
+        secret
+            .try_replace_from_fn(|index| {
+                if index == 2 {
+                    Err("replacement failed")
+                } else {
+                    Ok(index as u8)
+                }
+            })
+            .err(),
+        Some("replacement failed")
+    );
+    assert!(secret.constant_time_eq(&[7, 8, 9, 10]));
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        secret.replace_from_fn(|index| {
+            if index == 2 {
+                panic!("replacement panic");
+            }
+            index as u8
+        });
+    }));
+    assert!(result.is_err());
+    assert!(secret.constant_time_eq(&[7, 8, 9, 10]));
 }
 
 #[cfg(feature = "alloc")]

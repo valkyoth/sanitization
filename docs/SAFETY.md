@@ -74,6 +74,12 @@ clear-on-drop remain available. The core crate does not provide a derive for
 these markers: a derive can inspect fields but cannot prove the behavior of
 inherent or trait methods.
 
+`SecretBoxBytes` is an audited exception for runtime-length heap storage. Its
+`Box<[u8]>` length is fixed, exposure returns only slices, and every
+replacement requires the same public length. Replacement constructs a separate
+clear-on-drop box before clearing and exchanging the old allocation.
+`clear_secret` wipes the complete boxed slice before drop releases it.
+
 Unsafe code is allowed only inside narrow, reviewable implementation modules:
 
 - `wipe_backend`, the default volatile clear backend;

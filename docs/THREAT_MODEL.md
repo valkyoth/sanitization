@@ -12,6 +12,8 @@ Rust applications.
 - Volatile clearing for ordinary mutable byte slices.
 - Volatile clearing of `SecretVec` and `SecretString` initialized bytes and
   spare heap capacity before freeing their allocations.
+- Fixed-allocation runtime-length byte storage through `SecretBoxBytes`, whose
+  safe operations cannot resize the backing `Box<[u8]>`.
 - Const-generic `BoundedSecretVec<MAX>` enforcement for dynamic secret input
   whose length must be limited at an application trust boundary.
 - Const-generic `BoundedSecretString<MAX>` enforcement for secret UTF-8 input
@@ -279,3 +281,9 @@ stack array. It volatile-clears that copy on normal return and unwinding, but
 cannot clear it after process abort. The same direct-versus-copy distinction
 applies to fixed locked storage and pool slots. Split-secret plaintext cannot
 be borrowed directly because it does not exist contiguously at rest.
+
+`SecretBoxBytes` prevents safe in-place growth and rejects length-changing
+replacement. It does not lock allocator-backed pages, prevent swap or
+hibernation copies, control allocator metadata, or recover allocations and
+copies created before bytes enter the container. Use mapped locked or guarded
+types when those platform protections are required.

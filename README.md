@@ -71,8 +71,9 @@ Implemented now:
   conditional copy/swap, slice selection, and oblivious lookup helpers.
 - optional conservative native `ct` derives through the `derive` feature for
   field-wise `ConstantTimeEq` and `ConditionallySelectable` struct derives.
-- optional `alloc` support with `SecretVec`, `SecretString`, bounded byte/text
-  variants, and allocation-preserving byte/text conversions.
+- optional `alloc` support with fixed-allocation `SecretBoxBytes`,
+  managed-growth `SecretVec`/`SecretString`, bounded byte/text variants, and
+  allocation-preserving byte/text conversions.
 - optional platform memory locking with `LockedSecretBytes<N>` on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets, plus a documented
   volatile-only WASM compatibility backend behind `wasm-compat`.
@@ -221,7 +222,7 @@ sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3",
 
 | Feature | Default | Purpose |
 | --- | --- | --- |
-| `alloc` | no | Enables `SecretVec`, `BoundedSecretVec<MAX>`, `SecretString`, and `BoundedSecretString<MAX>`. |
+| `alloc` | no | Enables fixed-allocation `SecretBoxBytes`, managed-growth `SecretVec`, `BoundedSecretVec<MAX>`, `SecretString`, and `BoundedSecretString<MAX>`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
 | `derive` | no | Re-exports `sanitization-derive` proc macros for `#[derive(SecureSanitize)]`, `#[derive(SecureSanitizeOnDrop)]`, and conservative struct-only native `ct` derives for `ConstantTimeEq` and `ConditionallySelectable`. Pulls in proc-macro dependencies only when explicitly enabled. |
 | `strict-enum-derive` | no | Enables `derive` and rejects enum derives unless the inactive-variant byte risk is explicitly acknowledged. |
@@ -350,7 +351,7 @@ and return `LengthError` on mismatch.
 Secret containers also implement the native `ct` traits where the operation can
 preserve their lifecycle model. `SecretBytes<N>` implements native
 `ConstantTimeEq`, byte-slice equality, and `ConditionallySelectable`.
-`SecretVec`, `BoundedSecretVec<MAX>`, `SecretString`,
+`SecretBoxBytes`, `SecretVec`, `BoundedSecretVec<MAX>`, `SecretString`,
 `LockedSecretBytes<N>`, `LockedSecretVec`, `SecretPoolSlot<N, SLOTS>`, and
 `GuardedSecretVec` implement native `ConstantTimeEq` behind their normal
 feature gates. Existing `constant_time_eq` methods remain available and
@@ -359,8 +360,8 @@ source-compatible.
 ## WASM Support
 
 The base containers (`SecretBytes`, `Secret`, `ReadOnceSecret`, and with
-`alloc`, `SecretVec`, `BoundedSecretVec<MAX>`, and `SecretString`) compile on
-`wasm32` targets.
+`alloc`, `SecretBoxBytes`, `SecretVec`, `BoundedSecretVec<MAX>`, and
+`SecretString`) compile on `wasm32` targets.
 `memory-lock` compiles on WASM only when `wasm-compat` is also enabled. That
 feature pair exposes API-compatible volatile-only backends:
 `LockedSecretBytes<N>` and `SecretPool<N, SLOTS>` own storage inside WASM
@@ -589,10 +590,16 @@ assert!(key.constant_time_eq(&[0; 32]));
 
 ## Heap Secrets
 
-Enable `alloc` for dynamic secret bytes and secret UTF-8 text.
+Enable `alloc` for runtime-length secret bytes and secret UTF-8 text.
 
 ```rust
-use sanitization::{BoundedSecretString, SecretString, SecretVec};
+use sanitization::{BoundedSecretString, SecretBoxBytes, SecretString, SecretVec};
+
+let mut fixed = SecretBoxBytes::from_fn(16, |index| index as u8);
+assert_eq!(fixed.len(), 16);
+fixed.with_secret_mut(|bytes| bytes[0] = 7);
+fixed.replace_from_slice(&[9; 16]).unwrap();
+assert!(fixed.constant_time_eq(&[9; 16]));
 
 let mut token = SecretString::from_string(String::from("bearer-token"));
 assert_eq!(token.try_with_secret(str::len), Ok(12));
@@ -643,15 +650,27 @@ let bytes = text.into_secret_vec();
 assert!(bytes.constant_time_eq(b"allocation-transfer"));
 ```
 
-`SecretVec`, `SecretString`, and their bounded variants wipe initialized bytes
-and spare heap capacity before freeing their allocations. Use `from_slice` and
-`from_secret_str` when loading borrowed data. Use `from_vec`, `from_string`,
-`replace_from_vec`, and `replace_from_string` to take ownership of existing heap
-allocations without copying; those allocations become clear-on-drop secret
-storage. `SecretString::from_secret_vec` and `SecretString::into_secret_vec`
-transfer the existing allocation after UTF-8 validation instead of creating a
-second heap copy. Invalid UTF-8 is cleared before the conversion error is
-returned. Use
+Choose the allocation model deliberately:
+
+- `SecretBoxBytes` owns one runtime-length `Box<[u8]>`. Its length cannot
+  change, mutable exposure cannot reallocate, and same-length replacement
+  stages a fresh clear-on-drop allocation before clearing the old one.
+- `SecretVec` and `SecretString` support managed growth. Their growth paths copy
+  into a replacement allocation and clear the previous allocation before
+  releasing it.
+- `LockedSecretVec`, locked text, and guarded mapped containers add native
+  platform protection when allocator-backed storage is insufficient.
+
+All of these byte/text containers clear their reachable allocations before
+release. Use `SecretBoxBytes::from_slice` or `from_boxed_slice` when the runtime
+length is fixed. Use `SecretVec::from_slice` and
+`SecretString::from_secret_str` when loading borrowed growable data. Use
+`from_vec`, `from_string`, `replace_from_vec`, and `replace_from_string` to take
+ownership of existing heap allocations without copying; those allocations
+become clear-on-drop secret storage. `SecretString::from_secret_vec` and
+`SecretString::into_secret_vec` transfer the existing allocation after UTF-8
+validation instead of creating a second heap copy. Invalid UTF-8 is cleared
+before the conversion error is returned. Use
 `replace_from_slice` and `replace_from_secret_str` when rotating from borrowed
 data. Use `SecretVec::from_fn`, `try_from_fn`, `replace_from_fn`, or
 `try_replace_from_fn` when dynamic bytes can be generated directly into
@@ -1258,12 +1277,15 @@ serde = { version = "1", features = ["derive"] }
 ```
 
 ```rust
-use sanitization::{BoundedSecretString, BoundedSecretVec, SecretBytes};
+use sanitization::{
+    BoundedSecretString, BoundedSecretVec, SecretBoxBytes, SecretBytes,
+};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct Config {
     signing_key: SecretBytes<32>,
+    fixed_blob: SecretBoxBytes,
     api_token: BoundedSecretString<4096>,
     recovery_blob: BoundedSecretVec<65536>,
 }
@@ -1273,12 +1295,13 @@ This serde support is intentionally for ingestion. Do not rely on serde
 serialization to export or back up secrets; it redacts by design. For generic
 `Secret<T>` and `ReadOnceSecret<T>`, deserialization uses `T`'s own
 `Deserialize` implementation, so use this crate's leaf types such as
-`SecretBytes<N>`, `SecretVec`, `SecretString`, and their bounded variants at
-secret-bearing fields when you need secret-aware ingestion end to end.
+`SecretBytes<N>`, `SecretBoxBytes`, `SecretVec`, `SecretString`, and their
+bounded variants at secret-bearing fields when you need secret-aware ingestion
+end to end.
 
-Plain `SecretVec` deserialization rejects inputs larger than the public
-`DEFAULT_SECRET_VEC_SERDE_MAX_LEN` ceiling of 1 MiB. Plain `SecretString`
-deserialization uses the same 1 MiB byte ceiling through
+Plain `SecretBoxBytes` and `SecretVec` deserialization reject inputs larger
+than the public `DEFAULT_SECRET_VEC_SERDE_MAX_LEN` ceiling of 1 MiB. Plain
+`SecretString` deserialization uses the same 1 MiB byte ceiling through
 `DEFAULT_SECRET_STRING_SERDE_MAX_LEN`. At an untrusted boundary, prefer
 `BoundedSecretVec<MAX>` or `BoundedSecretString<MAX>` so the application chooses
 the protocol-specific maximum.
@@ -1360,14 +1383,18 @@ let mut maybe_key = Secret::new(Some([7_u8; 32]));
 maybe_key.into_cleared();
 ```
 
-For `Vec<T>`, the generic implementation sanitizes initialized elements and
-then clears the vector. It does not wipe arbitrary spare capacity for every
-possible `T`, because spare capacity does not necessarily contain valid `T`
-values. For dynamic byte secrets where full allocation capacity matters, use
-`SecretVec`. `Vec<T>`, `String`, `Box<T>`, `Option<T>`, and `Result<T, E>` can
-still be owned by `Secret<T>` and cleared on drop, but they do not receive
-generic `with_secret` or `with_secret_mut` access unless their concrete type
-has a reviewed storage-stability implementation.
+For `Vec<T>`, the generic implementation sanitizes every live element, drops
+those elements, and volatile-clears the current allocation capacity as raw
+bytes before release. It cannot recover allocations already released by
+earlier caller-controlled growth or replacement. It also pays field-wise
+sanitization cost before the allocation wipe, so byte workloads should use
+`SecretBoxBytes` for a fixed runtime length or `SecretVec` for managed secure
+growth. Generic `Box<T>` sanitization clears the boxed value field by field but
+does not claim to clear unknown representation padding. `Vec<T>`, `String`,
+`Box<T>`, `Option<T>`, and `Result<T, E>` can still be owned by `Secret<T>` and
+cleared on drop, but they do not receive generic `with_secret` or
+`with_secret_mut` access unless their concrete type has a reviewed
+storage-stability implementation.
 
 Opaque third-party numeric types such as `BigUint` cannot be implemented by
 this crate without taking a dependency on that type. Wrap them in a local
@@ -1394,10 +1421,11 @@ cleanup. They remain normal traits because an incorrect implementation breaks a
 security promise but must not affect Rust memory safety.
 
 Built-in implementations are intentionally conservative: supported scalars,
-slices and arrays, tuples through arity 12, `SecretBytes`, fixed split-secret
-storage, fixed expiring bytes, and fixed locked/pool storage. Generic `Vec<T>`,
-`String`, `Box<T>`, references, shared owners, interior-mutability wrappers,
-and arbitrary third-party containers are not certified.
+slices and arrays, tuples through arity 12, `SecretBytes`, `SecretBoxBytes`,
+fixed split-secret storage, fixed expiring bytes, and fixed locked/pool
+storage. Generic `Vec<T>`, `String`, `Box<T>`, references, shared owners,
+interior-mutability wrappers, and arbitrary third-party containers are not
+certified.
 
 Manual implementations require review of the complete safe API, not only the
 fields:
@@ -1786,7 +1814,8 @@ the first mismatching byte.
 | Fixed-size locked key with OS-random canary words | `LockedSecretBytes<N>` with `random-canary` |
 | Many same-size fixed keys under native memory-lock quotas | `SecretPool<N, SLOTS>` with `memory-lock` |
 | Many same-size fixed keys with pooled canary checks | `SecretPool<N, SLOTS>` with `canary-check` |
-| Dynamic secret bytes | `SecretVec` with `alloc` |
+| Runtime-length secret bytes whose length must remain fixed | `SecretBoxBytes` with `alloc` |
+| Dynamic secret bytes that need managed growth | `SecretVec` with `alloc` |
 | Untrusted dynamic secret input with a public size limit | `BoundedSecretVec<MAX>` with `alloc` and `serde` |
 | Secret UTF-8 text | `SecretString` with `alloc` |
 | Untrusted secret UTF-8 input with a public byte limit | `BoundedSecretString<MAX>` with `alloc` and `serde` |

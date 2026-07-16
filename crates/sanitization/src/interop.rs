@@ -31,6 +31,17 @@ mod zeroize_interop {
     impl zeroize::ZeroizeOnDrop for SecretVec {}
 
     #[cfg(feature = "alloc")]
+    impl zeroize::Zeroize for SecretBoxBytes {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl zeroize::ZeroizeOnDrop for SecretBoxBytes {}
+
+    #[cfg(feature = "alloc")]
     impl<const MAX: usize> zeroize::Zeroize for BoundedSecretVec<MAX> {
         #[inline]
         fn zeroize(&mut self) {
@@ -162,6 +173,18 @@ mod subtle_interop {
 
     #[cfg(feature = "alloc")]
     impl ConstantTimeEq for SecretVec {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            Choice::from(
+                self.with_secret(|left| {
+                    other.with_secret(|right| constant_time_eq_slices(left, right))
+                }) as u8,
+            )
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl ConstantTimeEq for SecretBoxBytes {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
             Choice::from(
@@ -332,6 +355,90 @@ mod serde_impls {
             S: Serializer,
         {
             serializer.serialize_str(REDACTED)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl Serialize for SecretBoxBytes {
+        #[inline]
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(REDACTED)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl<'de> Deserialize<'de> for SecretBoxBytes {
+        #[inline]
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_bytes(SecretBoxBytesVisitor)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    struct SecretBoxBytesVisitor;
+
+    #[cfg(feature = "alloc")]
+    impl<'de> Visitor<'de> for SecretBoxBytesVisitor {
+        type Value = SecretBoxBytes;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("fixed-allocation secret bytes")
+        }
+
+        fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            validate_default_secret_vec_len::<E>(bytes.len())?;
+            Ok(SecretBoxBytes::from_slice(bytes))
+        }
+
+        fn visit_byte_buf<E>(self, mut bytes: Vec<u8>) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            if let Err(error) = validate_default_secret_vec_len::<E>(bytes.len()) {
+                crate::owned::sanitize_vec_capacity(&mut bytes);
+                return Err(error);
+            }
+
+            let secret = SecretBoxBytes::from_slice(&bytes);
+            crate::owned::sanitize_vec_capacity(&mut bytes);
+            Ok(secret)
+        }
+
+        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let capacity = sequence
+                .size_hint()
+                .unwrap_or(0)
+                .min(DEFAULT_SECRET_VEC_SERDE_MAX_LEN)
+                .min(SECRET_VEC_SERDE_MAX_PREALLOC);
+            let mut temporary = SecretVec::with_capacity(capacity);
+
+            while temporary.len() < DEFAULT_SECRET_VEC_SERDE_MAX_LEN {
+                let Some(byte) = sequence.next_element::<u8>()? else {
+                    return Ok(temporary.with_secret(SecretBoxBytes::from_slice));
+                };
+                temporary.extend_from_slice(&[byte]);
+            }
+
+            if sequence.next_element::<IgnoredAny>()?.is_some() {
+                return Err(A::Error::custom(SecretVecLimitError {
+                    maximum: DEFAULT_SECRET_VEC_SERDE_MAX_LEN,
+                    actual: DEFAULT_SECRET_VEC_SERDE_MAX_LEN.saturating_add(1),
+                }));
+            }
+
+            Ok(temporary.with_secret(SecretBoxBytes::from_slice))
         }
     }
 

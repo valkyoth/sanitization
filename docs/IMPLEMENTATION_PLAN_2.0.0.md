@@ -110,8 +110,8 @@ its retest.
 | `CP-01` | Accepted |
 | `CP-02` | Accepted |
 | `CP-03` | Accepted |
-| `CP-04` | Pentest |
-| `CP-05` | Planned |
+| `CP-04` | Accepted |
+| `CP-05` | Pentest |
 | `CP-06` | Planned |
 | `CP-07` | Planned |
 | `CP-08` | Planned |

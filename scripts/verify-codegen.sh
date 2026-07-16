@@ -49,6 +49,24 @@ if [[ -z "${exposure_ir}" || ! -f "${exposure_ir}" ]]; then
     exit 1
 fi
 
+secret_box_core_clear_body="$(
+    awk '
+        /; <sanitization::owned::SecretBoxBytes>::clear_secret/ { found = 1; next }
+        found && /define / { capture = 1 }
+        capture { print }
+        capture && /^}/ { exit }
+    ' "${ir_file}"
+)"
+
+volatile_wipe_body="$(
+    awk '
+        /; sanitization::wipe_backend::volatile_wipe/ { found = 1; next }
+        found && /define / { capture = 1 }
+        capture { print }
+        capture && /^}/ { exit }
+    ' "${ir_file}"
+)"
+
 direct_body="$(
     awk '
         /define .*cp04_direct_exposure/ { capture = 1 }
@@ -65,6 +83,14 @@ copy_body="$(
     ' "${exposure_ir}"
 )"
 
+secret_box_clear_body="$(
+    awk '
+        /define .*cp05_clear_secret_box/ { capture = 1 }
+        capture { print }
+        capture && /^}/ { exit }
+    ' "${exposure_ir}"
+)"
+
 if [[ -z "${direct_body}" ]]; then
     echo "direct-exposure codegen probe missing from LLVM IR" >&2
     exit 1
@@ -75,6 +101,21 @@ if [[ -z "${copy_body}" ]]; then
     exit 1
 fi
 
+if [[ -z "${secret_box_clear_body}" ]]; then
+    echo "SecretBoxBytes clear codegen probe missing from LLVM IR" >&2
+    exit 1
+fi
+
+if [[ -z "${secret_box_core_clear_body}" ]]; then
+    echo "SecretBoxBytes core clear method missing from LLVM IR" >&2
+    exit 1
+fi
+
+if [[ -z "${volatile_wipe_body}" ]]; then
+    echo "volatile wipe body missing from LLVM IR" >&2
+    exit 1
+fi
+
 if grep -Eq 'alloca \[4096 x i8\]|llvm\.memcpy' <<<"${direct_body}"; then
     echo "direct fixed-secret exposure constructed a full-size temporary" >&2
     exit 1
@@ -82,6 +123,31 @@ fi
 
 if ! grep -Eq 'alloca \[4096 x i8\]|llvm\.memcpy' <<<"${copy_body}"; then
     echo "copy-exposure probe did not retain its explicit full-size copy" >&2
+    exit 1
+fi
+
+if ! grep -q 'SecretBoxBytes.*clear_secret' <<<"${secret_box_clear_body}"; then
+    echo "SecretBoxBytes clear probe does not call the audited clear path" >&2
+    exit 1
+fi
+
+if grep -Eq 'fence (acquire|release|acq_rel|seq_cst)' <<<"${secret_box_clear_body}"; then
+    echo "SecretBoxBytes wrapper introduced per-call hardware fencing" >&2
+    exit 1
+fi
+
+if [[ "$(grep -Ec '^[[:space:]]+(tail )?call void .*sanitize_bytes' <<<"${secret_box_core_clear_body}")" -ne 1 ]]; then
+    echo "SecretBoxBytes clear method does not dispatch exactly once" >&2
+    exit 1
+fi
+
+if [[ "$(grep -c 'fence syncscope("singlethread") seq_cst' <<<"${volatile_wipe_body}")" -ne 2 ]]; then
+    echo "volatile wipe compiler fences are no longer outside the byte loop" >&2
+    exit 1
+fi
+
+if [[ "$(grep -c '^  fence seq_cst' <<<"${volatile_wipe_body}")" -ne 1 ]]; then
+    echo "volatile wipe hardware fence count changed unexpectedly" >&2
     exit 1
 fi
 
@@ -160,3 +226,4 @@ fi
 echo "verified volatile wipe codegen in ${ir_file}"
 echo "verified native ct helper codegen in ${ir_file}"
 echo "verified direct fixed-secret exposure codegen in ${exposure_ir}"
+echo "verified fixed-allocation SecretBoxBytes clear dispatch in ${exposure_ir}"
