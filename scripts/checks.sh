@@ -44,6 +44,7 @@ if cargo metadata --no-deps --format-version 1 >/dev/null 2>&1; then
     cargo test -p sanitization-crypto-interop --all-features
 fi
 scripts/verify-derive-failures.sh
+scripts/verify-secret-exposure-failures.sh
 scripts/verify-leakage-smoke.sh
 scripts/verify-evidence.py
 scripts/test-release-readiness.sh

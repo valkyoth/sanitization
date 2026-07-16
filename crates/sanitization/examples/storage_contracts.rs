@@ -1,5 +1,5 @@
 use sanitization::{
-    SecretBytes, SecureSanitize, StableMutableSecretStorage, StableSharedSecretStorage,
+    Secret, SecretBytes, SecureSanitize, StableMutableSecretStorage, StableSharedSecretStorage,
 };
 
 struct FixedCredentials {
@@ -24,10 +24,13 @@ fn require_stable_storage<T: StableMutableSecretStorage>(value: &mut T) {
 }
 
 fn main() {
-    let mut credentials = FixedCredentials {
+    let credentials = FixedCredentials {
         key: SecretBytes::from_array([7; 32]),
         nonce: [9; 12],
     };
+    let mut secret = Secret::new(credentials);
 
-    require_stable_storage(&mut credentials);
+    assert_eq!(secret.with_secret(|value| value.nonce[0]), 9);
+    secret.with_secret_mut(require_stable_storage);
+    assert_eq!(secret.with_secret(|value| value.nonce[0]), 0);
 }

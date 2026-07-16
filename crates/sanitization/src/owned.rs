@@ -143,6 +143,11 @@ pub trait SecureSanitize {
 /// // Rejected: `Rotating` can replace its allocation through `&self`.
 /// require_shared_stability::<Rotating>();
 /// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not guarantee stable shared secret storage",
+    label = "generic shared secret exposure requires `StableSharedSecretStorage`",
+    note = "use a dedicated secret container or implement and document the storage contract for a reviewed fixed-storage type"
+)]
 pub trait StableSharedSecretStorage: SecureSanitize {}
 
 /// Security contract for secret storage exposed through mutable references.
@@ -186,6 +191,11 @@ pub trait StableSharedSecretStorage: SecureSanitize {}
 /// // Rejected: the old allocation can be released by a safe mutable method.
 /// require_mutable_stability::<Reallocating>();
 /// ```
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not guarantee stable mutable secret storage",
+    label = "generic mutable secret exposure requires `StableMutableSecretStorage`",
+    note = "use a dedicated secret container or implement and document the storage contract for a reviewed fixed-storage type"
+)]
 pub trait StableMutableSecretStorage: StableSharedSecretStorage {}
 
 /// Sanitize a value before replacing it.
@@ -3658,13 +3668,15 @@ impl<const MAX: usize> TryFrom<SecretVec> for BoundedSecretString<MAX> {
 ///
 /// Scalar values such as `u64`, arrays of sanitizable values, `Option<T>`, and
 /// `Result<T, E>` implement [`SecureSanitize`] directly. With `alloc`, `Box<T>`,
-/// `Vec<T>`, and `String` are supported as well.
+/// `Vec<T>`, and `String` are supported as well. Construction, drop clearing,
+/// and [`Secret::into_cleared`] remain available for all of them.
 ///
 /// For byte vectors, prefer [`SecretVec`] over `Secret<Vec<u8>>`. `Vec<T>` is
 /// supported for generic sanitizable containers and clears the raw allocation
-/// capacity after dropping live elements, but [`SecretVec`] provides a
-/// byte-focused API with whole-value rotation helpers and fewer generic-type
-/// edge cases.
+/// capacity after dropping live elements, but generic exposure is intentionally
+/// unavailable because `Vec<T>` does not implement the storage-stability
+/// contracts. [`SecretVec`] provides reviewed scoped access and rotation that
+/// clears old allocations before release.
 pub struct Secret<T: SecureSanitize> {
     inner: T,
 }
@@ -3677,18 +3689,6 @@ impl<T: SecureSanitize> Secret<T> {
         Self { inner }
     }
 
-    /// Run a closure with read-only access to the wrapped value.
-    #[inline]
-    pub fn with_secret<R>(&self, inspect: impl FnOnce(&T) -> R) -> R {
-        inspect(&self.inner)
-    }
-
-    /// Run a closure with mutable access to the wrapped value.
-    #[inline]
-    pub fn with_secret_mut<R>(&mut self, edit: impl FnOnce(&mut T) -> R) -> R {
-        edit(&mut self.inner)
-    }
-
     /// Consume the wrapper after first clearing the wrapped value.
     #[inline]
     pub fn into_cleared(mut self) {
@@ -3696,10 +3696,56 @@ impl<T: SecureSanitize> Secret<T> {
     }
 }
 
+impl<T: StableSharedSecretStorage> Secret<T> {
+    /// Run a closure with shared access to storage certified as shared-stable.
+    ///
+    /// This method is unavailable for types such as `Vec<T>`, `String`, and
+    /// interior-mutable reallocating containers. Use a dedicated secret
+    /// container or implement [`StableSharedSecretStorage`] after reviewing
+    /// the type's complete safe shared API.
+    ///
+    /// The returned value cannot borrow the wrapped secret:
+    ///
+    /// ```compile_fail
+    /// use sanitization::Secret;
+    ///
+    /// let secret = Secret::new([1_u8, 2, 3, 4]);
+    /// let escaped = secret.with_secret(|bytes| bytes);
+    /// let _ = escaped;
+    /// ```
+    #[inline]
+    pub fn with_secret<R>(&self, inspect: impl FnOnce(&T) -> R) -> R {
+        inspect(&self.inner)
+    }
+}
+
+impl<T: StableMutableSecretStorage> Secret<T> {
+    /// Run a closure with mutable access to storage certified as mutable-stable.
+    ///
+    /// This method is unavailable for generic growable or reallocating
+    /// containers. Prefer [`SecretVec`], [`SecretString`], their bounded
+    /// variants, or a reviewed fixed-storage type carrying
+    /// [`StableMutableSecretStorage`].
+    #[inline]
+    pub fn with_secret_mut<R>(&mut self, edit: impl FnOnce(&mut T) -> R) -> R {
+        edit(&mut self.inner)
+    }
+}
+
+impl<T: SecureSanitize> SecureSanitize for Secret<T> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.inner.secure_sanitize();
+    }
+}
+
+impl<T: StableSharedSecretStorage> StableSharedSecretStorage for Secret<T> {}
+impl<T: StableMutableSecretStorage> StableMutableSecretStorage for Secret<T> {}
+
 impl<T: SecureSanitize> Drop for Secret<T> {
     #[inline]
     fn drop(&mut self) {
-        self.inner.secure_sanitize();
+        self.secure_sanitize();
     }
 }
 

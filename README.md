@@ -1277,10 +1277,15 @@ input. Transport-level and parser-level limits therefore remain required.
 ## Generic Secret Wrapper
 
 Use `Secret<T>` when you already have a type that implements `SecureSanitize`
-and you want clear-on-drop plus redacted `Debug`.
+and you want clear-on-drop plus redacted `Debug`. Generic shared exposure also
+requires `StableSharedSecretStorage`; mutable exposure requires
+`StableMutableSecretStorage`.
 
 ```rust
-use sanitization::{Secret, SecureSanitize};
+use sanitization::{
+    Secret, SecureSanitize, StableMutableSecretStorage,
+    StableSharedSecretStorage,
+};
 
 #[derive(Default)]
 struct Pair {
@@ -1294,6 +1299,11 @@ impl SecureSanitize for Pair {
         self.right.secure_sanitize();
     }
 }
+
+// STORAGE CONTRACT: all secret bytes are inline. The type has no
+// interior-mutating shared methods, and mutable methods overwrite in place.
+impl StableSharedSecretStorage for Pair {}
+impl StableMutableSecretStorage for Pair {}
 
 let mut pair = Secret::new(Pair {
     left: [1; 16],
@@ -1329,14 +1339,17 @@ let mut scalar_words = Secret::new([1_u64, 2, 3, 4]);
 scalar_words.with_secret_mut(SecureSanitize::secure_sanitize);
 
 let mut maybe_key = Secret::new(Some([7_u8; 32]));
-maybe_key.with_secret_mut(SecureSanitize::secure_sanitize);
+maybe_key.into_cleared();
 ```
 
 For `Vec<T>`, the generic implementation sanitizes initialized elements and
 then clears the vector. It does not wipe arbitrary spare capacity for every
 possible `T`, because spare capacity does not necessarily contain valid `T`
 values. For dynamic byte secrets where full allocation capacity matters, use
-`SecretVec`.
+`SecretVec`. `Vec<T>`, `String`, `Box<T>`, `Option<T>`, and `Result<T, E>` can
+still be owned by `Secret<T>` and cleared on drop, but they do not receive
+generic `with_secret` or `with_secret_mut` access unless their concrete type
+has a reviewed storage-stability implementation.
 
 Opaque third-party numeric types such as `BigUint` cannot be implemented by
 this crate without taking a dependency on that type. Wrap them in a local
@@ -1349,7 +1362,7 @@ material into `SecretBytes<N>`/`SecretVec` at the boundary where possible.
 secret value. It does not by itself promise that the type's other safe methods
 avoid releasing old storage.
 
-Version 2 development adds two explicit contracts:
+Version 2 uses two explicit contracts:
 
 - `StableSharedSecretStorage`: safe operations supplied by the type and
   reachable through `&self` do not release, transfer, replace, or defer release
@@ -1393,9 +1406,8 @@ impl StableMutableSecretStorage for FixedRecord {}
 ```
 
 These traits do not prevent deliberate copying, logging, replacement, or
-external calls inside a user-provided closure. The 2.0 exposure redesign uses
-the contracts to reject storage-unstable generic access; that restriction is a
-separate checkpoint.
+external calls inside a user-provided closure. Generic `Secret<T>` exposure is
+available only when the corresponding storage contract is implemented.
 
 ## Read-Once Secrets
 

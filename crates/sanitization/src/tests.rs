@@ -1087,6 +1087,64 @@ fn generic_secret_uses_closure_access() {
 }
 
 #[test]
+fn generic_secret_allows_reviewed_user_storage() {
+    struct FixedRecord {
+        left: [u8; 4],
+        right: [u8; 4],
+    }
+
+    impl SecureSanitize for FixedRecord {
+        fn secure_sanitize(&mut self) {
+            self.left.secure_sanitize();
+            self.right.secure_sanitize();
+        }
+    }
+
+    // STORAGE CONTRACT: all bytes are inline and every safe method used by
+    // this test inspects or overwrites them in place.
+    impl StableSharedSecretStorage for FixedRecord {}
+    impl StableMutableSecretStorage for FixedRecord {}
+
+    let mut secret = Secret::new(FixedRecord {
+        left: [1; 4],
+        right: [2; 4],
+    });
+
+    assert_eq!(secret.with_secret(|value| value.left[0]), 1);
+    secret.with_secret_mut(|value| value.right[0] = 9);
+    assert_eq!(secret.with_secret(|value| value.right[0]), 9);
+}
+
+#[test]
+fn generic_secret_preserves_clear_only_ownership_for_unstable_types() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    struct UnstableOwner {
+        cleared: Arc<AtomicBool>,
+        bytes: std::vec::Vec<u8>,
+    }
+
+    impl SecureSanitize for UnstableOwner {
+        fn secure_sanitize(&mut self) {
+            self.bytes.secure_sanitize();
+            self.cleared.store(true, Ordering::SeqCst);
+        }
+    }
+
+    let cleared = Arc::new(AtomicBool::new(false));
+    let secret = Secret::new(UnstableOwner {
+        cleared: Arc::clone(&cleared),
+        bytes: std::vec![1, 2, 3, 4],
+    });
+
+    drop(secret);
+    assert!(cleared.load(Ordering::SeqCst));
+}
+
+#[test]
 fn generic_secret_default_wraps_default_value() {
     let mut secret = Secret::<[u8; 4]>::default();
 
@@ -1337,6 +1395,8 @@ fn storage_contracts_cover_fixed_builtins_and_tuples() {
     assert_mutable::<(u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, SecretBytes<8>)>();
     assert_shared::<SecretBytes<32>>();
     assert_mutable::<SecretBytes<32>>();
+    assert_shared::<Secret<[u8; 32]>>();
+    assert_mutable::<Secret<[u8; 32]>>();
 
     #[cfg(feature = "split-secret")]
     {

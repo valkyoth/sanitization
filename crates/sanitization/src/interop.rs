@@ -66,7 +66,7 @@ mod zeroize_interop {
     impl<T: SecureSanitize> zeroize::Zeroize for Secret<T> {
         #[inline]
         fn zeroize(&mut self) {
-            self.with_secret_mut(SecureSanitize::secure_sanitize);
+            self.secure_sanitize();
         }
     }
 

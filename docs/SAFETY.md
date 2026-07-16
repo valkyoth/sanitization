@@ -36,9 +36,11 @@ describe the marked type's own safe operations, not arbitrary caller code.
 
 The core crate intentionally does not certify `Vec<T>`, `String`, `Box<T>`,
 references, shared ownership, standard interior-mutability wrappers, or
-arbitrary third-party containers. CP-02 also does not add a derive for these
-markers: a derive can inspect fields but cannot prove the behavior of inherent
-or trait methods.
+arbitrary third-party containers. Generic `Secret<T>` exposure is therefore
+unavailable for those types, although ownership, explicit clearing, and
+clear-on-drop remain available. The core crate does not provide a derive for
+these markers: a derive can inspect fields but cannot prove the behavior of
+inherent or trait methods.
 
 Unsafe code is allowed only inside narrow, reviewable implementation modules:
 
