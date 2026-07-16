@@ -284,8 +284,9 @@ Expected shape:
 - Unsafe code remains isolated and audited.
 - Byte-slice, heap-capacity, and temporary-copy clearing route through that
   backend where applicable.
-- `unsafe-wipe` remains as a no-op compatibility feature for older
-  release-candidate dependency declarations.
+- Version 2 removes the obsolete `unsafe-wipe` compatibility feature and
+  exposes direct wiping through the canonical safe `sanitization::wipe`
+  module.
 
 ### 2. Simplify `SecretBytes<N>` Storage
 

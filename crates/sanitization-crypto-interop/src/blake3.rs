@@ -1,6 +1,6 @@
 //! BLAKE3 helpers with explicit hasher and XOF reader cleanup.
 
-use sanitization::{ct, sanitize_bytes, SecureSanitize};
+use sanitization::{ct, wipe, SecureSanitize};
 use zeroize::Zeroize;
 
 /// Compute a 32-byte BLAKE3 digest.
@@ -9,7 +9,7 @@ use zeroize::Zeroize;
 /// `==` when checking an expected digest.
 ///
 /// The returned array is ordinary caller-owned memory. If the digest is
-/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// sensitive, clear it with `sanitization::wipe::bytes` after use or move it
 /// directly into a secret container.
 #[must_use]
 #[inline]
@@ -28,7 +28,7 @@ pub fn blake3_digest_verify(preimage: &[u8], digest: &[u8; 32]) -> bool {
     let mut actual = blake3_digest(preimage);
     let matches =
         ct::eq_fixed(&actual, digest).declassify("BLAKE3 digest verification result is public");
-    sanitize_bytes(&mut actual);
+    wipe::bytes(&mut actual);
     matches
 }
 
@@ -40,7 +40,7 @@ pub fn blake3_digest_verify(preimage: &[u8], digest: &[u8; 32]) -> bool {
 /// The caller remains responsible for clearing `key` if it is stored outside a
 /// `sanitization` secret container.
 /// The returned array is ordinary caller-owned memory. If the digest is
-/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// sensitive, clear it with `sanitization::wipe::bytes` after use or move it
 /// directly into a secret container.
 #[must_use]
 #[inline]
@@ -59,7 +59,7 @@ pub fn blake3_keyed_digest_verify(key: &[u8; 32], preimage: &[u8], digest: &[u8;
     let mut actual = blake3_keyed_digest(key, preimage);
     let matches =
         ct::eq_fixed(&actual, digest).declassify("keyed BLAKE3 verification result is public");
-    sanitize_bytes(&mut actual);
+    wipe::bytes(&mut actual);
     matches
 }
 
@@ -71,7 +71,7 @@ pub fn blake3_keyed_digest_verify(key: &[u8; 32], preimage: &[u8], digest: &[u8;
 /// Both the BLAKE3 hasher and XOF reader are explicitly zeroized after the
 /// output bytes are copied into the returned array.
 /// The returned array is ordinary caller-owned memory. If the digest is
-/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// sensitive, clear it with `sanitization::wipe::bytes` after use or move it
 /// directly into a secret container.
 #[must_use]
 #[inline]
@@ -93,7 +93,7 @@ pub fn blake3_xof_64_verify(preimage: &[u8], digest: &[u8; 64]) -> bool {
     let mut actual = blake3_xof_64(preimage);
     let matches =
         ct::eq_fixed(&actual, digest).declassify("BLAKE3 XOF verification result is public");
-    sanitize_bytes(&mut actual);
+    wipe::bytes(&mut actual);
     matches
 }
 
@@ -105,7 +105,7 @@ pub fn blake3_xof_64_verify(preimage: &[u8], digest: &[u8; 64]) -> bool {
 /// The caller remains responsible for clearing `key` if it is stored outside a
 /// `sanitization` secret container.
 /// The returned array is ordinary caller-owned memory. If the digest is
-/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// sensitive, clear it with `sanitization::wipe::bytes` after use or move it
 /// directly into a secret container.
 #[must_use]
 #[inline]
@@ -127,7 +127,7 @@ pub fn blake3_keyed_xof_64_verify(key: &[u8; 32], preimage: &[u8], digest: &[u8;
     let mut actual = blake3_keyed_xof_64(key, preimage);
     let matches =
         ct::eq_fixed(&actual, digest).declassify("keyed BLAKE3 XOF verification result is public");
-    sanitize_bytes(&mut actual);
+    wipe::bytes(&mut actual);
     matches
 }
 

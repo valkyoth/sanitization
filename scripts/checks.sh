@@ -20,8 +20,6 @@ cargo test --features strict-compare
 cargo test --features cache-flush
 cargo test --features guard-pages
 cargo test --features multi-pass-clear
-cargo test --features unsafe-wipe
-cargo test --features unsafe-wipe,alloc
 cargo test --all-features
 cargo test --workspace --all-features
 cargo check --examples
@@ -34,7 +32,6 @@ cargo check --examples --features strict-compare
 cargo check --examples --features cache-flush
 cargo check --examples --features guard-pages
 cargo check --examples --features multi-pass-clear
-cargo check --examples --features unsafe-wipe
 cargo check --examples --all-features
 cargo clippy --all-targets --no-default-features -- -D warnings
 cargo clippy --all-targets --all-features -- -D warnings

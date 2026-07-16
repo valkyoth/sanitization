@@ -7,15 +7,28 @@ target-specific codegen, and release evidence.
 
 ## Clearing Barriers
 
-Memory clearing uses a single audited volatile wipe boundary:
+Memory clearing uses a single audited architecture:
 
+- safe callers use `sanitization::wipe`;
+- internal containers dispatch through the private `wipe_backend`;
+- a sealed internal `ErasureBackend` prevents downstream backend injection;
 - volatile byte writes prevent native LLVM dead-store elimination of the clear;
 - `compiler_fence(Ordering::SeqCst)` prevents compiler reordering around the
   wipe boundary;
 - `fence(Ordering::SeqCst)` provides a hardware ordering boundary where the
   target supports it;
 - the wipe function is kept behind a non-inlined boundary for easier codegen
-  inspection.
+inspection.
+
+CP-10 deliberately retains the 1.x ordering policy: two compiler
+`SeqCst` fences and one hardware `SeqCst` fence per pass. No fence was removed
+because the checkpoint did not produce target-specific evidence proving that a
+weaker boundary preserves the documented handoff and peripheral-ordering use
+cases.
+
+The public API does not expose backend selection. Names suggesting a weaker
+best-effort mode, a separate volatile mode, or caller-visible unsafe wiping
+were removed because they all selected the same reviewed backend.
 
 On WASM, volatile writes survive Rust-to-WASM lowering, but the WASM memory
 model does not encode volatility. The crate uses a non-inlined function-pointer

@@ -8,7 +8,7 @@ use core::{
     sync::atomic::{compiler_fence, Ordering},
 };
 
-use crate::{ct, wipe};
+use crate::{ct, wipe, wipe_backend};
 
 /// Error returned when a caller provides a buffer with the wrong length.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -129,9 +129,7 @@ pub trait SecureSanitize {
 ///
 /// ```compile_fail
 /// use std::cell::RefCell;
-/// use sanitization::{
-///     sanitize_bytes, SecureSanitize, StableSharedSecretStorage,
-/// };
+/// use sanitization::{wipe, SecureSanitize, StableSharedSecretStorage};
 ///
 /// struct Rotating {
 ///     bytes: RefCell<Vec<u8>>,
@@ -140,7 +138,7 @@ pub trait SecureSanitize {
 /// impl SecureSanitize for Rotating {
 ///     fn secure_sanitize(&mut self) {
 ///         let bytes = self.bytes.get_mut();
-///         sanitize_bytes(bytes.as_mut_slice());
+///         wipe::bytes(bytes.as_mut_slice());
 ///         bytes.clear();
 ///     }
 /// }
@@ -174,9 +172,7 @@ pub trait StableSharedSecretStorage: SecureSanitize {}
 /// containers.
 ///
 /// ```compile_fail
-/// use sanitization::{
-///     sanitize_bytes, SecureSanitize, StableMutableSecretStorage,
-/// };
+/// use sanitization::{wipe, SecureSanitize, StableMutableSecretStorage};
 ///
 /// struct Reallocating(Vec<u8>);
 ///
@@ -188,7 +184,7 @@ pub trait StableSharedSecretStorage: SecureSanitize {}
 ///
 /// impl SecureSanitize for Reallocating {
 ///     fn secure_sanitize(&mut self) {
-///         sanitize_bytes(self.0.as_mut_slice());
+///         wipe::bytes(self.0.as_mut_slice());
 ///         self.0.clear();
 ///     }
 /// }
@@ -220,7 +216,7 @@ pub fn secure_replace<T: SecureSanitize>(slot: &mut T, replacement: T) {
 
 #[inline(never)]
 fn sanitize_plain_value<T>(value: &mut T) {
-    wipe::volatile_wipe((value as *mut T).cast::<u8>(), mem::size_of::<T>());
+    wipe_backend::erase((value as *mut T).cast::<u8>(), mem::size_of::<T>());
 }
 
 macro_rules! impl_secure_sanitize_scalar {
@@ -350,50 +346,16 @@ macro_rules! secure_drop_struct {
     };
 }
 
-/// Clear ordinary mutable bytes with volatile writes.
-///
-/// This is the default clearing primitive used by this crate. It uses a small
-/// internal unsafe boundary around [`core::ptr::write_volatile`] so the
-/// optimizer cannot remove clearing as a dead store.
-#[inline(never)]
-pub fn sanitize_bytes(bytes: &mut [u8]) {
-    wipe::volatile_wipe(bytes.as_mut_ptr(), bytes.len());
-}
-
-/// Compatibility alias for [`sanitize_bytes`].
-///
-/// Older release candidates exposed this function as a safe best-effort clear.
-/// It now uses the same volatile clear backend as the rest of the crate.
-#[inline(never)]
-pub fn sanitize_bytes_best_effort(bytes: &mut [u8]) {
-    sanitize_bytes(bytes);
-}
-
-/// Clear ordinary mutable bytes with an explicit three-pass volatile pattern.
-///
-/// This API is available with the `multi-pass-clear` feature. It writes zeros,
-/// then `0xFF`, then zeros again. For ordinary volatile RAM, the default
-/// single-pass volatile zeroing is the normal security boundary; this helper is
-/// provided for environments that need multi-pass overwrite evidence for policy
-/// or audit compatibility.
-#[cfg(feature = "multi-pass-clear")]
-#[inline(never)]
-pub fn sanitize_bytes_multi_pass(bytes: &mut [u8]) {
-    wipe::volatile_multi_pass_clear(bytes.as_mut_ptr(), bytes.len());
-}
-
 #[cfg(feature = "alloc")]
 #[inline(never)]
 pub(crate) fn sanitize_vec_capacity(bytes: &mut Vec<u8>) {
-    wipe::volatile_wipe(bytes.as_mut_ptr(), bytes.capacity());
-    bytes.clear();
+    wipe::vec(bytes);
 }
 
 #[cfg(all(feature = "alloc", feature = "multi-pass-clear"))]
 #[inline(never)]
 fn sanitize_vec_capacity_multi_pass(bytes: &mut Vec<u8>) {
-    wipe::volatile_multi_pass_clear(bytes.as_mut_ptr(), bytes.capacity());
-    bytes.clear();
+    wipe::vec_multi_pass(bytes);
 }
 
 #[cfg(feature = "alloc")]
@@ -537,7 +499,7 @@ impl<T: SecureSanitize> SecureSanitize for Vec<T> {
             item.secure_sanitize();
         }
         self.clear();
-        wipe::volatile_wipe(
+        wipe_backend::erase(
             self.as_mut_ptr().cast::<u8>(),
             self.capacity().saturating_mul(core::mem::size_of::<T>()),
         );
@@ -549,7 +511,7 @@ impl<T: SecureSanitize> SecureSanitize for Vec<T> {
 impl SecureSanitize for String {
     #[inline(never)]
     fn secure_sanitize(&mut self) {
-        wipe::volatile_wipe(self.as_mut_ptr(), self.capacity());
+        wipe_backend::erase(self.as_mut_ptr(), self.capacity());
         self.clear();
     }
 }
@@ -692,10 +654,10 @@ mod kani_verification {
     }
 
     #[kani::proof]
-    fn prove_sanitize_bytes_clears_fixed_buffer() {
+    fn prove_wipe_bytes_clears_fixed_buffer() {
         let mut bytes: [u8; 4] = kani::any();
 
-        sanitize_bytes(&mut bytes);
+        wipe::bytes(&mut bytes);
 
         assert_eq!(bytes, [0; 4]);
     }
@@ -1045,7 +1007,7 @@ struct TemporaryBytes<'a, const N: usize> {
 impl<const N: usize> Drop for TemporaryBytes<'_, N> {
     #[inline]
     fn drop(&mut self) {
-        sanitize_bytes(self.bytes);
+        wipe::bytes(self.bytes);
     }
 }
 
@@ -1062,7 +1024,7 @@ pub(crate) fn expose_array_copy<const N: usize, R>(
     let result = inspect(guard.bytes);
     // Clear eagerly before returning. The guard repeats the clear on normal
     // return and clears during unwinding as defense in depth.
-    sanitize_bytes(guard.bytes);
+    wipe::bytes(guard.bytes);
     result
 }
 
@@ -1129,7 +1091,7 @@ impl<const N: usize> SecretBytes<N> {
             secret.store(index, byte);
         }
         secret.after_secret_write();
-        sanitize_bytes(&mut bytes);
+        wipe::bytes(&mut bytes);
         secret
     }
 
@@ -1209,7 +1171,7 @@ impl<const N: usize> SecretBytes<N> {
             self.store(index, byte);
         }
         self.after_secret_write();
-        sanitize_bytes(&mut bytes);
+        wipe::bytes(&mut bytes);
     }
 
     /// Replace all bytes with generated bytes.
@@ -1411,7 +1373,7 @@ impl<const N: usize> SecretBytes<N> {
     /// Clear all bytes now. This is also called from `Drop`.
     #[inline(never)]
     pub fn secure_clear(&mut self) {
-        wipe::volatile_wipe(self.bytes.as_mut_ptr(), N);
+        wipe_backend::erase(self.bytes.as_mut_ptr(), N);
     }
 
     /// Clear all bytes now with an explicit three-pass volatile pattern.
@@ -1422,7 +1384,7 @@ impl<const N: usize> SecretBytes<N> {
     #[cfg(feature = "multi-pass-clear")]
     #[inline(never)]
     pub fn secure_clear_multi_pass(&mut self) {
-        wipe::volatile_multi_pass_clear(self.bytes.as_mut_ptr(), N);
+        wipe_backend::erase_multi_pass(self.bytes.as_mut_ptr(), N);
     }
 
     /// Consume this value after first clearing the fixed-size storage.
@@ -1590,7 +1552,7 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
         }
 
         let split = Self::from_secret_bytes_with_generator(guard.bytes, &mut make_mask_byte)?;
-        sanitize_bytes(guard.bytes);
+        wipe::bytes(guard.bytes);
         Ok(split)
     }
 
@@ -2738,7 +2700,7 @@ impl SecretBoxBytes {
     /// Clear every byte while retaining the fixed allocation and length.
     #[inline(never)]
     pub fn clear_secret(&mut self) {
-        wipe::volatile_wipe(self.inner.as_mut_ptr(), self.inner.capacity());
+        wipe_backend::erase(self.inner.as_mut_ptr(), self.inner.capacity());
     }
 
     /// Consume this value after clearing its complete allocation.
@@ -2946,13 +2908,6 @@ impl SecretVec {
         Self::new(bytes)
     }
 
-    /// Compatibility alias for [`SecretVec::new`].
-    #[must_use]
-    #[inline]
-    pub const fn new_volatile(inner: Vec<u8>) -> Self {
-        Self::new(inner)
-    }
-
     /// Create an empty secret vector.
     #[must_use]
     #[inline]
@@ -2965,13 +2920,6 @@ impl SecretVec {
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         Self::new(Vec::with_capacity(capacity))
-    }
-
-    /// Compatibility alias for [`SecretVec::with_capacity`].
-    #[must_use]
-    #[inline]
-    pub fn with_capacity_volatile(capacity: usize) -> Self {
-        Self::with_capacity(capacity)
     }
 
     /// Create a secret vector by copying bytes from a slice.
@@ -3016,13 +2964,6 @@ impl SecretVec {
             index += 1;
         }
         Ok(secret)
-    }
-
-    /// Compatibility alias for [`SecretVec::from_slice`].
-    #[must_use]
-    #[inline]
-    pub fn from_slice_volatile(bytes: &[u8]) -> Self {
-        Self::from_slice(bytes)
     }
 
     /// Number of bytes currently held.
@@ -3513,13 +3454,6 @@ impl SecretString {
         })
     }
 
-    /// Compatibility alias for [`SecretString::new`].
-    #[must_use]
-    #[inline]
-    pub fn new_volatile(inner: String) -> Self {
-        Self::new(inner)
-    }
-
     /// Create an empty secret string.
     #[must_use]
     #[inline]
@@ -3534,13 +3468,6 @@ impl SecretString {
         Self {
             inner: Vec::with_capacity(capacity),
         }
-    }
-
-    /// Compatibility alias for [`SecretString::with_capacity`].
-    #[must_use]
-    #[inline]
-    pub fn with_capacity_volatile(capacity: usize) -> Self {
-        Self::with_capacity(capacity)
     }
 
     /// Create a secret string by copying from a string slice.
@@ -3587,13 +3514,6 @@ impl SecretString {
             index += 1;
         }
         Ok(secret)
-    }
-
-    /// Compatibility alias for [`SecretString::from_secret_str`].
-    #[must_use]
-    #[inline]
-    pub fn from_secret_str_volatile(text: &str) -> Self {
-        Self::from_secret_str(text)
     }
 
     /// Number of bytes currently held.
@@ -3794,7 +3714,7 @@ impl SecretString {
         let mut encoded = [0; 4];
         let text = character.encode_utf8(&mut encoded);
         self.inner.extend_from_slice(text.as_bytes());
-        sanitize_bytes(&mut encoded);
+        wipe::bytes(&mut encoded);
     }
 }
 

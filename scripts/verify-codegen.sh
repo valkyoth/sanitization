@@ -58,9 +58,9 @@ secret_box_core_clear_body="$(
     ' "${ir_file}"
 )"
 
-volatile_wipe_body="$(
+wipe_backend_body="$(
     awk '
-        /; sanitization::wipe_backend::volatile_wipe/ { found = 1; next }
+        /; sanitization::wipe_backend::ordered_volatile_store/ { found = 1; next }
         found && /define / { capture = 1 }
         capture { print }
         capture && /^}/ { exit }
@@ -111,8 +111,8 @@ if [[ -z "${secret_box_core_clear_body}" ]]; then
     exit 1
 fi
 
-if [[ -z "${volatile_wipe_body}" ]]; then
-    echo "volatile wipe body missing from LLVM IR" >&2
+if [[ -z "${wipe_backend_body}" ]]; then
+    echo "canonical wipe backend body missing from LLVM IR" >&2
     exit 1
 fi
 
@@ -136,33 +136,38 @@ if grep -Eq 'fence (acquire|release|acq_rel|seq_cst)' <<<"${secret_box_clear_bod
     exit 1
 fi
 
-if [[ "$(grep -Ec '^[[:space:]]+(tail )?call void .*wipe_backend.*volatile_wipe' <<<"${secret_box_core_clear_body}")" -ne 1 ]]; then
+if [[ "$(grep -Ec '^[[:space:]]+(tail )?call void .*wipe_backend.*erase' <<<"${secret_box_core_clear_body}")" -ne 1 ]]; then
     echo "SecretBoxBytes clear method does not dispatch exactly once" >&2
     exit 1
 fi
 
-if [[ "$(grep -c 'fence syncscope("singlethread") seq_cst' <<<"${volatile_wipe_body}")" -ne 2 ]]; then
+if [[ "$(grep -c 'fence syncscope("singlethread") seq_cst' <<<"${wipe_backend_body}")" -ne 2 ]]; then
     echo "volatile wipe compiler fences are no longer outside the byte loop" >&2
     exit 1
 fi
 
-if [[ "$(grep -c '^  fence seq_cst' <<<"${volatile_wipe_body}")" -ne 1 ]]; then
+if [[ "$(grep -c '^  fence seq_cst' <<<"${wipe_backend_body}")" -ne 1 ]]; then
     echo "volatile wipe hardware fence count changed unexpectedly" >&2
     exit 1
 fi
 
-if ! grep -q 'sanitization::wipe_backend::volatile_wipe' "${ir_file}"; then
-    echo "volatile wipe function missing from LLVM IR" >&2
+if ! grep -q 'sanitization::wipe_backend::ordered_volatile_store' "${ir_file}"; then
+    echo "canonical wipe backend function missing from LLVM IR" >&2
     exit 1
 fi
 
-if ! grep -q 'store volatile i8 0' "${ir_file}"; then
-    echo "volatile byte-zero stores missing from LLVM IR" >&2
+if ! grep -q 'store volatile i8 %value' "${ir_file}"; then
+    echo "volatile byte stores missing from canonical backend LLVM IR" >&2
     exit 1
 fi
 
-if ! grep -q 'sanitize_bytes_best_effort' "${ir_file}"; then
-    echo "compatibility clear alias missing from LLVM IR" >&2
+if ! grep -Eq 'ordered_volatile_store.*i8 noundef 0' "${ir_file}"; then
+    echo "canonical erase backend no longer dispatches a zero fill" >&2
+    exit 1
+fi
+
+if grep -q 'sanitize_bytes_best_effort' "${ir_file}"; then
+    echo "removed best-effort compatibility alias returned to LLVM IR" >&2
     exit 1
 fi
 
@@ -223,7 +228,7 @@ else
     echo "skipped architecture-specific codegen checks for ${host}"
 fi
 
-echo "verified volatile wipe codegen in ${ir_file}"
+echo "verified canonical wipe backend codegen in ${ir_file}"
 echo "verified native ct helper codegen in ${ir_file}"
 echo "verified direct fixed-secret exposure codegen in ${exposure_ir}"
 echo "verified fixed-allocation SecretBoxBytes clear dispatch in ${exposure_ir}"

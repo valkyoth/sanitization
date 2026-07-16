@@ -34,7 +34,7 @@ mod backing_wipe {
         // obtains the slice's complete byte length without separate
         // `CAP * size_of::<T>()` arithmetic. No live `T` is included.
         let bytes = unsafe { slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), byte_len) };
-        sanitization::unsafe_wipe::volatile_sanitize_bytes(bytes);
+        sanitization::wipe::bytes(bytes);
     }
 
     #[cfg(test)]

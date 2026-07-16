@@ -126,8 +126,9 @@ pub use platform::*;
 
 #[allow(unsafe_code)]
 mod wipe_backend;
-pub(crate) use wipe_backend as wipe;
-pub use wipe_backend::unsafe_wipe;
+
+/// Safe direct wiping helpers for ordinary buffers.
+pub mod wipe;
 
 /// Data-oblivious primitives for secret-handling code.
 ///

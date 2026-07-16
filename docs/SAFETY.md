@@ -108,8 +108,8 @@ Unsafe code is allowed only inside narrow, reviewable implementation modules:
   converts `ArrayVec::spare_capacity_mut()` from `MaybeUninit<T>` storage into
   a writable byte slice after excluding every live element.
 
-Public APIs, including `unsafe_wipe`, are safe wrappers around those internal
-backends.
+Public APIs in `sanitization::wipe` are safe wrappers around the private,
+sealed `wipe_backend`.
 
 ### `sanitization-arrayvec` complete inline backing wipe
 
@@ -134,8 +134,8 @@ Invariant:
   separate `CAP * size_of::<T>()` arithmetic.
 - Zero-sized element storage produces a zero byte length and performs no
   pointer conversion or volatile write.
-- The byte slice does not escape the helper and is passed directly to the core
-  crate's existing volatile-write API.
+- The byte slice does not escape the helper and is passed directly to
+  `sanitization::wipe::bytes`.
 - No `T` is reconstructed from the cleared backing bytes.
 - If a user-provided `SecureSanitize` implementation or destructor panics,
   ordinary Rust unwinding rules apply; the wrapper never raw-zeroes a still-live
@@ -145,12 +145,12 @@ Invariant:
 
 ### `ptr::write_volatile`
 
-Location: `wipe_backend::volatile_wipe`, `wipe_backend::volatile_fill`
+Location: `wipe_backend::ordered_volatile_store`
 
 Purpose: force one byte store per address so clearing ordinary mutable buffers
-is not optimized away as dead memory writes. With `multi-pass-clear`,
-`volatile_fill` uses the same primitive to write a caller-provided byte pattern
-between zeroing passes.
+is not optimized away as dead memory writes. The private sealed backend uses
+the same primitive for every pass, including the optional `0xFF` middle pass
+under `multi-pass-clear`.
 
 Invariant:
 
@@ -173,10 +173,10 @@ Invariant:
 
 ### `String::as_mut_ptr`
 
-Location: `unsafe_wipe::volatile_sanitize_string`
+Location: `wipe::string`
 
 Purpose: obtain a raw pointer to the `String` allocation so its full capacity
-can be passed to `wipe_backend::volatile_wipe` before calling `clear()`.
+can be passed to `wipe_backend::erase` before calling `clear()`.
 
 Invariant:
 

@@ -687,7 +687,7 @@ impl GuardedSecretVec {
     /// Clear the full writable data region and reset initialized length.
     #[inline(never)]
     pub fn clear_secret(&mut self) {
-        crate::wipe::volatile_wipe(self.data.as_ptr(), self.writable_len);
+        crate::wipe_backend::erase(self.data.as_ptr(), self.writable_len);
         self.len = 0;
         self.write_canaries();
     }
@@ -945,7 +945,7 @@ impl GuardedSecretVec {
         // mapping through `&self`. `GuardedSecretVec` is `Send` but not
         // `Sync`, so safe code cannot run this concurrently through shared
         // references.
-        crate::wipe::volatile_wipe(self.data.as_ptr(), self.writable_len);
+        crate::wipe_backend::erase(self.data.as_ptr(), self.writable_len);
     }
 
     #[cfg(all(test, feature = "canary-check", feature = "std"))]

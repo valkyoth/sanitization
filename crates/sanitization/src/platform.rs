@@ -288,7 +288,7 @@ pub mod cache_flush {
     /// lines.
     #[inline(never)]
     pub fn cache_flush_sanitize_bytes(bytes: &mut [u8]) {
-        crate::sanitize_bytes(bytes);
+        crate::wipe::bytes(bytes);
         flush_raw(bytes.as_ptr(), bytes.len());
     }
 
@@ -306,7 +306,7 @@ pub mod cache_flush {
     pub fn cache_flush_sanitize_vec(bytes: &mut Vec<u8>) {
         let ptr = bytes.as_ptr();
         let len = bytes.capacity();
-        crate::unsafe_wipe::volatile_sanitize_vec(bytes);
+        crate::wipe::vec(bytes);
         flush_raw(ptr, len);
     }
 
@@ -317,7 +317,7 @@ pub mod cache_flush {
     pub fn cache_flush_sanitize_string(text: &mut String) {
         let ptr = text.as_ptr();
         let len = text.capacity();
-        crate::unsafe_wipe::volatile_sanitize_string(text);
+        crate::wipe::string(text);
         flush_raw(ptr, len);
     }
 

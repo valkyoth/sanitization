@@ -123,7 +123,7 @@
     }
   ],
   "proofs": [
-    "prove_sanitize_bytes_clears_fixed_buffer",
+    "prove_wipe_bytes_clears_fixed_buffer",
     "prove_secret_bytes_clear_erases_visible_contents",
     "prove_secret_bytes_constant_time_eq_matches_byte_equality",
     "prove_ct_choice_is_normalized",

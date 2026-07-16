@@ -4,7 +4,7 @@
 //! Raw SHA-2 keyed constructions are vulnerable to length-extension and other
 //! misuse patterns. HMAC is the standard MAC construction for SHA-2.
 
-use sanitization::{ct, sanitize_bytes};
+use sanitization::{ct, wipe};
 use sha2::{Digest, Sha256, Sha384, Sha512};
 
 use crate::sha2::{sha256_digest, sha384_digest, sha512_digest};
@@ -36,7 +36,7 @@ impl<const N: usize> Scratch<N> {
     fn from_array(mut bytes: [u8; N]) -> Self {
         let mut scratch = Self::zeroed();
         scratch.bytes.copy_from_slice(&bytes);
-        sanitize_bytes(&mut bytes);
+        wipe::bytes(&mut bytes);
         scratch
     }
 
@@ -54,7 +54,7 @@ impl<const N: usize> Scratch<N> {
 impl<const N: usize> Drop for Scratch<N> {
     #[inline]
     fn drop(&mut self) {
-        sanitize_bytes(&mut self.bytes);
+        wipe::bytes(&mut self.bytes);
     }
 }
 
@@ -67,7 +67,7 @@ impl<const N: usize> Drop for Scratch<N> {
 /// outside a `sanitization` secret container.
 ///
 /// The returned tag is ordinary caller-owned memory. If the tag is sensitive,
-/// clear it with `sanitization::sanitize_bytes` after use or move it directly
+/// clear it with `sanitization::wipe::bytes` after use or move it directly
 /// into a secret container.
 #[must_use]
 pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
@@ -97,7 +97,7 @@ pub fn hmac_sha256_verify(key: &[u8], message: &[u8], tag: &[u8; 32]) -> bool {
     let mut actual = hmac_sha256(key, message);
     let matches =
         ct::eq_fixed(&actual, tag).declassify("HMAC-SHA256 verification result is public");
-    sanitize_bytes(&mut actual);
+    wipe::bytes(&mut actual);
     matches
 }
 
@@ -110,7 +110,7 @@ pub fn hmac_sha256_verify(key: &[u8], message: &[u8], tag: &[u8; 32]) -> bool {
 /// outside a `sanitization` secret container.
 ///
 /// The returned tag is ordinary caller-owned memory. If the tag is sensitive,
-/// clear it with `sanitization::sanitize_bytes` after use or move it directly
+/// clear it with `sanitization::wipe::bytes` after use or move it directly
 /// into a secret container.
 #[must_use]
 pub fn hmac_sha384(key: &[u8], message: &[u8]) -> [u8; 48] {
@@ -140,7 +140,7 @@ pub fn hmac_sha384_verify(key: &[u8], message: &[u8], tag: &[u8; 48]) -> bool {
     let mut actual = hmac_sha384(key, message);
     let matches =
         ct::eq_fixed(&actual, tag).declassify("HMAC-SHA384 verification result is public");
-    sanitize_bytes(&mut actual);
+    wipe::bytes(&mut actual);
     matches
 }
 
@@ -153,7 +153,7 @@ pub fn hmac_sha384_verify(key: &[u8], message: &[u8], tag: &[u8; 48]) -> bool {
 /// outside a `sanitization` secret container.
 ///
 /// The returned tag is ordinary caller-owned memory. If the tag is sensitive,
-/// clear it with `sanitization::sanitize_bytes` after use or move it directly
+/// clear it with `sanitization::wipe::bytes` after use or move it directly
 /// into a secret container.
 #[must_use]
 pub fn hmac_sha512(key: &[u8], message: &[u8]) -> [u8; 64] {
@@ -183,7 +183,7 @@ pub fn hmac_sha512_verify(key: &[u8], message: &[u8], tag: &[u8; 64]) -> bool {
     let mut actual = hmac_sha512(key, message);
     let matches =
         ct::eq_fixed(&actual, tag).declassify("HMAC-SHA512 verification result is public");
-    sanitize_bytes(&mut actual);
+    wipe::bytes(&mut actual);
     matches
 }
 

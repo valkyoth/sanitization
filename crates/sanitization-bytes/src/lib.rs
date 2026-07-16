@@ -9,7 +9,7 @@
 
 use bytes::BytesMut;
 use core::fmt;
-use sanitization::{sanitize_bytes, SecureSanitize};
+use sanitization::{wipe, SecureSanitize};
 
 #[cfg(test)]
 extern crate std;
@@ -153,7 +153,7 @@ impl SecretBytesMut {
     pub fn clear_secret(&mut self) {
         let capacity = self.inner.capacity();
         self.inner.resize(capacity, 0);
-        sanitize_bytes(self.inner.as_mut());
+        wipe::bytes(self.inner.as_mut());
         self.inner.clear();
     }
 

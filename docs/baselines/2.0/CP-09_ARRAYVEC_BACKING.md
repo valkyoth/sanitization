@@ -34,8 +34,8 @@ The sister crate contains one allowed unsafe module. It converts the writable
 - every byte pattern is valid for `MaybeUninit<T>`; and
 - the byte view does not outlive the exclusive spare-capacity borrow.
 
-The helper uses the main crate's existing volatile-write API and introduces no
-second wipe implementation.
+The helper uses `sanitization::wipe::bytes` and introduces no second wipe
+implementation.
 
 ## Operation Coverage
 

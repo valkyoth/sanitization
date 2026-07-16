@@ -178,9 +178,6 @@ For heap-backed secret containers:
 sanitization = { version = "1.2.5", features = ["alloc"] }
 ```
 
-The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
-release-candidate dependency declarations. Volatile clearing is now the default.
-
 For memory-locked fixed-size secrets on supported native platforms:
 
 ```toml
@@ -243,8 +240,6 @@ sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3",
 | `multi-pass-clear` | no | Enables explicit three-pass volatile overwrite helpers for policy or audit compatibility. |
 | `hardware-secrets` | no | Enables dependency-free traits for external hardware-backed secret provider crates. |
 | `split-secret` | no | Enables `SplitSecretBytes<N, SHARES>` N-of-N XOR split storage. |
-| `unsafe-wipe` | no | Compatibility no-op; volatile wiping is default. |
-
 Default builds are dependency-free and `no_std`.
 
 ## Data-Oblivious Primitives
@@ -1533,41 +1528,46 @@ The wrapped value is cleared immediately after the first successful closure
 returns. If the closure unwinds, `Drop` clears during unwinding. Like all
 destructor-based cleanup, this cannot run if the process aborts.
 
-## Explicit Volatile Wiping
+## Direct Wiping
 
-If a secret already lives in an ordinary buffer, call the volatile helper
-directly.
+If a secret already lives in an ordinary buffer, use the canonical safe
+`wipe` module. Every helper reaches the crate's private volatile-write backend.
 
 ```rust
-use sanitization::unsafe_wipe::volatile_sanitize_bytes;
+use sanitization::wipe;
 
 let mut bytes = [0xA5; 32];
-volatile_sanitize_bytes(&mut bytes);
+wipe::bytes(&mut bytes);
 assert_eq!(bytes, [0; 32]);
 ```
 
 With `alloc`, `Vec<u8>` and `String` helpers are available:
 
 ```rust
-use sanitization::unsafe_wipe::{volatile_sanitize_string, volatile_sanitize_vec};
+use sanitization::wipe;
 
 let mut bytes = vec![0xBB; 16];
-volatile_sanitize_vec(&mut bytes);
+wipe::vec(&mut bytes);
 assert!(bytes.is_empty());
 
 let mut token = String::from("secret-token");
-volatile_sanitize_string(&mut token);
+wipe::string(&mut token);
 assert!(token.is_empty());
 ```
 
-For clear-on-drop volatile behavior, use `VolatileOnDrop`:
+For explicit clear-on-drop behavior around an ordinary supported value, use
+`WipeOnDrop`:
 
 ```rust
-use sanitization::unsafe_wipe::VolatileOnDrop;
+use sanitization::wipe::WipeOnDrop;
 
-let secret = VolatileOnDrop::new([1_u8, 2, 3, 4]);
+let secret = WipeOnDrop::new([1_u8, 2, 3, 4]);
 assert_eq!(secret.with_secret(|bytes| bytes.len()), 4);
 ```
+
+The 2.0 API removes the old `unsafe_wipe`, `volatile_sanitize_*`,
+`sanitize_bytes_best_effort`, and volatile-constructor aliases. They all
+selected the same backend and made the guarantee harder to understand.
 
 ## Multi-Pass Clearing
 
@@ -1580,10 +1580,10 @@ sanitization = { version = "1.2.5", features = ["multi-pass-clear"] }
 ```
 
 ```rust
-use sanitization::{sanitize_bytes_multi_pass, SecretBytes};
+use sanitization::{wipe, SecretBytes};
 
 let mut bytes = [0xA5; 32];
-sanitize_bytes_multi_pass(&mut bytes);
+wipe::bytes_multi_pass(&mut bytes);
 assert_eq!(bytes, [0; 32]);
 
 let mut key = SecretBytes::<32>::from_array([7; 32]);
@@ -1888,7 +1888,8 @@ the first mismatching byte.
 | Custom struct with compiler-generated native `ct` selection | `#[derive(ConditionallySelectable)]` with `derive` |
 | Custom struct, macro-owned drop | `secure_drop_struct!` |
 | Custom struct, custom drop | `secure_sanitize_struct!` |
-| Existing ordinary buffer | `unsafe_wipe::volatile_sanitize_*` |
+| Existing ordinary byte buffer | `wipe::bytes`, `wipe::array`, `wipe::vec`, or `wipe::string` |
+| Existing supported value with explicit clear-on-drop behavior | `wipe::WipeOnDrop<T>` |
 | Generic clear-on-drop wrapper | `Secret<T>` |
 | Explicit x86_64/AArch64 comparison compiler boundary | `asm-compare` feature |
 | Explicit x86_64 cache-line eviction after clearing | `cache-flush` feature |
@@ -1991,8 +1992,7 @@ crates/sanitization-crypto-interop # optional crypto hasher cleanup and MAC help
 ```
 
 The main crate also includes checked examples for the primary API families:
-`basic`, `alloc`, `macros`, `unsafe_wipe`, `high_assurance`, and
-`ct_primitives`.
+`basic`, `alloc`, `macros`, `wipe`, `high_assurance`, and `ct_primitives`.
 
 For crates.io releases, publish the derive crate first, then the main crate,
 then the integration wrapper crates:

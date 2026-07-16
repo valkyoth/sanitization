@@ -49,9 +49,6 @@ strict-canary-check = ["random-canary"]
 multi-pass-clear = []
 hardware-secrets = []
 split-secret = []
-# Compatibility flag for older release-candidate dependency declarations.
-# Volatile wiping is now the default clear path.
-unsafe-wipe = []
 
 [package.metadata.docs.rs]
 all-features = true

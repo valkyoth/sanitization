@@ -22,6 +22,12 @@
   preserve valid destructor ordering for removed values.
 - Added coverage for historical spare bytes, wrapping, reuse, zero-sized
   drop-bearing values, and complete post-clear backing cleanup.
+- Added the canonical safe `sanitization::wipe` module and explicit
+  `WipeOnDrop<T>` wrapper for ordinary supported buffers.
+- Consolidated all clearing through a private sealed `wipe_backend` and
+  retained the reviewed 1.x compiler and hardware fence policy.
+- Removed best-effort, volatile-alias, volatile-constructor, and misleading
+  `unsafe_wipe` compatibility APIs, including the no-op `unsafe-wipe` feature.
 
 ## 1.2.5
 

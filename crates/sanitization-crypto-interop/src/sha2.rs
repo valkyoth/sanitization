@@ -10,7 +10,7 @@ use sha2::{Digest, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256};
 /// Compute a SHA-224 digest.
 ///
 /// The returned array is ordinary caller-owned memory. If the digest is
-/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// sensitive, clear it with `sanitization::wipe::bytes` after use or move it
 /// directly into a secret container.
 #[must_use]
 #[inline]
@@ -23,7 +23,7 @@ pub fn sha224_digest(preimage: &[u8]) -> [u8; 28] {
 /// Compute a SHA-256 digest.
 ///
 /// The returned array is ordinary caller-owned memory. If the digest is
-/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// sensitive, clear it with `sanitization::wipe::bytes` after use or move it
 /// directly into a secret container.
 #[must_use]
 #[inline]
@@ -36,7 +36,7 @@ pub fn sha256_digest(preimage: &[u8]) -> [u8; 32] {
 /// Compute a SHA-384 digest.
 ///
 /// The returned array is ordinary caller-owned memory. If the digest is
-/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// sensitive, clear it with `sanitization::wipe::bytes` after use or move it
 /// directly into a secret container.
 #[must_use]
 #[inline]
@@ -49,7 +49,7 @@ pub fn sha384_digest(preimage: &[u8]) -> [u8; 48] {
 /// Compute a SHA-512 digest.
 ///
 /// The returned array is ordinary caller-owned memory. If the digest is
-/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// sensitive, clear it with `sanitization::wipe::bytes` after use or move it
 /// directly into a secret container.
 #[must_use]
 #[inline]
@@ -62,7 +62,7 @@ pub fn sha512_digest(preimage: &[u8]) -> [u8; 64] {
 /// Compute a SHA-512/224 digest.
 ///
 /// The returned array is ordinary caller-owned memory. If the digest is
-/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// sensitive, clear it with `sanitization::wipe::bytes` after use or move it
 /// directly into a secret container.
 #[must_use]
 #[inline]
@@ -75,7 +75,7 @@ pub fn sha512_224_digest(preimage: &[u8]) -> [u8; 28] {
 /// Compute a SHA-512/256 digest.
 ///
 /// The returned array is ordinary caller-owned memory. If the digest is
-/// sensitive, clear it with `sanitization::sanitize_bytes` after use or move it
+/// sensitive, clear it with `sanitization::wipe::bytes` after use or move it
 /// directly into a secret container.
 #[must_use]
 #[inline]

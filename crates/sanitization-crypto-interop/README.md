@@ -47,7 +47,7 @@ cleared by the upstream implementation when the hasher is dropped.
 The incremental wrapper types also implement `sanitization::SecureSanitize`.
 
 The digest helper functions return ordinary arrays. If a digest is sensitive,
-clear it after use with `sanitization::sanitize_bytes` or move it directly into
+clear it after use with `sanitization::wipe::bytes` or move it directly into
 a `sanitization` secret container.
 
 ```rust

@@ -2767,12 +2767,26 @@ fn guarded_secret_string_preserves_utf8_and_guard_lifecycle() {
 }
 
 #[test]
-fn volatile_wipe_clears_slice() {
+fn canonical_wipe_clears_slice() {
     let mut bytes = [0xA5; 16];
 
-    crate::unsafe_wipe::volatile_sanitize_bytes(&mut bytes);
+    crate::wipe::bytes(&mut bytes);
 
     assert_eq!(bytes, [0; 16]);
+}
+
+#[test]
+fn canonical_wipe_array_and_trait_reach_same_backend() {
+    use crate::wipe::Wipe as _;
+
+    let mut by_function = [0xA5; 16];
+    let mut by_trait = [0x5A; 16];
+
+    crate::wipe::array(&mut by_function);
+    by_trait.wipe();
+
+    assert_eq!(by_function, [0; 16]);
+    assert_eq!(by_trait, [0; 16]);
 }
 
 #[cfg(feature = "multi-pass-clear")]
@@ -2780,19 +2794,19 @@ fn volatile_wipe_clears_slice() {
 fn multi_pass_wipe_clears_slice() {
     let mut bytes = [0xA5; 16];
 
-    sanitize_bytes_multi_pass(&mut bytes);
+    wipe::bytes_multi_pass(&mut bytes);
 
     assert_eq!(bytes, [0; 16]);
 }
 
 #[cfg(feature = "alloc")]
 #[test]
-fn volatile_wipe_clears_alloc_types_when_enabled() {
+fn canonical_wipe_clears_alloc_types_when_enabled() {
     let mut bytes = std::vec![0xBB; 8];
     let mut text = std::string::String::from("secret");
 
-    crate::unsafe_wipe::volatile_sanitize_vec(&mut bytes);
-    crate::unsafe_wipe::volatile_sanitize_string(&mut text);
+    crate::wipe::vec(&mut bytes);
+    crate::wipe::string(&mut text);
 
     assert!(bytes.is_empty());
     assert!(text.is_empty());
@@ -2808,8 +2822,8 @@ fn multi_pass_wipe_clears_alloc_types_when_enabled() {
 
     bytes.clear_secret_multi_pass();
     text.clear_secret_multi_pass();
-    crate::unsafe_wipe::volatile_sanitize_vec_multi_pass(&mut ordinary);
-    crate::unsafe_wipe::volatile_sanitize_string_multi_pass(&mut ordinary_text);
+    crate::wipe::vec_multi_pass(&mut ordinary);
+    crate::wipe::string_multi_pass(&mut ordinary_text);
 
     assert!(bytes.is_empty());
     assert!(text.is_empty());
@@ -2834,8 +2848,8 @@ fn alloc_standard_types_implement_secure_sanitize() {
 }
 
 #[test]
-fn volatile_on_drop_wrapper_is_explicit() {
-    let mut secret = crate::unsafe_wipe::VolatileOnDrop::new([1, 2, 3, 4]);
+fn wipe_on_drop_wrapper_is_explicit() {
+    let mut secret = crate::wipe::WipeOnDrop::new([1, 2, 3, 4]);
 
     assert_eq!(secret.with_secret(|bytes| bytes[2]), 3);
     secret.with_secret_mut(|bytes| bytes[2] = 9);
@@ -2859,22 +2873,6 @@ fn cache_flush_sanitize_clears_slice_and_secret_bytes() {
     wrapped.with_secret_mut(|value| value[0] = 9);
     assert_eq!(wrapped.with_secret(|value| value[0]), 9);
     wrapped.into_cleared();
-}
-
-#[cfg(feature = "alloc")]
-#[test]
-fn volatile_constructor_aliases_still_work() {
-    let mut bytes = SecretVec::from_slice_volatile(&[1, 2, 3]);
-    let mut text = SecretString::from_secret_str_volatile("secret");
-
-    assert_eq!(bytes.with_secret(|secret| secret[0]), 1);
-    assert_eq!(text.try_with_secret(|secret| secret.len()), Ok(6));
-
-    bytes.clear_secret();
-    text.clear_secret();
-
-    assert!(bytes.is_empty());
-    assert!(text.is_empty());
 }
 
 #[cfg(all(
