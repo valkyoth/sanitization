@@ -1295,6 +1295,9 @@ documentation, target evidence, and external review requirements.
 
 Users should not wait for 2.0 to receive non-breaking corrections.
 
+The active disposition and branch-integration process are maintained in
+[`BACKPORTS_1.2.x.md`](BACKPORTS_1.2.x.md).
+
 Backport candidates:
 
 - correct the inaccurate `sanitization-arrayvec` spare-storage documentation;
@@ -1358,6 +1361,9 @@ The first checkpoint adds validation for report metadata, reviewed ranges,
 ancestry, and report-only acceptance commits. The detailed plan also contains a
 roadmap coverage matrix so every workstream has an implementation checkpoint or
 an explicit reviewed defer/reject decision.
+
+The frozen pre-2.0 comparison state is documented in
+[`baselines/2.0/BASELINE_1.2.5.md`](baselines/2.0/BASELINE_1.2.5.md).
 
 No alpha, beta, or release-candidate packages are planned. Workspace versions
 remain unchanged during implementation. The coordinated `2.0.0` version bump,

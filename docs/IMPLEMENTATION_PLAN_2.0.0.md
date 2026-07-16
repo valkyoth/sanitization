@@ -124,7 +124,7 @@ the report is the authoritative record.
 
 | Checkpoint | Status | Permanent report |
 |---|---|---|
-| `CP-00` | Planned | `security/pentest/2.0-development/CP-00.md` |
+| `CP-00` | Pentest | `security/pentest/2.0-development/CP-00.md` |
 | `CP-01` | Planned | `security/pentest/2.0-development/CP-01.md` |
 | `CP-02` | Planned | `security/pentest/2.0-development/CP-02.md` |
 | `CP-03` | Planned | `security/pentest/2.0-development/CP-03.md` |
