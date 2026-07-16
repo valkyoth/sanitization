@@ -247,16 +247,16 @@ Invariant:
   8-byte prefix and suffix canaries inside each slot stride. Allocation writes
   fresh canaries before returning a slot handle, and slot drop clears the full
   stride before releasing the atomic bitmap flag.
-- `canary-check` derives the expected canary from the mapping base address and
-  a fixed mask, or from the pool slot base address for pooled slots. This avoids
-  RNG and dependency requirements while making the canary value mapping-specific
-  under ASLR. This deterministic mode relies on ASLR or otherwise unpredictable
-  mapping addresses and is intended for blind overwrite detection. Disclosure
-  of one deterministic canary value reveals the expected value for that mapping
-  or slot, allowing an attacker who can also write memory to forge the matching
-  canary. Use `random-canary` where ASLR is disabled, weakened, canary
-  disclosure is in scope, or deterministic canaries are not acceptable for the
-  threat model.
+- `canary-check` derives standalone expected canaries from the mapping base
+  address and a fixed mask. Pooled slots additionally mix a per-slot allocation
+  generation into the slot base address, so successive occupants do not reuse
+  the same deterministic canary. This avoids RNG and dependency requirements
+  while retaining mapping-specific blind-overwrite detection under ASLR.
+  Disclosure of one deterministic canary reveals the expected value for that
+  live mapping or slot occupancy, allowing an attacker who can also write
+  memory to forge it. Use `random-canary` where ASLR is disabled, weakened,
+  canary disclosure is in scope, or deterministic canaries are not acceptable
+  for the threat model.
 - With `random-canary`, the expected canary is generated once from the
   operating-system CSPRNG and stored in the Rust owner or slot metadata. The
   prefix and suffix copies remain in the locked or guarded mapping beside the
