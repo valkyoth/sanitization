@@ -1242,6 +1242,10 @@ pub struct SealedSecretBytes<const N: usize> {
     fail_next_seal: bool,
     #[cfg(test)]
     fail_next_unseal: bool,
+    #[cfg(test)]
+    fail_normalization_page: Option<usize>,
+    #[cfg(test)]
+    fail_next_unmap: bool,
 }
 
 // SAFETY: The value exclusively owns its mapping. Moving ownership to another
@@ -1284,6 +1288,10 @@ impl<const N: usize> SealedSecretBytes<N> {
             fail_next_seal: false,
             #[cfg(test)]
             fail_next_unseal: false,
+            #[cfg(test)]
+            fail_normalization_page: None,
+            #[cfg(test)]
+            fail_next_unmap: false,
         })
     }
 
@@ -1500,20 +1508,47 @@ impl<const N: usize> SealedSecretBytes<N> {
 
     fn retire_after_transition_failure(&mut self) {
         self.state = SealedState::Poisoned;
-        if normalize_data_pages(
+        #[cfg(test)]
+        let normalization = match self.fail_normalization_page.take() {
+            Some(page_index) => normalize_data_pages_with_failure(
+                self.inner.data,
+                self.inner.writable_len,
+                PageProtection::ReadWrite,
+                page_index,
+            ),
+            None => normalize_data_pages(
+                self.inner.data,
+                self.inner.writable_len,
+                PageProtection::ReadWrite,
+            ),
+        };
+        #[cfg(not(test))]
+        let normalization = normalize_data_pages(
             self.inner.data,
             self.inner.writable_len,
             PageProtection::ReadWrite,
-        )
-        .is_ok()
-        {
+        );
+
+        if normalization.is_ok() {
             self.reset_zeroed_payload();
         }
         #[cfg(feature = "memory-lock")]
         if self.inner.locked {
             let _ = unlock_mapping(self.inner.data, self.inner.writable_len);
         }
-        if unmap_guarded(self.inner.base, self.inner.map_len).is_ok() {
+        #[cfg(test)]
+        let unmap = if core::mem::take(&mut self.fail_next_unmap) {
+            Err(GuardPageError {
+                operation: GuardPageOperation::Unmap,
+                errno: 0,
+            })
+        } else {
+            unmap_guarded(self.inner.base, self.inner.map_len)
+        };
+        #[cfg(not(test))]
+        let unmap = unmap_guarded(self.inner.base, self.inner.map_len);
+
+        if unmap.is_ok() {
             self.state = SealedState::Retired;
         }
     }
@@ -1526,6 +1561,16 @@ impl<const N: usize> SealedSecretBytes<N> {
     #[cfg(test)]
     pub(crate) fn fail_next_unseal_for_test(&mut self) {
         self.fail_next_unseal = true;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_normalization_page_for_test(&mut self, page_index: usize) {
+        self.fail_normalization_page = Some(page_index);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_unmap_for_test(&mut self) {
+        self.fail_next_unmap = true;
     }
 
     #[cfg(test)]
@@ -2332,6 +2377,26 @@ fn normalize_data_pages(
     len: usize,
     protection: PageProtection,
 ) -> Result<(), GuardPageError> {
+    normalize_data_pages_inner(ptr, len, protection, None)
+}
+
+#[cfg(all(feature = "page-seal", test))]
+fn normalize_data_pages_with_failure(
+    ptr: NonNull<u8>,
+    len: usize,
+    protection: PageProtection,
+    page_index: usize,
+) -> Result<(), GuardPageError> {
+    normalize_data_pages_inner(ptr, len, protection, Some(page_index))
+}
+
+#[cfg(feature = "page-seal")]
+fn normalize_data_pages_inner(
+    ptr: NonNull<u8>,
+    len: usize,
+    protection: PageProtection,
+    _failed_page: Option<usize>,
+) -> Result<(), GuardPageError> {
     let page_granule = platform_page_granule();
     let mut first_error = None;
 
@@ -2339,6 +2404,21 @@ fn normalize_data_pages(
         // SAFETY: guarded writable regions are page-aligned, page-rounded,
         // and live for `len` bytes. `offset` is strictly inside that range.
         let page = unsafe { NonNull::new_unchecked(ptr.as_ptr().add(offset)) };
+
+        #[cfg(test)]
+        if _failed_page == Some(offset / page_granule) {
+            // Leave the injected page inaccessible to model a failed
+            // normalization whose final protection cannot be trusted.
+            let _ = seal_data(page, page_granule);
+            if first_error.is_none() {
+                first_error = Some(GuardPageError {
+                    operation: GuardPageOperation::Protect,
+                    errno: 0,
+                });
+            }
+            continue;
+        }
+
         if let Err(error) = apply_page_protection(page, page_granule, protection) {
             if first_error.is_none() {
                 first_error = Some(error);
