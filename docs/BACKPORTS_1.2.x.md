@@ -8,8 +8,8 @@ the development branch when relevant.
 
 This register dispositions the non-breaking backport candidates identified by
 the 2.0 roadmap. It does not authorize mixing a 1.2.x patch into a 2.0
-checkpoint review range without recording the merge in that checkpoint's
-scope.
+checkpoint review range without clearly identifying the integration commit in
+the temporary review handoff.
 
 ## Required 1.2.x Patch Work
 
@@ -90,8 +90,8 @@ For a 1.2.x patch:
 3. return to `temp-dev-2.0.0`;
 4. merge or cherry-pick the patch according to whether its exact history must
    remain visible;
-5. include that integration in the next checkpoint's `Base-Commit` to
-   `Reviewed-Through` scope;
+5. identify that integration explicitly when handing the next commit range to
+   the reviewer;
 6. resolve the matching register item without weakening its 2.0 checkpoint.
 
 No urgent patch should wait for the completion of 2.0.

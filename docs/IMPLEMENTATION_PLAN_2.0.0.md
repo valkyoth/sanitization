@@ -1,6 +1,6 @@
 # Sanitization 2.0.0 Commit Implementation Plan
 
-Status: planning document
+Status: active development plan
 
 This document converts the 2.0 architecture roadmap into bounded implementation
 commits. It replaces alpha, beta, and release-candidate tags as development
@@ -8,8 +8,10 @@ checkpoints.
 
 There are no intermediate 2.0 version tags or crates.io releases. Each
 checkpoint ends at a reviewed commit, receives its own pentest or targeted
-security review, and must be accepted before work starts on the next
-checkpoint. Only the completed release receives the `v2.0.0` tag.
+security review, and must be accepted by the project owner before work starts
+on the next checkpoint. Development findings are temporary working material;
+only the completed release receives a permanent pentest report and the
+`v2.0.0` tag.
 
 The architecture and security requirements remain normative in
 [`ROADMAP_2.0.0.md`](ROADMAP_2.0.0.md). This document defines implementation
@@ -23,20 +25,19 @@ checkpoint is implemented.
 
 The normal flow is:
 
-1. Start from the previous accepted checkpoint report commit.
+1. Record the current branch tip as the checkpoint base.
 2. Implement only the current checkpoint.
 3. Run the checkpoint verification and the repository-wide required checks.
 4. Create one implementation commit with the checkpoint identifier in the
    commit message.
 5. Stop implementation.
-6. Pentest the range from the previous accepted checkpoint through the new
-   implementation commit.
+6. Pentest the range from the checkpoint base through the new implementation
+   commit.
 7. Put temporary findings in root `PENTEST.md`.
 8. Fix findings in one or more checkpoint-scoped remediation commits.
 9. Delete `PENTEST.md` and rerun the entire checkpoint review range.
-10. Commit a permanent PASS report as a report-only acceptance commit.
-11. Start the next checkpoint only after the acceptance commit and CI are
-    green.
+10. Stop when the project owner confirms that the retest is sufficient.
+11. Start the next checkpoint from the accepted branch tip after CI is green.
 
 If a checkpoint no longer fits in one coherent implementation commit, stop
 before editing production code and split it in this plan. Do not stack multiple
@@ -46,61 +47,35 @@ original numbering.
 The review range is:
 
 ```text
-git diff <previous-accepted-report-commit>..<reviewed-through-commit>
+git diff <checkpoint-base-commit>..<reviewed-through-commit>
 ```
 
-If remediation commits are needed, `Reviewed-Through` names the last
+If remediation commits are needed, the reviewed-through commit is the last
 remediation commit. The complete range is retested; the review does not inspect
-only the final patch.
+only the final patch. The exact range is communicated in the development
+conversation and does not require permanent repository metadata.
 
-## Development Pentest Reports
+## Development Pentest Material
 
-Permanent development reports belong at:
-
-```text
-security/pentest/2.0-development/CP-XX.md
-```
-
-Every report must contain:
+Development findings use the ignored root file:
 
 ```text
-Status: PASS
-Checkpoint: CP-XX
-Base-Commit: <40-character commit>
-Reviewed-Through: <40-character commit>
-Tester: <non-empty>
-Review-Type: <targeted-internal|targeted-external|independent-audit|pentest|close-out>
-Scope: <non-empty>
-Date: YYYY-MM-DD
+PENTEST.md
 ```
 
-The report-only acceptance commit must:
+The file is never committed. It is deleted after remediation and a clean
+retest. Development reviews may be repeated as often as needed without
+creating repository artifacts or release-like acceptance commits.
 
-- have `Reviewed-Through` as its first parent;
-- change only the matching checkpoint report;
-- contain no source, test, manifest, generated evidence, or documentation
-  changes;
-- be green in CI before the next checkpoint starts.
-
-`CP-00` adds a validator for these rules. The final `v2.0.0` report continues
-to use the normal release-report and signed-tag process.
-
-The normal CI checks fetch complete Git history and validate every
-report-changing commit from the fixed `CP-00` base through the tested branch
-tip. Batched pushes therefore do not skip an earlier acceptance commit.
-
-Checkpoint history must remain linear from the fixed `CP-00` base through the
-current development tip. Merge commits are rejected; integrate parallel work
-by rebasing or cherry-picking it into the checkpoint branch. Pull-request CI
-checks the contributor branch head rather than GitHub's synthetic merge ref.
+The final `v2.0.0` review is different: it must produce
+`security/pentest/v2.0.0.md`, committed alone through the normal release gate.
 
 ## Version And Tag Policy
 
 - Do not create alpha, beta, RC, or checkpoint tags.
 - Do not publish checkpoint packages.
 - Do not bump workspace packages for every checkpoint.
-- Keep checkpoint identity in commit messages and permanent development
-  reports.
+- Keep checkpoint identity in commit messages and this planning register.
 - Perform the coordinated workspace bump to `2.0.0` only in `CP-23`.
 - Create and push `v2.0.0` only after the final report-only release commit.
 - Continue using the 1.2.x line separately for eligible non-breaking
@@ -121,86 +96,80 @@ Every implementation and remediation stop must run the applicable subset of:
 - target-specific native checks required by the checkpoint.
 
 The checkpoint may add stronger commands. A narrow checkpoint may skip an
-unrelated expensive native job only when the permanent report records why it
-was unrelated. The final evidence checkpoints run the complete matrix.
+unrelated expensive native job when the review handoff explains why it is
+unrelated. The final evidence checkpoints run the complete matrix.
 
 ## Checkpoint Register
 
-Update this table when a checkpoint starts. After its report-only acceptance
-commit lands, mark it accepted in the next implementation commit. Exact
-40-character base and reviewed-through hashes belong in the permanent report;
-the report is the authoritative record.
+Update this table when a checkpoint starts and after the project owner accepts
+its retest.
 
-| Checkpoint | Status | Permanent report |
-|---|---|---|
-| `CP-00` | Accepted | `security/pentest/2.0-development/CP-00.md` |
-| `CP-01` | Accepted | `security/pentest/2.0-development/CP-01.md` |
-| `CP-02` | Pentest | `security/pentest/2.0-development/CP-02.md` |
-| `CP-03` | Planned | `security/pentest/2.0-development/CP-03.md` |
-| `CP-04` | Planned | `security/pentest/2.0-development/CP-04.md` |
-| `CP-05` | Planned | `security/pentest/2.0-development/CP-05.md` |
-| `CP-06` | Planned | `security/pentest/2.0-development/CP-06.md` |
-| `CP-07` | Planned | `security/pentest/2.0-development/CP-07.md` |
-| `CP-08` | Planned | `security/pentest/2.0-development/CP-08.md` |
-| `CP-09` | Planned | `security/pentest/2.0-development/CP-09.md` |
-| `CP-10` | Planned | `security/pentest/2.0-development/CP-10.md` |
-| `CP-11` | Planned | `security/pentest/2.0-development/CP-11.md` |
-| `CP-12` | Planned | `security/pentest/2.0-development/CP-12.md` |
-| `CP-13` | Planned | `security/pentest/2.0-development/CP-13.md` |
-| `CP-14` | Planned | `security/pentest/2.0-development/CP-14.md` |
-| `CP-15` | Planned | `security/pentest/2.0-development/CP-15.md` |
-| `CP-16` | Planned | `security/pentest/2.0-development/CP-16.md` |
-| `CP-17` | Planned | `security/pentest/2.0-development/CP-17.md` |
-| `CP-18` | Planned | `security/pentest/2.0-development/CP-18.md` |
-| `CP-19` | Planned | `security/pentest/2.0-development/CP-19.md` |
-| `CP-20` | Planned | `security/pentest/2.0-development/CP-20.md` |
-| `CP-21` | Planned | `security/pentest/2.0-development/CP-21.md` |
-| `CP-22` | Planned | `security/pentest/2.0-development/CP-22.md` |
-| `CP-23` | Planned | `security/pentest/2.0-development/CP-23.md` |
+| Checkpoint | Status |
+|---|---|
+| `CP-00` | Accepted |
+| `CP-01` | Accepted |
+| `CP-02` | Accepted |
+| `CP-03` | Planned |
+| `CP-04` | Planned |
+| `CP-05` | Planned |
+| `CP-06` | Planned |
+| `CP-07` | Planned |
+| `CP-08` | Planned |
+| `CP-09` | Planned |
+| `CP-10` | Planned |
+| `CP-11` | Planned |
+| `CP-12` | Planned |
+| `CP-13` | Planned |
+| `CP-14` | Planned |
+| `CP-15` | Planned |
+| `CP-16` | Planned |
+| `CP-17` | Planned |
+| `CP-18` | Planned |
+| `CP-19` | Planned |
+| `CP-20` | Planned |
+| `CP-21` | Planned |
+| `CP-22` | Planned |
+| `CP-23` | Planned |
 
 Allowed status values are `Planned`, `Implementing`, `Pentest`, `Remediating`,
 `Retest`, `Accepted`, and `Deferred`. `Deferred` is valid only for an optional
-additive checkpoint and requires an accepted report containing the rationale
-and the removed or reduced stable claim.
+additive checkpoint and requires the rationale and removed or reduced stable
+claim to be recorded in the roadmap or implementation plan.
 
 ## Commit Sequence
 
-### `CP-00`: Commit-Gate Infrastructure And Baseline
+### `CP-00`: Development Workflow And Baseline
 
 Recommended commit message:
 
 ```text
-CP-00 establish sanitization 2.0 commit gates
+CP-00 establish sanitization 2.0 development workflow
 ```
 
-Goal: make commit-by-commit review enforceable before behavioral work starts.
+Goal: establish the development branch, review boundaries, and frozen baseline
+before behavioral work starts.
 
 Deliverables:
 
-- add `scripts/validate-2.0-checkpoint.sh`;
-- validate checkpoint report metadata, commit ancestry, and report-only
-  acceptance commits;
-- add tests for missing, malformed, stale, and multi-file reports;
 - capture the 1.2.5 public API, feature matrix, package contents, unsafe-block
   inventory, codegen samples, and current target evidence;
 - disposition every 1.2.x backport candidate as a separate patch-release task
   or a documented non-breaking defer;
-- make the checkpoint validator cross-check checkpoint identifiers and report
-  paths in this document;
-- document that the planning commit is the base for `CP-00`.
+- keep temporary `PENTEST.md` input ignored;
+- document the commit-range review workflow.
 
 Pentest focus:
 
-- validator bypasses;
 - ambiguous base/head ranges;
-- acceptance of a report that does not review remediation commits;
-- accidental source changes in report-only commits.
+- review handoffs that omit remediation commits;
+- accidental mixing of multiple roadmap checkpoints.
 
 Exit criteria:
 
-- checkpoint validation fails closed;
+- the review boundary and exact commit range are unambiguous;
 - the baseline artifacts are reproducible;
-- the `CP-00` PASS report is committed alone.
+- temporary findings are removed after accepted retest;
+- CI is green before CP-01 starts.
 
 ### `CP-01`: Behavior-Preserving Module Split
 
@@ -237,7 +206,7 @@ Exit criteria:
 - no intentional API or behavior change;
 - baseline comparisons explain every mechanical difference;
 - the complete reviewed Rust source matches the pinned CP-01 digest;
-- the `CP-01` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-02`: Sanitization And Storage Contracts
 
@@ -276,7 +245,7 @@ Exit criteria:
 - generic guarantees are explicitly conditional on correct implementations;
 - no stability trait is marked unsafe unless memory safety begins to depend on
   it;
-- the `CP-02` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-03`: Restrict Generic `Secret<T>` Exposure
 
@@ -310,7 +279,7 @@ Exit criteria:
 
 - storage-unstable types can be owned and cleared but not generically exposed;
 - stable user types can opt in explicitly;
-- the `CP-03` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-04`: Direct Fixed-Secret Exposure
 
@@ -346,7 +315,7 @@ Exit criteria:
 
 - direct exposure has no reviewed full-size temporary;
 - copy exposure is visibly named and documented;
-- the `CP-04` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-05`: Fixed Allocation And Aggregate Guidance
 
@@ -383,7 +352,7 @@ Exit criteria:
 
 - fixed allocation cannot grow;
 - managed growth never releases old storage uncleared;
-- the `CP-05` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-06`: CT Declassification And Naming Repair
 
@@ -419,7 +388,7 @@ Exit criteria:
   declassification;
 - codegen and leakage smoke tests pass;
 - an independent CT review is scheduled after `CP-07`;
-- the `CP-06` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-07`: Secret CT Ownership
 
@@ -455,8 +424,8 @@ Exit criteria:
 
 - Miri and panic probes cover every ownership transition;
 - focused independent review of `CP-06..CP-07` is PASS;
-- the `CP-07` PASS report records that independent review and is committed
-  alone.
+- temporary findings are removed after the focused independent retest is
+  accepted and CI is green.
 
 ### `CP-08`: Fail-Closed Derives
 
@@ -491,7 +460,7 @@ Exit criteria:
 
 - unsupported forms fail at compile time with actionable diagnostics;
 - the derive pass/fail suite and Miri pass;
-- the `CP-08` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-09`: Complete ArrayVec Backing Cleanup
 
@@ -525,7 +494,7 @@ Exit criteria:
 
 - full backing coverage is demonstrated or the claim/API is removed;
 - Miri passes;
-- the `CP-09` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-10`: Canonical Wipe Backend And Fence Policy
 
@@ -562,7 +531,7 @@ Exit criteria:
 - all public wipe paths reach the reviewed backend;
 - any fence change has codegen, target documentation, native evidence, and
   external review;
-- the `CP-10` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-11`: Cache And Register Hardening
 
@@ -597,7 +566,7 @@ Exit criteria:
 
 - unsupported hardware fails or falls back as documented;
 - native and codegen evidence covers supported paths;
-- the `CP-11` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-12`: Protection Request And Runtime Report
 
@@ -633,7 +602,7 @@ Exit criteria:
 
 - every constructor outcome is unambiguous;
 - state-transition Kani tests cover request/report logic;
-- the `CP-12` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-13`: Fork Policy And Checked Integrity
 
@@ -669,7 +638,7 @@ Exit criteria:
 
 - native child-process tests pass where supported;
 - integrity errors do not expose partial canary state;
-- the `CP-13` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-14`: Consume-Once Secret Semantics
 
@@ -703,7 +672,7 @@ Exit criteria:
 
 - Loom and Miri pass;
 - the public name matches actual semantics;
-- the `CP-14` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-15`: Secure Arena Evolution
 
@@ -739,7 +708,7 @@ Exit criteria:
 
 - included arena behavior has Loom/native evidence;
 - deferred behavior is removed from stable claims;
-- the `CP-15` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-16`: Page-Sealed Fixed Secrets
 
@@ -844,7 +813,7 @@ Exit criteria:
 
 - every profile maps to a documented request policy;
 - default core remains no_std and dependency-free;
-- the `CP-18` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-19`: Verification Infrastructure Expansion
 
@@ -879,7 +848,7 @@ Exit criteria:
 
 - tooling fails closed under seeded negative tests;
 - each security claim has a named harness;
-- the `CP-19` PASS report is committed alone.
+- temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-20`: Target, Timing, And Performance Evidence
 
@@ -916,7 +885,8 @@ Exit criteria:
 - every target and primitive claim maps to current evidence;
 - unexplained timing or performance outliers are resolved or claims are
   downgraded;
-- the `CP-20` PASS evidence review is committed alone.
+- temporary evidence-review findings are removed after accepted retest and CI
+  is green.
 
 ### `CP-21`: Documentation And Downstream Migration
 
@@ -953,7 +923,8 @@ Exit criteria:
 
 - real consumers compile and pass their security tests;
 - no removed API lacks a migration example;
-- the `CP-21` PASS review is committed alone.
+- temporary migration-review findings are removed after accepted retest and CI
+  is green.
 
 ### `CP-22`: API Freeze And Independent Close-Out
 
@@ -988,7 +959,8 @@ Exit criteria:
 - no open critical, high, or medium finding;
 - no low finding contradicts a guarantee;
 - API is frozen;
-- the `CP-22` independent close-out PASS report is committed alone.
+- the independent close-out is accepted by the project owner and its findings
+  are incorporated into the final `v2.0.0` pentest scope.
 
 ### `CP-23`: Final 2.0.0 Release Preparation
 
@@ -1025,7 +997,8 @@ Exit criteria:
 - the implementation commit contains no unreviewed functional change;
 - all crates package correctly as `2.0.0`;
 - full CI and release gates pass;
-- the `CP-23` PASS report is committed alone.
+- temporary metadata-review findings are removed after accepted retest and CI
+  is green.
 
 ## Final Release Commit And Tag
 

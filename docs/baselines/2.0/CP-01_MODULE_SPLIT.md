@@ -56,14 +56,11 @@ The complete reviewed Rust source snapshot is pinned by this SHA-256 digest:
 df37c4d9e38ee8904830d404446400907415e4e5994848e110c7bd4ad033a5ce
 ```
 
-Before the CP-01 PASS report exists, the checkpoint verifier hashes the current
-`crates/sanitization/src/**/*.rs` files. After acceptance, it hashes the source
-at the committed report's immutable `Reviewed-Through` commit. Untracked or
-working-tree report content cannot select the historical mode. This keeps the
-historical CP-01 evidence enforceable without preventing later checkpoints from
-changing the implementation. The baseline declaration, unsafe-inventory, and
-package-list comparisons run while CP-01 is under review; after acceptance, the
-exact source snapshot subsumes those comparisons for the historical checkpoint.
+The checkpoint verifier hashes the source at reviewed commit
+`049cdc626bd1a4295bf23fd0133b32d6955f9881`. The commit and digest are pinned
+directly in the verifier, so later checkpoints can change the implementation
+without weakening the historical CP-01 comparison. Development pentest notes
+remain temporary and are not used as integrity metadata.
 
 The digest pins the code that was reviewed; it does not independently establish
 semantic equivalence. That conclusion depends on review of the exact snapshot

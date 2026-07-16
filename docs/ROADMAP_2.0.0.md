@@ -1338,29 +1338,23 @@ The complete implementation order is defined in
 [`IMPLEMENTATION_PLAN_2.0.0.md`](IMPLEMENTATION_PLAN_2.0.0.md).
 
 Development uses symbolic commit checkpoints `CP-00` through `CP-23`. These are
-commit-message and review-report identifiers, not versions or tags.
+commit-message and temporary review identifiers, not versions or tags.
 
 For every checkpoint:
 
-- start from the previous accepted report-only commit;
+- record the current branch tip as the checkpoint base;
 - implement one bounded security concern;
 - stop at the implementation commit;
-- review the complete Git range from the previous accepted checkpoint;
+- review the complete Git range from the checkpoint base;
 - apply checkpoint-scoped remediation commits when required;
 - retest the complete range;
-- commit a permanent PASS report alone;
-- wait for clean CI before starting later implementation.
+- delete the ignored root `PENTEST.md` after the review is accepted;
+- wait for clean CI and project-owner confirmation before starting later
+  implementation.
 
-Development reports live under:
-
-```text
-security/pentest/2.0-development/CP-XX.md
-```
-
-The first checkpoint adds validation for report metadata, reviewed ranges,
-ancestry, and report-only acceptance commits. The detailed plan also contains a
-roadmap coverage matrix so every workstream has an implementation checkpoint or
-an explicit reviewed defer/reject decision.
+Development findings are temporary and are not committed. The detailed plan
+contains a roadmap coverage matrix so every workstream has an implementation
+checkpoint or an explicit reviewed defer/reject decision.
 
 The frozen pre-2.0 comparison state is documented in
 [`baselines/2.0/BASELINE_1.2.5.md`](baselines/2.0/BASELINE_1.2.5.md).
