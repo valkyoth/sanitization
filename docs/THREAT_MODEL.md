@@ -258,7 +258,8 @@ contiguous memory disclosure only when shares are placed and protected
 separately by the application. It is not threshold cryptography, not Shamir
 secret sharing, and depends on the caller supplying cryptographically random
 mask bytes. Construction rejects trivially constant mask shares in all build
-profiles, but that is only a misuse guardrail and does not validate entropy.
+profiles, including a trivially constant combined mask accumulator, but that is
+only a misuse guardrail and does not validate entropy.
 
 With the `hardware-secrets` feature, the crate exposes traits for backend
 crates that integrate HSMs, TEEs, platform keystores, enclaves, or similar

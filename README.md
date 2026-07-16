@@ -1828,7 +1828,10 @@ use sanitization::SplitSecretBytes;
 let split = SplitSecretBytes::<32, 3>::from_array_with_generator([7; 32], |share, index| {
     // Documentation-only deterministic mask. Use a real CSPRNG or KDF-backed
     // random source in production.
-    ((share as u8) << 4) ^ (index as u8)
+    match share {
+        0 => index as u8,
+        _ => 0x51_u8.wrapping_add((index as u8).wrapping_mul(2)),
+    }
 })
 .unwrap();
 
@@ -1840,10 +1843,10 @@ This is not Shamir secret sharing and it is not threshold cryptography. Every
 share is required to reconstruct the secret. The generator closure must produce
 cryptographically random bytes for all mask shares; deterministic examples are
 only for documentation and tests. Construction rejects trivially constant mask
-shares in every build profile as a misuse guardrail, but this heuristic does
-not validate entropy. Use `from_secret_consuming_with_generator` when the
-source `SecretBytes<N>` should be cleared as part of moving the secret into the
-split representation.
+shares and trivially constant combined mask accumulators in every build profile
+as misuse guardrails, but these heuristics do not validate entropy. Use
+`from_secret_consuming_with_generator` when the source `SecretBytes<N>` should
+be cleared as part of moving the secret into the split representation.
 
 ## Hardware Secret Traits
 

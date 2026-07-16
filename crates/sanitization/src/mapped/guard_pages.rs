@@ -1758,7 +1758,10 @@ fn mark_dontdump(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
 ))]
 #[inline]
 fn mark_dontdump(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
-    Ok(())
+    Err(GuardPageError {
+        operation: GuardPageOperation::DontDump,
+        errno: 0,
+    })
 }
 
 #[cfg(all(feature = "memory-lock", target_os = "freebsd"))]
@@ -1802,21 +1805,7 @@ fn mark_wipeonfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError>
     })
 }
 
-#[cfg(all(
-    feature = "memory-lock",
-    not(target_os = "linux"),
-    not(feature = "require-fork-exclusion")
-))]
-#[inline]
-fn mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
-    Ok(())
-}
-
-#[cfg(all(
-    feature = "memory-lock",
-    not(target_os = "linux"),
-    feature = "require-fork-exclusion"
-))]
+#[cfg(all(feature = "memory-lock", not(target_os = "linux")))]
 #[inline]
 fn mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
     Err(GuardPageError {

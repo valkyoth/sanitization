@@ -1930,11 +1930,14 @@ fn consume_once_secret_default_debug_and_auto_traits_are_safe() {
 #[cfg(feature = "split-secret")]
 #[test]
 fn split_secret_reconstructs_with_all_shares() {
-    let split =
-        SplitSecretBytes::<4, 3>::from_array_with_generator([9, 8, 7, 6], |share, index| {
-            ((share as u8) << 4) ^ (index as u8)
-        })
-        .unwrap();
+    let split = SplitSecretBytes::<4, 3>::from_array_with_generator(
+        [9, 8, 7, 6],
+        |share, index| match share {
+            0 => index as u8,
+            _ => 0x51_u8.wrapping_add((index as u8).wrapping_mul(2)),
+        },
+    )
+    .unwrap();
 
     assert_eq!(split.shares().len(), 3);
     assert!(split
@@ -1969,11 +1972,29 @@ fn split_secret_rejects_canceling_mask_accumulator() {
 
 #[cfg(feature = "split-secret")]
 #[test]
+fn split_secret_rejects_constant_nonzero_mask_accumulator() {
+    assert!(matches!(
+        SplitSecretBytes::<4, 3>::from_array_with_generator(
+            [9, 8, 7, 6],
+            |share, index| match share {
+                0 => index as u8,
+                _ => (index as u8) ^ 0xA5,
+            },
+        ),
+        Err(SplitSecretError::TrivialMask)
+    ));
+}
+
+#[cfg(feature = "split-secret")]
+#[test]
 fn split_secret_can_consume_source_secret() {
     let secret = SecretBytes::from_array([9, 8, 7, 6]);
     let split =
         SplitSecretBytes::<4, 3>::from_secret_consuming_with_generator(secret, |share, index| {
-            ((share as u8) << 4) ^ (index as u8)
+            match share {
+                0 => index as u8,
+                _ => 0x51_u8.wrapping_add((index as u8).wrapping_mul(2)),
+            }
         })
         .unwrap();
 

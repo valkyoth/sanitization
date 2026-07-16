@@ -1528,8 +1528,9 @@ impl std::error::Error for SplitSecretError {}
 ///
 /// The generator is trusted. Passing a deterministic, low-entropy, or reused
 /// generator can make the split provide no confidentiality. Construction
-/// rejects trivially constant mask shares in all build profiles, but that cheap
-/// heuristic is not a substitute for a CSPRNG.
+/// rejects trivially constant mask shares and trivially constant combined mask
+/// accumulators in all build profiles, but that cheap heuristic is not a
+/// substitute for a CSPRNG.
 #[cfg(feature = "split-secret")]
 pub struct SplitSecretBytes<const N: usize, const SHARES: usize> {
     shares: [SecretBytes<N>; SHARES],
@@ -1708,8 +1709,15 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
             return false;
         }
 
-        let mut any_nonzero = false;
-        let mut byte_index = 0;
+        let mut first_accumulator = 0u8;
+        let mut share_index = 0;
+        while share_index + 1 < SHARES {
+            first_accumulator ^= shares[share_index].load(0);
+            share_index += 1;
+        }
+
+        let mut all_same = true;
+        let mut byte_index = 1;
         while byte_index < N {
             let mut accumulator = 0u8;
             let mut share_index = 0;
@@ -1718,11 +1726,11 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
                 share_index += 1;
             }
 
-            any_nonzero |= accumulator != 0;
+            all_same &= accumulator == first_accumulator;
             byte_index += 1;
         }
 
-        !any_nonzero
+        first_accumulator == 0 || (N > 1 && all_same)
     }
 }
 
