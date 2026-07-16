@@ -615,19 +615,64 @@ mod kani_verification {
     fn assert_ct_ordering_matches(ordering: ct::CtOrdering, expected: Ordering) {
         match expected {
             Ordering::Less => {
-                assert_eq!(ordering.is_less().unwrap_u8(), 1);
-                assert_eq!(ordering.is_equal().unwrap_u8(), 0);
-                assert_eq!(ordering.is_greater().unwrap_u8(), 0);
+                assert_eq!(
+                    ordering
+                        .is_less()
+                        .declassify_u8("test or verification observes normalized choice"),
+                    1
+                );
+                assert_eq!(
+                    ordering
+                        .is_equal()
+                        .declassify_u8("test or verification observes normalized choice"),
+                    0
+                );
+                assert_eq!(
+                    ordering
+                        .is_greater()
+                        .declassify_u8("test or verification observes normalized choice"),
+                    0
+                );
             }
             Ordering::Equal => {
-                assert_eq!(ordering.is_less().unwrap_u8(), 0);
-                assert_eq!(ordering.is_equal().unwrap_u8(), 1);
-                assert_eq!(ordering.is_greater().unwrap_u8(), 0);
+                assert_eq!(
+                    ordering
+                        .is_less()
+                        .declassify_u8("test or verification observes normalized choice"),
+                    0
+                );
+                assert_eq!(
+                    ordering
+                        .is_equal()
+                        .declassify_u8("test or verification observes normalized choice"),
+                    1
+                );
+                assert_eq!(
+                    ordering
+                        .is_greater()
+                        .declassify_u8("test or verification observes normalized choice"),
+                    0
+                );
             }
             Ordering::Greater => {
-                assert_eq!(ordering.is_less().unwrap_u8(), 0);
-                assert_eq!(ordering.is_equal().unwrap_u8(), 0);
-                assert_eq!(ordering.is_greater().unwrap_u8(), 1);
+                assert_eq!(
+                    ordering
+                        .is_less()
+                        .declassify_u8("test or verification observes normalized choice"),
+                    0
+                );
+                assert_eq!(
+                    ordering
+                        .is_equal()
+                        .declassify_u8("test or verification observes normalized choice"),
+                    0
+                );
+                assert_eq!(
+                    ordering
+                        .is_greater()
+                        .declassify_u8("test or verification observes normalized choice"),
+                    1
+                );
             }
         }
     }
@@ -687,7 +732,7 @@ mod kani_verification {
     fn prove_ct_choice_is_normalized() {
         let value: u8 = kani::any();
         let choice = ct::Choice::from_u8(value);
-        let unwrapped = choice.unwrap_u8();
+        let unwrapped = choice.declassify_u8("test or verification observes normalized choice");
 
         assert!(unwrapped == 0 || unwrapped == 1);
     }
@@ -698,13 +743,25 @@ mod kani_verification {
         let right_byte: u8 = kani::any();
         let left = ct::Choice::from_u8(left_byte);
         let right = ct::Choice::from_u8(right_byte);
-        let left_bit = left.unwrap_u8();
-        let right_bit = right.unwrap_u8();
+        let left_bit = left.declassify_u8("test or verification observes normalized choice");
+        let right_bit = right.declassify_u8("test or verification observes normalized choice");
 
-        assert_eq!((left & right).unwrap_u8(), left_bit & right_bit);
-        assert_eq!((left | right).unwrap_u8(), left_bit | right_bit);
-        assert_eq!((left ^ right).unwrap_u8(), left_bit ^ right_bit);
-        assert_eq!((!left).unwrap_u8(), left_bit ^ 1);
+        assert_eq!(
+            (left & right).declassify_u8("test or verification observes normalized choice"),
+            left_bit & right_bit
+        );
+        assert_eq!(
+            (left | right).declassify_u8("test or verification observes normalized choice"),
+            left_bit | right_bit
+        );
+        assert_eq!(
+            (left ^ right).declassify_u8("test or verification observes normalized choice"),
+            left_bit ^ right_bit
+        );
+        assert_eq!(
+            (!left).declassify_u8("test or verification observes normalized choice"),
+            left_bit ^ 1
+        );
     }
 
     #[kani::proof]
@@ -719,7 +776,12 @@ mod kani_verification {
             index += 1;
         }
 
-        assert_eq!(ct::eq_fixed(&left, &right).unwrap_u8() == 1, expected);
+        assert_eq!(
+            ct::eq_fixed(&left, &right)
+                .declassify_u8("test or verification observes normalized choice")
+                == 1,
+            expected
+        );
     }
 
     #[kani::proof]
@@ -727,7 +789,11 @@ mod kani_verification {
         let left: [u8; 4] = kani::any();
         let right: [u8; 3] = kani::any();
 
-        assert_eq!(ct::eq_public_len(&left, &right).unwrap_u8(), 0);
+        assert_eq!(
+            ct::eq_public_len(&left, &right)
+                .declassify_u8("test or verification observes normalized choice"),
+            0
+        );
     }
 
     #[kani::proof]
@@ -773,7 +839,7 @@ mod kani_verification {
 
         assert!(ct::conditional_copy(&mut destination, &source, choice).is_ok());
 
-        if choice.unwrap_u8() == 1 {
+        if choice.declassify_u8("test or verification observes normalized choice") == 1 {
             assert_eq!(destination, source);
         } else {
             assert_eq!(destination, initial);
@@ -791,7 +857,7 @@ mod kani_verification {
 
         assert!(ct::conditional_swap(&mut left, &mut right, choice).is_ok());
 
-        if choice.unwrap_u8() == 1 {
+        if choice.declassify_u8("test or verification observes normalized choice") == 1 {
             assert_eq!(left, initial_right);
             assert_eq!(right, initial_left);
         } else {
@@ -825,7 +891,7 @@ mod kani_verification {
 
         assert!(ct::select_slice(&mut destination, &left, &right, choice).is_ok());
 
-        if choice.unwrap_u8() == 1 {
+        if choice.declassify_u8("test or verification observes normalized choice") == 1 {
             assert_eq!(destination, right);
         } else {
             assert_eq!(destination, left);
@@ -842,7 +908,7 @@ mod kani_verification {
 
         let selected = option.unwrap_or(&fallback);
 
-        if presence.unwrap_u8() == 1 {
+        if presence.declassify_u8("test or verification observes normalized choice") == 1 {
             assert_eq!(selected, value);
         } else {
             assert_eq!(selected, fallback);
@@ -864,15 +930,19 @@ mod kani_verification {
         let and_selected = left.and(right).unwrap_or(&fallback);
         let or_selected = left.or(right).unwrap_or(&fallback);
 
-        if left_presence.unwrap_u8() == 1 && right_presence.unwrap_u8() == 1 {
+        if left_presence.declassify_u8("test or verification observes normalized choice") == 1
+            && right_presence.declassify_u8("test or verification observes normalized choice") == 1
+        {
             assert_eq!(and_selected, right_value);
         } else {
             assert_eq!(and_selected, fallback);
         }
 
-        if left_presence.unwrap_u8() == 1 {
+        if left_presence.declassify_u8("test or verification observes normalized choice") == 1 {
             assert_eq!(or_selected, left_value);
-        } else if right_presence.unwrap_u8() == 1 {
+        } else if right_presence.declassify_u8("test or verification observes normalized choice")
+            == 1
+        {
             assert_eq!(or_selected, right_value);
         } else {
             assert_eq!(or_selected, fallback);
@@ -892,7 +962,7 @@ mod kani_verification {
         let mapped = result.map(|inner| inner.wrapping_add(1));
         let mapped_error = result.map_err(|inner| inner.wrapping_add(1));
 
-        if success.unwrap_u8() == 1 {
+        if success.declassify_u8("test or verification observes normalized choice") == 1 {
             assert_eq!(selected, value);
             assert_eq!(
                 mapped.declassify("Kani exposes mapped success bit"),
@@ -938,7 +1008,7 @@ mod kani_verification {
                 choice,
             );
 
-        if choice.unwrap_u8() == 1 {
+        if choice.declassify_u8("test or verification observes normalized choice") == 1 {
             assert_eq!(selected_option.unwrap_or(&0), right_value);
             assert_eq!(selected_result.unwrap_or(&0), right_value);
         } else {

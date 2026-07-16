@@ -38,12 +38,15 @@ the generated code shape for reviewed targets.
 ## Assembly Backends
 
 The `asm-compare` feature enables target-specific equal-length comparison
-backends where available. The `strict-ct` feature fails closed on unsupported
-targets instead of silently falling back.
+backends where available. The `strict-compare` feature fails closed on
+unsupported targets instead of silently falling back for equal-length byte
+equality.
 
 Assembly backends are useful because they reduce compiler freedom in the most
 sensitive comparison loop. They still do not prove complete hardware timing
 behavior, and they do not protect arbitrary caller code around the comparison.
+Ordering, selection, copying, swapping, and oblivious lookup retain their
+portable implementations when `strict-compare` is enabled.
 
 ## Cache And Register Helpers
 
@@ -72,4 +75,3 @@ scripts/verify-evidence.py
 `scripts/verify-codegen.sh` is a regression gate. It checks that important
 symbols and instruction patterns remain present, but it is not a replacement
 for manual review of release artifacts.
-

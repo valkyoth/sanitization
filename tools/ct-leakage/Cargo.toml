@@ -12,4 +12,4 @@ sanitization = { path = "../../crates/sanitization" }
 [features]
 default = []
 asm-compare = ["sanitization/asm-compare"]
-strict-ct = ["sanitization/strict-ct"]
+strict-compare = ["sanitization/strict-compare"]

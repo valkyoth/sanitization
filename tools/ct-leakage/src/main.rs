@@ -378,7 +378,7 @@ fn run_eq_fixed_32_first_diff(class: Class, inner: usize, rng: &mut XorShift64) 
         right[0] ^= 0x80;
     }
     measure(inner, || {
-        ct::eq_fixed(black_box(&left), black_box(&right)).unwrap_u8()
+        ct::eq_fixed(black_box(&left), black_box(&right)).declassify_u8("test or verification observes normalized choice")
     })
 }
 
@@ -389,7 +389,7 @@ fn run_eq_fixed_32_last_diff(class: Class, inner: usize, rng: &mut XorShift64) -
         right[31] ^= 0x01;
     }
     measure(inner, || {
-        ct::eq_fixed(black_box(&left), black_box(&right)).unwrap_u8()
+        ct::eq_fixed(black_box(&left), black_box(&right)).declassify_u8("test or verification observes normalized choice")
     })
 }
 
@@ -401,7 +401,7 @@ fn run_secret_bytes_eq_32_first_diff(class: Class, inner: usize, rng: &mut XorSh
     }
     let left = SecretBytes::<32>::from_array(left_bytes);
     let right = SecretBytes::<32>::from_array(right_bytes);
-    measure(inner, || left.ct_eq(black_box(&right)).unwrap_u8())
+    measure(inner, || left.ct_eq(black_box(&right)).declassify_u8("test or verification observes normalized choice"))
 }
 
 fn run_cmp_fixed_32_first_diff(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
@@ -412,7 +412,7 @@ fn run_cmp_fixed_32_first_diff(class: Class, inner: usize, rng: &mut XorShift64)
     }
     measure(inner, || {
         let ordering = ct::cmp_fixed(black_box(&left), black_box(&right));
-        ordering.is_less().unwrap_u8() ^ ordering.is_equal().unwrap_u8()
+        ordering.is_less().declassify_u8("test or verification observes normalized choice") ^ ordering.is_equal().declassify_u8("test or verification observes normalized choice")
     })
 }
 
@@ -634,8 +634,8 @@ fn enabled_features() -> String {
     if cfg!(feature = "asm-compare") {
         features.push("asm-compare");
     }
-    if cfg!(feature = "strict-ct") {
-        features.push("strict-ct");
+    if cfg!(feature = "strict-compare") {
+        features.push("strict-compare");
     }
     if features.is_empty() {
         "default".to_owned()

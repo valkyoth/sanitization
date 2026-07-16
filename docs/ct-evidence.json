@@ -27,15 +27,15 @@
     {
       "target": "x86_64-unknown-linux-gnu",
       "tier": "A-draft",
-      "features": ["asm-compare", "strict-ct"],
+      "features": ["asm-compare", "strict-compare"],
       "barrier_strategy": ["branchless source structure", "black_box boundary", "inline assembly comparison backend"],
-      "evidence": ["feature tests", "release LLVM IR scan", "release assembly scan", "Kani harnesses", "Miri on supported paths"],
-      "limitations": ["no dudect leakage-test harness is currently shipped"]
+      "evidence": ["feature tests", "release LLVM IR scan", "release assembly scan", "dudect-style ct-leakage harness", "Kani harnesses", "Miri on supported paths"],
+      "limitations": ["statistical timing runs are target- and environment-specific evidence, not proof"]
     },
     {
       "target": "aarch64-unknown-linux-gnu",
       "tier": "B-draft",
-      "features": ["asm-compare", "strict-ct"],
+      "features": ["asm-compare", "strict-compare"],
       "barrier_strategy": ["branchless source structure", "black_box boundary", "inline assembly comparison backend"],
       "evidence": ["target compile check when installed", "Kani source-level harnesses"],
       "limitations": ["AArch64 release assembly is not scanned by verify-codegen.sh on non-AArch64 hosts"]

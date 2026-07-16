@@ -41,8 +41,8 @@ The crate does not claim:
 
 | Target/profile | Tier | Evidence |
 | --- | --- | --- |
-| `x86_64-unknown-linux-gnu`, release, `asm-compare`/`strict-ct` | Tier A draft | CI feature tests, release LLVM IR/assembly scan, x86_64 asm comparison backend, Kani harnesses when available |
-| `aarch64-unknown-linux-gnu`, release, `asm-compare`/`strict-ct` | Tier B draft | Target compile check when installed, AArch64 asm comparison backend, Kani source-level harnesses |
+| `x86_64-unknown-linux-gnu`, release, `asm-compare`/`strict-compare` | Tier A draft | CI feature tests, release LLVM IR/assembly scan, x86_64 asm comparison backend, Kani harnesses when available |
+| `aarch64-unknown-linux-gnu`, release, `asm-compare`/`strict-compare` | Tier B draft | Target compile check when installed, AArch64 asm comparison backend, Kani source-level harnesses |
 | Native targets without `asm-compare` | Tier B | Portable source-level data-oblivious structure and tests, no target-specific timing evidence |
 | Embedded/no-`std` targets | Tier B/C | `no_std` compile checks where targets are installed; no device-level leakage tests |
 | WASM `wasm32-*` | Tier C | API compatibility checks and documented reduced volatile/memory-lock guarantees; no strong JIT timing claim |

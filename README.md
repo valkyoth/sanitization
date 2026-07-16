@@ -235,7 +235,7 @@ sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3",
 | `random-canary` | no | Enables `canary-check` and generates canary words from the OS CSPRNG instead of deriving them from mapping addresses. WASI preview1 uses `random_get`; other bare WASM targets report random generation failure. On WASM it also needs `wasm-compat`. |
 | `strict-canary-check` | no | Enables `random-canary`; use this profile when deterministic address-derived canaries are not acceptable. |
 | `asm-compare` | no | Uses an x86_64/AArch64 inline-assembly loop for equal-length byte comparison. |
-| `strict-ct` | no | Enables `asm-compare` and rejects non-Miri targets without a supported assembly comparison backend. |
+| `strict-compare` | no | Enables `asm-compare` and rejects non-Miri targets without a supported assembly comparison backend. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
 | `register-scrub` | no | Enables explicit best-effort SIMD/vector register scrubbing helpers on x86_64 and AArch64. |
 | `guard-pages` | no | Enables `GuardedSecretVec` and `GuardedSecretString` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. This feature is rejected at compile time on WASM. |
@@ -272,8 +272,10 @@ assert_eq!(selected, 20);
 ```
 
 The declassification step is explicit on purpose. Reviewers can search for
-`declassify(` to find every place where a secret-derived value becomes a normal
-public branch or decision.
+`declassify(` or `declassify_u8(` to find every place where a secret-derived
+value becomes a normal public branch, decision, or raw bit. `Choice`,
+`CtOrdering`, and `Mask<T>` do not implement ordinary equality. Raw mask values
+and normalized choice bytes require reason-bearing declassification.
 
 UTF-8 validation, serde limit checks, and variable-length mismatch handling are
 outside this data-oblivious claim. They may return as soon as invalid input or
@@ -1259,7 +1261,7 @@ use zeroize::Zeroize;
 let mut key = SecretBytes::<32>::from_array([7; 32]);
 let expected = SecretBytes::<32>::from_array([7; 32]);
 
-assert_eq!(key.ct_eq(&expected).unwrap_u8(), 1);
+assert!(bool::from(key.ct_eq(&expected)));
 key.zeroize();
 ```
 
@@ -1606,16 +1608,19 @@ is available, or pair this crate with a dedicated constant-time comparison
 library when a protocol requires externally audited timing guarantees.
 
 For high-assurance builds that should fail instead of silently using the
-portable fallback, enable `strict-ct`:
+portable fallback, enable `strict-compare`:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["strict-ct"] }
+sanitization = { version = "1.2.5", features = ["strict-compare"] }
 ```
 
-`strict-ct` currently accepts x86_64 and AArch64 non-Miri builds, where the
-assembly backend is available. Other deployment targets fail at compile time
-instead of making a stronger timing claim than the crate can support there.
+`strict-compare` currently accepts x86_64 and AArch64 non-Miri builds, where the
+assembly equality backend is available. Other deployment targets fail at
+compile time instead of silently selecting the portable equality fallback.
+This profile applies only to equal-length byte equality. Ordering, conditional
+selection, conditional copying/swapping, and oblivious lookup remain portable
+Rust primitives with their documented target-tier evidence.
 
 ## Register Scrubbing
 

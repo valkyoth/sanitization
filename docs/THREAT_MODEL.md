@@ -202,11 +202,13 @@ dependency-free implementation.
 With the `asm-compare` feature on x86_64 and AArch64, equal-length comparisons
 use an inline-assembly loop. This gives the comparison body a stronger compiler
 boundary, but it does not hide length metadata and does not claim protection
-against all microarchitectural side channels. With `strict-ct`, unsupported
+against all microarchitectural side channels. With `strict-compare`, unsupported
 non-Miri targets fail at compile time instead of using the portable Rust
-fallback. The portable fallback remains available without `strict-ct`, but it
-relies on source-level data-oblivious structure plus optimizer barriers rather
-than a target-specific assembly boundary.
+equality fallback. The portable equality fallback remains available without
+`strict-compare`, but it relies on source-level data-oblivious structure plus
+optimizer barriers rather than a target-specific assembly boundary.
+`strict-compare` does not strengthen ordering, selection, copying, swapping,
+lookup, or caller code.
 
 With the `cache-flush` feature on x86_64, explicit clear-and-flush helpers
 volatile-clear the target storage and then execute `clflush` over the covered

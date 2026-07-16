@@ -5,6 +5,7 @@ output="${TMPDIR:-/tmp}/sanitization-ct-leakage-smoke.json"
 
 cargo check --manifest-path tools/ct-leakage/Cargo.toml
 cargo check --manifest-path tools/ct-leakage/Cargo.toml --features asm-compare
+cargo check --manifest-path tools/ct-leakage/Cargo.toml --features strict-compare
 cargo run --release --manifest-path tools/ct-leakage/Cargo.toml -- \
     --samples 20 \
     --inner 2 \

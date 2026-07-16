@@ -18,8 +18,8 @@ Tier names are evidence labels, not security certifications.
 
 | Target/profile | Tier | Notes |
 | --- | --- | --- |
-| `x86_64-unknown-linux-gnu`, release, `asm-compare`/`strict-ct` | Tier A draft | x86_64 assembly comparison backend, release codegen checks, Kani harnesses where available. |
-| `aarch64-unknown-linux-gnu`, release, `asm-compare`/`strict-ct` | Tier B draft | AArch64 assembly comparison backend and compile checks when installed; release assembly scanning still needs native or cross-runner evidence. |
+| `x86_64-unknown-linux-gnu`, release, `asm-compare`/`strict-compare` | Tier A draft | x86_64 assembly comparison backend, release codegen checks, Kani harnesses where available. |
+| `aarch64-unknown-linux-gnu`, release, `asm-compare`/`strict-compare` | Tier B draft | AArch64 assembly comparison backend and compile checks when installed; release assembly scanning still needs native or cross-runner evidence. |
 | Native targets without `asm-compare` | Tier B | Portable data-oblivious source structure and tests; no target-specific timing evidence. |
 | Embedded/no-`std` targets | Tier B/C | Core APIs are `no_std`; hardware timing depends on device-specific review. |
 | `wasm32-*` | Tier C | API compatibility and best-effort clearing only; no strong browser/Node JIT timing or native memory-lock claim. |

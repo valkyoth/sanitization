@@ -14,7 +14,7 @@ use core::{cmp::Ordering, fmt, hint::black_box, marker::PhantomData, ops};
 /// `CtResult`. Turning a `Choice` into a normal `bool` is declassification
 /// and should happen only through [`Choice::declassify`].
 #[repr(transparent)]
-#[derive(Clone, Copy, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Default)]
 pub struct Choice(u8);
 
 impl Choice {
@@ -40,11 +40,15 @@ impl Choice {
         Self(value as u8)
     }
 
-    /// Return the normalized 0/1 byte without converting to a branchable
-    /// `bool`.
+    /// Explicitly convert this choice into a public normalized byte.
+    ///
+    /// The `reason` string is intentionally required so security reviews can
+    /// search for every raw-bit declassification boundary. Most callers
+    /// should prefer [`Choice::declassify`].
     #[inline]
-    pub fn unwrap_u8(self) -> u8 {
-        black_box(self.0 & 1)
+    pub fn declassify_u8(self, reason: &'static str) -> u8 {
+        black_box(reason);
+        self.bit()
     }
 
     /// Explicitly convert this choice into a public boolean.
@@ -56,31 +60,36 @@ impl Choice {
     #[inline]
     pub fn declassify(self, reason: &'static str) -> bool {
         black_box(reason);
-        self.unwrap_u8() == 1
+        self.bit() == 1
     }
 
     /// Branchless logical AND.
     #[inline]
     pub fn and(self, other: Self) -> Self {
-        Self((self.unwrap_u8() & other.unwrap_u8()) & 1)
+        Self((self.bit() & other.bit()) & 1)
     }
 
     /// Branchless logical OR.
     #[inline]
     pub fn or(self, other: Self) -> Self {
-        Self((self.unwrap_u8() | other.unwrap_u8()) & 1)
+        Self((self.bit() | other.bit()) & 1)
     }
 
     /// Branchless logical XOR.
     #[inline]
     pub fn xor(self, other: Self) -> Self {
-        Self((self.unwrap_u8() ^ other.unwrap_u8()) & 1)
+        Self((self.bit() ^ other.bit()) & 1)
     }
 
     /// Branchless logical NOT.
     #[inline]
     pub fn not_choice(self) -> Self {
-        Self(self.unwrap_u8() ^ 1)
+        Self(self.bit() ^ 1)
+    }
+
+    #[inline]
+    fn bit(self) -> u8 {
+        black_box(self.0 & 1)
     }
 }
 
@@ -177,7 +186,7 @@ impl<T: ConditionallySelectable> ConditionallyAssignable for T {}
 /// Exactly one of the three choices should be true. Converting the result
 /// into [`Ordering`] is a public branch boundary and must go through
 /// [`CtOrdering::declassify`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy)]
 pub struct CtOrdering {
     less: Choice,
     equal: Choice,
@@ -271,13 +280,19 @@ impl CtOrdering {
             1,
             "CtOrdering must have exactly one bit set"
         );
-        if self.less.unwrap_u8() == 1 {
+        if self.less.bit() == 1 {
             Ordering::Less
-        } else if self.greater.unwrap_u8() == 1 {
+        } else if self.greater.bit() == 1 {
             Ordering::Greater
         } else {
             Ordering::Equal
         }
+    }
+}
+
+impl fmt::Debug for CtOrdering {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("CtOrdering(..)")
     }
 }
 
@@ -319,15 +334,25 @@ pub trait ConstantTimeOrd<Rhs: ?Sized = Self> {
 
 /// All-zero/all-one mask value for branchless operations.
 #[repr(transparent)]
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy)]
 pub struct Mask<T> {
     value: T,
 }
 
 impl<T: Copy> Mask<T> {
-    /// Return the underlying mask value.
+    /// Explicitly convert this mask into a public raw value.
+    ///
+    /// The `reason` string is intentionally required so security reviews can
+    /// search for every mask declassification boundary. Data-oblivious helpers
+    /// inside this module use the private raw accessor instead.
     #[inline]
-    pub const fn expose(self) -> T {
+    pub fn declassify(self, reason: &'static str) -> T {
+        black_box(reason);
+        self.raw()
+    }
+
+    #[inline]
+    const fn raw(self) -> T {
         self.value
     }
 }
@@ -647,7 +672,7 @@ macro_rules! impl_unsigned_ct {
                     #[inline]
                     pub fn from_choice(choice: Choice) -> Self {
                         Self {
-                            value: (0 as $ty).wrapping_sub(choice.unwrap_u8() as $ty),
+                            value: (0 as $ty).wrapping_sub(choice.bit() as $ty),
                         }
                     }
                 }
@@ -664,7 +689,7 @@ macro_rules! impl_unsigned_ct {
                 impl ConditionallySelectable for $ty {
                     #[inline]
                     fn conditional_select(left: &Self, right: &Self, choice: Choice) -> Self {
-                        let mask = (0 as $ty).wrapping_sub(choice.unwrap_u8() as $ty);
+                        let mask = (0 as $ty).wrapping_sub(choice.bit() as $ty);
                         black_box((*left & !mask) | (*right & mask))
                     }
                 }
@@ -849,7 +874,7 @@ pub fn conditional_swap(
         });
     }
 
-    let mask = black_box(Mask::<u8>::from_choice(choice).expose());
+    let mask = black_box(Mask::<u8>::from_choice(choice).raw());
     let mut index = 0usize;
     while index < left.len() {
         let swap = (left[index] ^ right[index]) & mask;

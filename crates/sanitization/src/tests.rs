@@ -17,12 +17,33 @@ fn ct_choice_normalizes_and_declassifies_explicitly() {
     let false_choice = ct::Choice::from_u8(0);
     let true_choice = ct::Choice::from_u8(7);
 
-    assert_eq!(false_choice.unwrap_u8(), 0);
-    assert_eq!(true_choice.unwrap_u8(), 1);
-    assert_eq!((true_choice & false_choice).unwrap_u8(), 0);
-    assert_eq!((true_choice | false_choice).unwrap_u8(), 1);
-    assert_eq!((true_choice ^ ct::Choice::TRUE).unwrap_u8(), 0);
-    assert_eq!((!false_choice).unwrap_u8(), 1);
+    assert_eq!(
+        false_choice.declassify_u8("test or verification observes normalized choice"),
+        0
+    );
+    assert_eq!(
+        true_choice.declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        (true_choice & false_choice)
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
+    assert_eq!(
+        (true_choice | false_choice)
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        (true_choice ^ ct::Choice::TRUE)
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
+    assert_eq!(
+        (!false_choice).declassify_u8("test or verification observes normalized choice"),
+        1
+    );
     assert!(true_choice.declassify("test assertion"));
     assert!(!false_choice.declassify("test assertion"));
 }
@@ -31,15 +52,58 @@ fn ct_choice_normalizes_and_declassifies_explicitly() {
 fn ct_primitives_compare_and_select() {
     use ct::{ConditionallyAssignable, ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd};
 
-    assert_eq!(7u8.ct_eq(&7).unwrap_u8(), 1);
-    assert_eq!(7u8.ct_eq(&8).unwrap_u8(), 0);
-    assert_eq!((-3i32).ct_eq(&-3).unwrap_u8(), 1);
-    assert_eq!((-3i32).ct_ne(&4).unwrap_u8(), 1);
-    assert_eq!(3u8.ct_cmp(&9).is_less().unwrap_u8(), 1);
-    assert_eq!(9u16.ct_cmp(&3).is_greater().unwrap_u8(), 1);
-    assert_eq!(5usize.ct_cmp(&5).is_equal().unwrap_u8(), 1);
-    assert_eq!((-9i32).ct_lt(&-3).unwrap_u8(), 1);
-    assert_eq!(3i32.ct_gt(&-9).unwrap_u8(), 1);
+    assert_eq!(
+        7u8.ct_eq(&7)
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        7u8.ct_eq(&8)
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
+    assert_eq!(
+        (-3i32)
+            .ct_eq(&-3)
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        (-3i32)
+            .ct_ne(&4)
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        3u8.ct_cmp(&9)
+            .is_less()
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        9u16.ct_cmp(&3)
+            .is_greater()
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        5usize
+            .ct_cmp(&5)
+            .is_equal()
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        (-9i32)
+            .ct_lt(&-3)
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        3i32.ct_gt(&-9)
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
     assert_eq!(
         3u8.ct_cmp(&9).declassify("test exposes primitive ordering"),
         core::cmp::Ordering::Less
@@ -58,16 +122,38 @@ fn ct_primitives_compare_and_select() {
 #[test]
 fn ct_ordering_constructor_normalizes_invalid_states() {
     assert_eq!(
-        ct::CtOrdering::new(ct::Choice::TRUE, ct::Choice::TRUE, ct::Choice::FALSE),
-        ct::CtOrdering::LESS
+        ct::CtOrdering::new(ct::Choice::TRUE, ct::Choice::TRUE, ct::Choice::FALSE)
+            .declassify("test observes normalized ordering"),
+        core::cmp::Ordering::Less
     );
     assert_eq!(
-        ct::CtOrdering::new(ct::Choice::FALSE, ct::Choice::TRUE, ct::Choice::TRUE),
-        ct::CtOrdering::GREATER
+        ct::CtOrdering::new(ct::Choice::FALSE, ct::Choice::TRUE, ct::Choice::TRUE)
+            .declassify("test observes normalized ordering"),
+        core::cmp::Ordering::Greater
     );
     assert_eq!(
-        ct::CtOrdering::new(ct::Choice::FALSE, ct::Choice::FALSE, ct::Choice::FALSE),
-        ct::CtOrdering::EQUAL
+        ct::CtOrdering::new(ct::Choice::FALSE, ct::Choice::FALSE, ct::Choice::FALSE)
+            .declassify("test observes normalized ordering"),
+        core::cmp::Ordering::Equal
+    );
+}
+
+#[test]
+fn ct_mask_requires_explicit_declassification() {
+    assert_eq!(
+        ct::Mask::<u32>::from_choice(ct::Choice::FALSE)
+            .declassify("test observes public false mask"),
+        0
+    );
+    assert_eq!(
+        ct::Mask::<u32>::from_choice(ct::Choice::TRUE).declassify("test observes public true mask"),
+        u32::MAX
+    );
+    assert_eq!(std::format!("{:?}", ct::Choice::TRUE), "Choice(..)");
+    assert_eq!(std::format!("{:?}", ct::CtOrdering::LESS), "CtOrdering(..)");
+    assert_eq!(
+        std::format!("{:?}", ct::Mask::<u32>::from_choice(ct::Choice::TRUE)),
+        "Mask(..)"
     );
 }
 
@@ -79,12 +165,39 @@ fn ct_arrays_and_public_len_slices_compare() {
     let same = [1u8, 2, 3, 4];
     let different = [1u8, 2, 3, 9];
 
-    assert_eq!(ct::eq_fixed(&left, &same).unwrap_u8(), 1);
-    assert_eq!(left.ct_eq(&different).unwrap_u8(), 0);
-    assert_eq!(ct::cmp_fixed(&left, &different).is_less().unwrap_u8(), 1);
-    assert_eq!(different.ct_cmp(&left).is_greater().unwrap_u8(), 1);
-    assert_eq!(same.ct_cmp(&left).is_equal().unwrap_u8(), 1);
-    assert_eq!(ct::eq_public_len(&left, &[1, 2, 3]).unwrap_u8(), 0);
+    assert_eq!(
+        ct::eq_fixed(&left, &same).declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        left.ct_eq(&different)
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
+    assert_eq!(
+        ct::cmp_fixed(&left, &different)
+            .is_less()
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        different
+            .ct_cmp(&left)
+            .is_greater()
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        same.ct_cmp(&left)
+            .is_equal()
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        ct::eq_public_len(&left, &[1, 2, 3])
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
 
     let selected = <[u8; 4]>::conditional_select(&left, &different, ct::Choice::TRUE);
     assert_eq!(selected, different);
@@ -170,9 +283,21 @@ fn ct_secret_containers_expose_native_traits() {
     let same = SecretBytes::from_array([1u8, 2, 3, 4]);
     let different = SecretBytes::from_array([9u8, 8, 7, 6]);
 
-    assert_eq!(left.ct_eq(&same).unwrap_u8(), 1);
-    assert_eq!(left.ct_eq(&different).unwrap_u8(), 0);
-    assert_eq!(left.ct_eq([1u8, 2, 3, 4].as_slice()).unwrap_u8(), 1);
+    assert_eq!(
+        left.ct_eq(&same)
+            .declassify_u8("test observes native equality"),
+        1
+    );
+    assert_eq!(
+        left.ct_eq(&different)
+            .declassify_u8("test observes native inequality"),
+        0
+    );
+    assert_eq!(
+        left.ct_eq([1u8, 2, 3, 4].as_slice())
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
 
     let selected = SecretBytes::conditional_select(&left, &different, ct::Choice::TRUE);
     assert!(selected.constant_time_eq(&[9, 8, 7, 6]));
@@ -182,30 +307,90 @@ fn ct_secret_containers_expose_native_traits() {
         let boxed_left = SecretBoxBytes::from_slice(b"token");
         let boxed_same = SecretBoxBytes::from_slice(b"token");
         let boxed_different = SecretBoxBytes::from_slice(b"other");
-        assert_eq!(boxed_left.ct_eq(&boxed_same).unwrap_u8(), 1);
-        assert_eq!(boxed_left.ct_eq(&boxed_different).unwrap_u8(), 0);
-        assert_eq!(boxed_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+        assert_eq!(
+            boxed_left
+                .ct_eq(&boxed_same)
+                .declassify_u8("test observes native boxed equality"),
+            1
+        );
+        assert_eq!(
+            boxed_left
+                .ct_eq(&boxed_different)
+                .declassify_u8("test observes native boxed inequality"),
+            0
+        );
+        assert_eq!(
+            boxed_left
+                .ct_eq(b"token".as_slice())
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
 
         let vec_left = SecretVec::from_slice(b"token");
         let vec_same = SecretVec::from_slice(b"token");
         let vec_different = SecretVec::from_slice(b"other");
-        assert_eq!(vec_left.ct_eq(&vec_same).unwrap_u8(), 1);
-        assert_eq!(vec_left.ct_eq(&vec_different).unwrap_u8(), 0);
-        assert_eq!(vec_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+        assert_eq!(
+            vec_left
+                .ct_eq(&vec_same)
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
+        assert_eq!(
+            vec_left
+                .ct_eq(&vec_different)
+                .declassify_u8("test or verification observes normalized choice"),
+            0
+        );
+        assert_eq!(
+            vec_left
+                .ct_eq(b"token".as_slice())
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
 
         let string_left = SecretString::from_secret_str("token");
         let string_same = SecretString::from_secret_str("token");
         let string_different = SecretString::from_secret_str("other");
-        assert_eq!(string_left.ct_eq(&string_same).unwrap_u8(), 1);
-        assert_eq!(string_left.ct_eq(&string_different).unwrap_u8(), 0);
-        assert_eq!(string_left.ct_eq("token").unwrap_u8(), 1);
+        assert_eq!(
+            string_left
+                .ct_eq(&string_same)
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
+        assert_eq!(
+            string_left
+                .ct_eq(&string_different)
+                .declassify_u8("test or verification observes normalized choice"),
+            0
+        );
+        assert_eq!(
+            string_left
+                .ct_eq("token")
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
 
         let bounded_left = BoundedSecretString::<8>::from_secret_str("token").unwrap();
         let bounded_same = BoundedSecretString::<8>::from_secret_str("token").unwrap();
         let bounded_different = BoundedSecretString::<8>::from_secret_str("other").unwrap();
-        assert_eq!(bounded_left.ct_eq(&bounded_same).unwrap_u8(), 1);
-        assert_eq!(bounded_left.ct_eq(&bounded_different).unwrap_u8(), 0);
-        assert_eq!(bounded_left.ct_eq("token").unwrap_u8(), 1);
+        assert_eq!(
+            bounded_left
+                .ct_eq(&bounded_same)
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
+        assert_eq!(
+            bounded_left
+                .ct_eq(&bounded_different)
+                .declassify_u8("test or verification observes normalized choice"),
+            0
+        );
+        assert_eq!(
+            bounded_left
+                .ct_eq("token")
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
     }
 
     #[cfg(all(
@@ -236,9 +421,24 @@ fn ct_secret_containers_expose_native_traits() {
             (Ok(left), Ok(same), Ok(different)) => (left, same, different),
             _ => return,
         };
-        assert_eq!(locked_left.ct_eq(&locked_same).unwrap_u8(), 1);
-        assert_eq!(locked_left.ct_eq(&locked_different).unwrap_u8(), 0);
-        assert_eq!(locked_left.ct_eq([1u8, 2, 3, 4].as_slice()).unwrap_u8(), 1);
+        assert_eq!(
+            locked_left
+                .ct_eq(&locked_same)
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
+        assert_eq!(
+            locked_left
+                .ct_eq(&locked_different)
+                .declassify_u8("test or verification observes normalized choice"),
+            0
+        );
+        assert_eq!(
+            locked_left
+                .ct_eq([1u8, 2, 3, 4].as_slice())
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
 
         let pool = match SecretPool::<4, 2>::new() {
             Ok(pool) => pool,
@@ -246,8 +446,18 @@ fn ct_secret_containers_expose_native_traits() {
         };
         let pooled_left = pool.allocate_from_array([1u8, 2, 3, 4]).unwrap();
         let pooled_same = pool.allocate_from_array([1u8, 2, 3, 4]).unwrap();
-        assert_eq!(pooled_left.ct_eq(&pooled_same).unwrap_u8(), 1);
-        assert_eq!(pooled_left.ct_eq([1u8, 2, 3, 4].as_slice()).unwrap_u8(), 1);
+        assert_eq!(
+            pooled_left
+                .ct_eq(&pooled_same)
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
+        assert_eq!(
+            pooled_left
+                .ct_eq([1u8, 2, 3, 4].as_slice())
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
     }
 
     #[cfg(all(
@@ -278,9 +488,24 @@ fn ct_secret_containers_expose_native_traits() {
             (Ok(left), Ok(same), Ok(different)) => (left, same, different),
             _ => return,
         };
-        assert_eq!(locked_vec_left.ct_eq(&locked_vec_same).unwrap_u8(), 1);
-        assert_eq!(locked_vec_left.ct_eq(&locked_vec_different).unwrap_u8(), 0);
-        assert_eq!(locked_vec_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+        assert_eq!(
+            locked_vec_left
+                .ct_eq(&locked_vec_same)
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
+        assert_eq!(
+            locked_vec_left
+                .ct_eq(&locked_vec_different)
+                .declassify_u8("test or verification observes normalized choice"),
+            0
+        );
+        assert_eq!(
+            locked_vec_left
+                .ct_eq(b"token".as_slice())
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
 
         let (locked_text_left, locked_text_same, locked_text_different) = match (
             LockedSecretString::from_secret_str("token"),
@@ -290,12 +515,24 @@ fn ct_secret_containers_expose_native_traits() {
             (Ok(left), Ok(same), Ok(different)) => (left, same, different),
             _ => return,
         };
-        assert_eq!(locked_text_left.ct_eq(&locked_text_same).unwrap_u8(), 1);
         assert_eq!(
-            locked_text_left.ct_eq(&locked_text_different).unwrap_u8(),
+            locked_text_left
+                .ct_eq(&locked_text_same)
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
+        assert_eq!(
+            locked_text_left
+                .ct_eq(&locked_text_different)
+                .declassify_u8("test or verification observes normalized choice"),
             0
         );
-        assert_eq!(locked_text_left.ct_eq("token").unwrap_u8(), 1);
+        assert_eq!(
+            locked_text_left
+                .ct_eq("token")
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
     }
 
     #[cfg(all(
@@ -325,9 +562,24 @@ fn ct_secret_containers_expose_native_traits() {
             (Ok(left), Ok(same), Ok(different)) => (left, same, different),
             _ => return,
         };
-        assert_eq!(guarded_left.ct_eq(&guarded_same).unwrap_u8(), 1);
-        assert_eq!(guarded_left.ct_eq(&guarded_different).unwrap_u8(), 0);
-        assert_eq!(guarded_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+        assert_eq!(
+            guarded_left
+                .ct_eq(&guarded_same)
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
+        assert_eq!(
+            guarded_left
+                .ct_eq(&guarded_different)
+                .declassify_u8("test or verification observes normalized choice"),
+            0
+        );
+        assert_eq!(
+            guarded_left
+                .ct_eq(b"token".as_slice())
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
 
         let (guarded_text_left, guarded_text_same, guarded_text_different) = match (
             GuardedSecretString::from_secret_str("token"),
@@ -337,12 +589,24 @@ fn ct_secret_containers_expose_native_traits() {
             (Ok(left), Ok(same), Ok(different)) => (left, same, different),
             _ => return,
         };
-        assert_eq!(guarded_text_left.ct_eq(&guarded_text_same).unwrap_u8(), 1);
         assert_eq!(
-            guarded_text_left.ct_eq(&guarded_text_different).unwrap_u8(),
+            guarded_text_left
+                .ct_eq(&guarded_text_same)
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
+        assert_eq!(
+            guarded_text_left
+                .ct_eq(&guarded_text_different)
+                .declassify_u8("test or verification observes normalized choice"),
             0
         );
-        assert_eq!(guarded_text_left.ct_eq("token").unwrap_u8(), 1);
+        assert_eq!(
+            guarded_text_left
+                .ct_eq("token")
+                .declassify_u8("test or verification observes normalized choice"),
+            1
+        );
     }
 }
 
@@ -353,8 +617,18 @@ fn ct_option_keeps_presence_as_choice() {
     let present = ct::CtOption::some(9u8);
     let absent = ct::CtOption::none(3u8);
 
-    assert_eq!(present.is_some().unwrap_u8(), 1);
-    assert_eq!(absent.is_none().unwrap_u8(), 1);
+    assert_eq!(
+        present
+            .is_some()
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        absent
+            .is_none()
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
     assert_eq!(present.unwrap_or(&1), 9);
     assert_eq!(absent.unwrap_or(&1), 1);
     assert_eq!(present.map(|value| value.wrapping_add(1)).unwrap_or(&0), 10);
@@ -382,10 +656,26 @@ fn ct_result_keeps_success_as_choice() {
     let ok = ct::CtResult::new(7u8, 99u8, ct::Choice::TRUE);
     let err = ct::CtResult::new(7u8, 99u8, ct::Choice::FALSE);
 
-    assert_eq!(ok.is_ok().unwrap_u8(), 1);
-    assert_eq!(ok.is_err().unwrap_u8(), 0);
-    assert_eq!(err.is_ok().unwrap_u8(), 0);
-    assert_eq!(err.is_err().unwrap_u8(), 1);
+    assert_eq!(
+        ok.is_ok()
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        ok.is_err()
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
+    assert_eq!(
+        err.is_ok()
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
+    assert_eq!(
+        err.is_err()
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
     assert_eq!(ok.unwrap_or(&1), 7);
     assert_eq!(err.unwrap_or(&1), 1);
     assert_eq!(ok.map(|value| value.wrapping_add(1)).unwrap_or(&0), 8);
@@ -454,16 +744,16 @@ fn subtle_interop_compares_secret_bytes() {
     let same = SecretBytes::<4>::from_array([1, 2, 3, 4]);
     let different = SecretBytes::<4>::from_array([1, 2, 3, 0]);
 
-    assert_eq!(left.ct_eq(&same).unwrap_u8(), 1);
-    assert_eq!(left.ct_eq(&different).unwrap_u8(), 0);
+    assert!(bool::from(left.ct_eq(&same)));
+    assert!(!bool::from(left.ct_eq(&different)));
 
     #[cfg(feature = "alloc")]
     {
         let boxed_left = SecretBoxBytes::from_slice(&[1, 2, 3, 4]);
         let boxed_same = SecretBoxBytes::from_slice(&[1, 2, 3, 4]);
         let boxed_different = SecretBoxBytes::from_slice(&[1, 2, 3, 0]);
-        assert_eq!(boxed_left.ct_eq(&boxed_same).unwrap_u8(), 1);
-        assert_eq!(boxed_left.ct_eq(&boxed_different).unwrap_u8(), 0);
+        assert!(bool::from(boxed_left.ct_eq(&boxed_same)));
+        assert!(!bool::from(boxed_left.ct_eq(&boxed_different)));
     }
 }
 

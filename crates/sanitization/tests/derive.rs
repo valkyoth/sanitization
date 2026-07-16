@@ -235,9 +235,21 @@ fn derive_constant_time_eq_compares_struct_fields() {
         counter: 9,
     };
 
-    assert_eq!(left.ct_eq(&same).unwrap_u8(), 1);
-    assert_eq!(left.ct_eq(&different_key).unwrap_u8(), 0);
-    assert_eq!(left.ct_eq(&different_counter).unwrap_u8(), 0);
+    assert_eq!(
+        left.ct_eq(&same)
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        left.ct_eq(&different_key)
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
+    assert_eq!(
+        left.ct_eq(&different_counter)
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
 }
 
 #[test]
@@ -255,8 +267,16 @@ fn derive_constant_time_eq_supports_skipped_public_fields() {
         label: 1,
     };
 
-    assert_eq!(left.ct_eq(&same_secret_different_label).unwrap_u8(), 1);
-    assert_eq!(left.ct_eq(&different_secret).unwrap_u8(), 0);
+    assert_eq!(
+        left.ct_eq(&same_secret_different_label)
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        left.ct_eq(&different_secret)
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
 }
 
 #[test]
@@ -283,14 +303,29 @@ fn derive_conditionally_selectable_selects_struct_fields() {
 fn derive_ct_traits_support_tuple_structs_and_crate_path_override() {
     let tuple_left = DerivedCtTuple([1, 2], 3);
     let tuple_right = DerivedCtTuple([9, 8], 7);
-    assert_eq!(tuple_left.ct_eq(&tuple_left).unwrap_u8(), 1);
-    assert_eq!(tuple_left.ct_eq(&tuple_right).unwrap_u8(), 0);
+    assert_eq!(
+        tuple_left
+            .ct_eq(&tuple_left)
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        tuple_left
+            .ct_eq(&tuple_right)
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
     let selected = DerivedCtTuple::conditional_select(&tuple_left, &tuple_right, Choice::TRUE);
     assert_eq!(selected.0, [9, 8]);
     assert_eq!(selected.1, 7);
 
     let crate_path = DerivedCtCratePath { key: [1, 2, 3, 4] };
-    assert_eq!(crate_path.ct_eq(&crate_path).unwrap_u8(), 1);
+    assert_eq!(
+        crate_path
+            .ct_eq(&crate_path)
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
 }
 
 #[test]
@@ -298,8 +333,16 @@ fn derive_ct_traits_support_generic_fields() {
     let left = DerivedCtGeneric { inner: 1u32 };
     let right = DerivedCtGeneric { inner: 2u32 };
 
-    assert_eq!(left.ct_eq(&left).unwrap_u8(), 1);
-    assert_eq!(left.ct_eq(&right).unwrap_u8(), 0);
+    assert_eq!(
+        left.ct_eq(&left)
+            .declassify_u8("test or verification observes normalized choice"),
+        1
+    );
+    assert_eq!(
+        left.ct_eq(&right)
+            .declassify_u8("test or verification observes normalized choice"),
+        0
+    );
     assert_eq!(
         DerivedCtGeneric::conditional_select(&left, &right, Choice::TRUE).inner,
         2

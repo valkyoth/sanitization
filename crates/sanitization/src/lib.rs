@@ -34,8 +34,10 @@
 //!   `random-canary` feature.
 //! - x86_64/AArch64 assembly-backed comparison is available only through the explicit
 //!   `asm-compare` feature.
-//! - High-assurance fail-closed profiles are available through `strict-ct`,
-//!   `strict-canary-check`, and `require-fork-exclusion`.
+//! - Fail-closed assembly-backed equal-length byte comparison is available
+//!   through `strict-compare`. This feature does not strengthen ordering,
+//!   selection, lookup, or caller code. Other fail-closed profiles include
+//!   `strict-canary-check` and `require-fork-exclusion`.
 //! - x86_64 cache-line eviction is available only through the explicit
 //!   `cache-flush` feature.
 //! - Proc-macro derives are available only through the explicit `derive`
@@ -81,12 +83,12 @@ compile_error!(
 );
 
 #[cfg(all(
-    feature = "strict-ct",
+    feature = "strict-compare",
     not(any(target_arch = "x86_64", target_arch = "aarch64")),
     not(miri)
 ))]
 compile_error!(
-    "sanitization: strict-ct requires an assembly comparison backend; currently supported on x86_64 and aarch64"
+    "sanitization: strict-compare requires an assembly comparison backend; currently supported on x86_64 and aarch64"
 );
 
 #[cfg(all(feature = "require-fork-exclusion", target_arch = "wasm32"))]

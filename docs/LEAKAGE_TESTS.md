@@ -28,7 +28,7 @@ A leakage-test run should record:
 - OS and kernel version;
 - Cargo profile and optimization settings;
 - enabled crate features;
-- whether `asm-compare`, `strict-ct`, `cache-flush`, or `register-scrub` were
+- whether `asm-compare`, `strict-compare`, `cache-flush`, or `register-scrub` were
   enabled;
 - number of samples and statistical threshold;
 - whether CPU frequency scaling, turbo boost, SMT, and scheduler affinity were

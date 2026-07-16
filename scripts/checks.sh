@@ -17,6 +17,7 @@ cargo test --features memory-lock
 cargo test --features derive
 cargo test --features strict-enum-derive
 cargo test --features asm-compare
+cargo test --features strict-compare
 cargo test --features cache-flush
 cargo test --features guard-pages
 cargo test --features multi-pass-clear
@@ -30,6 +31,7 @@ cargo check --examples --features std
 cargo check --examples --features memory-lock
 cargo check --examples --features derive
 cargo check --examples --features asm-compare
+cargo check --examples --features strict-compare
 cargo check --examples --features cache-flush
 cargo check --examples --features guard-pages
 cargo check --examples --features multi-pass-clear
@@ -45,6 +47,7 @@ if cargo metadata --no-deps --format-version 1 >/dev/null 2>&1; then
 fi
 scripts/verify-derive-failures.sh
 scripts/verify-secret-exposure-failures.sh
+scripts/verify-ct-declassification.sh
 scripts/verify-leakage-smoke.sh
 scripts/verify-evidence.py
 scripts/test-release-readiness.sh
