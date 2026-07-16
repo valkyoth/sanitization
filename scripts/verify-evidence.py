@@ -11,7 +11,11 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EVIDENCE = ROOT / "docs/ct-evidence.json"
+EVIDENCE = (
+    Path(sys.argv[1]).resolve()
+    if len(sys.argv) == 2
+    else ROOT / "docs/ct-evidence.json"
+)
 SOURCE_ROOT = ROOT / "crates" / "sanitization" / "src"
 
 REQUIRED_TOP_LEVEL = {

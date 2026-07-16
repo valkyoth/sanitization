@@ -125,8 +125,8 @@ its retest.
 | `CP-15` | Accepted |
 | `CP-16` | Accepted |
 | `CP-17` | Accepted |
-| `CP-18` | Pentest |
-| `CP-19` | Planned |
+| `CP-18` | Accepted |
+| `CP-19` | Pentest |
 | `CP-20` | Planned |
 | `CP-21` | Planned |
 | `CP-22` | Planned |

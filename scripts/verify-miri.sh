@@ -13,3 +13,5 @@ cargo +"${toolchain}" miri test -p sanitization --no-default-features
 cargo +"${toolchain}" miri test -p sanitization --features alloc
 cargo +"${toolchain}" miri test -p sanitization --all-features
 cargo +"${toolchain}" miri test -p sanitization-arrayvec
+cargo +"${toolchain}" miri test -p sanitization-bytes
+cargo +"${toolchain}" miri test -p sanitization-crypto-interop --features sha2,blake3,hmac-sha2

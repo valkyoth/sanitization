@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "status": "infrastructure",
+  "harnesses": [
+    {
+      "name": "path-specific-codegen",
+      "claim": "Public secret and CT paths reach the reviewed backend without forbidden substitutions.",
+      "command": "scripts/verify-codegen.sh"
+    },
+    {
+      "name": "codegen-profile-matrix",
+      "claim": "Path-specific codegen invariants survive opt 2/3/s/z, Thin/Fat LTO, cgu 1/many, and unwind/abort.",
+      "command": "scripts/verify-codegen-matrix.sh"
+    },
+    {
+      "name": "allocation-quarantine",
+      "claim": "Released SecretVec allocations do not retain full secret markers after drop or growth.",
+      "command": "cargo test --manifest-path tools/lifecycle-probes/Cargo.toml -- --test-threads=1"
+    },
+    {
+      "name": "protection-fault-model",
+      "claim": "Required setup failures roll back established model resources and never return live storage.",
+      "command": "cargo test --manifest-path tools/lifecycle-probes/Cargo.toml every_required_setup_fault"
+    },
+    {
+      "name": "concurrency-loom",
+      "claim": "Consume-once, pool reuse, generation, and retired protection-state ordering hold under modeled interleavings.",
+      "command": "scripts/verify-loom.sh"
+    },
+    {
+      "name": "bounded-kani",
+      "claim": "Bounded clearing, CT equivalence, capacity, replacement, and protection-report properties hold.",
+      "command": "scripts/verify-kani.sh"
+    },
+    {
+      "name": "platform-independent-miri",
+      "claim": "Platform-independent unsafe boundaries and companion storage paths pass Miri.",
+      "command": "scripts/verify-miri.sh"
+    },
+    {
+      "name": "address-sanitizer",
+      "claim": "Native x86_64 Linux tests pass AddressSanitizer where supported.",
+      "command": "scripts/verify-sanitizer.sh address"
+    },
+    {
+      "name": "thread-sanitizer",
+      "claim": "Native x86_64 Linux tests pass ThreadSanitizer where supported.",
+      "command": "scripts/verify-sanitizer.sh thread"
+    },
+    {
+      "name": "owned-lifecycle-fuzz",
+      "claim": "Owned growth, replacement, serde limits, and enum transitions receive bounded fuzz smoke coverage.",
+      "command": "cargo +nightly fuzz run owned_lifecycle -- -max_total_time=20"
+    },
+    {
+      "name": "ct-primitives-fuzz",
+      "claim": "CT equality, ordering, copy, swap, and lookup receive bounded fuzz smoke coverage.",
+      "command": "cargo +nightly fuzz run ct_primitives -- -max_total_time=20"
+    },
+    {
+      "name": "linux-core-dump-marker",
+      "claim": "A permitted Linux runner can probe whether a locked marker appears in a generated core dump.",
+      "command": "SANITIZATION_RUN_CORE_DUMP_PROBE=1 scripts/verify-core-dump-probe.sh"
+    },
+    {
+      "name": "verification-negative-fixtures",
+      "claim": "Evidence and codegen validators reject seeded malformed inputs.",
+      "command": "scripts/test-verification-fail-closed.py"
+    }
+  ]
+}

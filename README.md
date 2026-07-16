@@ -138,6 +138,8 @@ Read [GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/GUA
 [ERASURE_BACKENDS.md](https://github.com/valkyoth/sanitization/blob/main/docs/ERASURE_BACKENDS.md),
 [TARGETS.md](https://github.com/valkyoth/sanitization/blob/main/docs/TARGETS.md),
 [SAFETY.md](https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md),
+[EVIDENCE.md](https://github.com/valkyoth/sanitization/blob/main/docs/EVIDENCE.md),
+[VERIFICATION_TOOLING.md](https://github.com/valkyoth/sanitization/blob/main/docs/VERIFICATION_TOOLING.md),
 and [REPRODUCIBLE_BUILDS.md](https://github.com/valkyoth/sanitization/blob/main/docs/REPRODUCIBLE_BUILDS.md)
 before using this crate for high-assurance secret handling.
 

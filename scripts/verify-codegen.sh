@@ -49,6 +49,8 @@ if [[ -z "${exposure_ir}" || ! -f "${exposure_ir}" ]]; then
     exit 1
 fi
 
+scripts/verify-codegen-artifact.py "${exposure_ir}"
+
 secret_box_core_clear_body="$(
     awk '
         /; <sanitization::owned::SecretBoxBytes>::clear_secret/ { found = 1; next }

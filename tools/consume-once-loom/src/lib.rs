@@ -266,3 +266,73 @@ mod secret_pool_tests {
         });
     }
 }
+
+#[cfg(test)]
+mod protection_state_tests {
+    use loom::{
+        sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            Arc,
+        },
+        thread,
+    };
+
+    struct ProtectionStateModel {
+        active_accessors: AtomicUsize,
+        retired: AtomicBool,
+        sanitized: AtomicBool,
+    }
+
+    impl ProtectionStateModel {
+        fn new() -> Self {
+            Self {
+                active_accessors: AtomicUsize::new(0),
+                retired: AtomicBool::new(false),
+                sanitized: AtomicBool::new(false),
+            }
+        }
+
+        fn try_access(&self) -> bool {
+            if self.retired.load(Ordering::Acquire) {
+                return false;
+            }
+
+            self.active_accessors.fetch_add(1, Ordering::AcqRel);
+            if self.retired.load(Ordering::Acquire) {
+                self.active_accessors.fetch_sub(1, Ordering::AcqRel);
+                return false;
+            }
+
+            self.active_accessors.fetch_sub(1, Ordering::Release);
+            true
+        }
+
+        fn retire_and_sanitize(&self) {
+            self.retired.store(true, Ordering::Release);
+            while self.active_accessors.load(Ordering::Acquire) != 0 {
+                thread::yield_now();
+            }
+            self.sanitized.store(true, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn retirement_prevents_access_after_sanitization() {
+        loom::model(|| {
+            let state = Arc::new(ProtectionStateModel::new());
+
+            let reader_state = Arc::clone(&state);
+            let reader = thread::spawn(move || reader_state.try_access());
+
+            let retire_state = Arc::clone(&state);
+            let retire = thread::spawn(move || retire_state.retire_and_sanitize());
+
+            let _ = reader.join().unwrap();
+            retire.join().unwrap();
+
+            assert!(state.retired.load(Ordering::Acquire));
+            assert!(state.sanitized.load(Ordering::Acquire));
+            assert!(!state.try_access(), "retired state allowed a new accessor");
+        });
+    }
+}

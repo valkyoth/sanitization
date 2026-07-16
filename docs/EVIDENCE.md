@@ -5,8 +5,10 @@ crate. It is not a blanket claim of identical wall-clock timing or complete
 microarchitectural side-channel resistance.
 
 The same information is also summarized in machine-readable form in
-`docs/ct-evidence.json`. That file is a draft until a release candidate attaches
-exact CI run URLs, rustc versions, target triples, and feature sets.
+`docs/ct-evidence.json`. The named CP-19 harness registry is
+`docs/verification-harnesses.json`. These files remain infrastructure drafts
+until a release candidate attaches exact CI run URLs, rustc versions, target
+triples, and feature sets.
 
 ## Scope
 
@@ -108,6 +110,25 @@ Run release codegen checks directly:
 
 ```bash
 scripts/verify-codegen.sh
+scripts/verify-codegen-matrix.sh
+```
+
+The first script checks the canonical backend and current host architecture.
+The matrix script validates exact downstream probe bodies under optimization
+2/3/s/z, Thin/Fat LTO, one/many codegen units, and unwind/abort panic modes.
+See `docs/VERIFICATION_TOOLING.md`.
+
+Run lifecycle allocation quarantine and fault-model checks:
+
+```bash
+cargo test --manifest-path tools/lifecycle-probes/Cargo.toml -- --test-threads=1
+```
+
+Run fail-closed verification fixtures and validate the harness registry:
+
+```bash
+scripts/test-verification-fail-closed.py
+scripts/verify-verification-harnesses.py
 ```
 
 Validate the machine-readable evidence draft directly:
@@ -160,6 +181,7 @@ Current proof scope:
   selected-value transfer, dummy/unselected cleanup, mapping panic unwind,
   sanitizer panic without retry, independent selection, and zero-sized values;
 - allocation growth arithmetic does not under-allocate for the bounded harness.
+- complete fixed-size replacement exposes exactly the committed replacement.
 
 These proofs are functional correctness checks over bounded inputs. They do not
 prove hardware timing, compiler backend behavior, or absence of every
@@ -171,7 +193,8 @@ concurrency primitives or unsafe trait implementations.
 ## Release Codegen Checks
 
 `scripts/verify-codegen.sh` emits release LLVM IR and assembly for the
-`sanitization` library with all features enabled.
+`sanitization` library with all features enabled and validates exact exported
+downstream probe bodies.
 
 The script checks:
 
@@ -188,6 +211,8 @@ The script checks:
   and SSE/AVX register-scrub instructions are present;
 - on AArch64 hosts, the claimed V0-V7 and V16-V31 register-zeroing
   instructions are present.
+- the downstream probes cover fixed, dynamic, mapped, pooled, sealed,
+  derive-generated, tuple, companion, and CT paths.
 
 This is a regression check, not a formal proof. Manual review should still be
 performed for release candidates that change unsafe code, comparison backends,

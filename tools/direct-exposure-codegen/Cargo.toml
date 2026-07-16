@@ -7,4 +7,12 @@ publish = false
 [workspace]
 
 [dependencies]
-sanitization = { path = "../../crates/sanitization", features = ["alloc"] }
+sanitization = { path = "../../crates/sanitization", features = [
+    "alloc",
+    "derive",
+    "guard-pages",
+    "memory-lock",
+    "page-seal",
+    "strict-compare",
+] }
+sanitization-arrayvec = { path = "../../crates/sanitization-arrayvec" }

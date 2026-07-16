@@ -4,10 +4,21 @@ set -euo pipefail
 cargo fmt --check
 scripts/verify-action-pins.sh
 scripts/verify-feature-profiles.py
+scripts/verify-verification-harnesses.py
+scripts/test-verification-fail-closed.py
 scripts/test-latest-rust.py
 if command -v cargo-audit >/dev/null 2>&1; then
     cargo audit --deny warnings
-    cargo audit --deny warnings --file tools/consume-once-loom/Cargo.lock
+    for lockfile in \
+        fuzz/Cargo.lock \
+        tools/consume-once-loom/Cargo.lock \
+        tools/core-dump-probe/Cargo.lock \
+        tools/ct-leakage/Cargo.lock \
+        tools/direct-exposure-codegen/Cargo.lock \
+        tools/lifecycle-probes/Cargo.lock
+    do
+        cargo audit --deny warnings --file "$lockfile"
+    done
 else
     printf 'skipping cargo audit; cargo-audit is not installed\n'
 fi
@@ -51,6 +62,16 @@ scripts/verify-secret-exposure-failures.sh
 scripts/verify-ct-declassification.sh
 scripts/verify-leakage-smoke.sh
 scripts/verify-loom.sh
+scripts/verify-core-dump-probe.sh
+scripts/verify-codegen-matrix.sh
+(
+    cargo fmt --manifest-path tools/lifecycle-probes/Cargo.toml --check
+    cargo clippy --manifest-path tools/lifecycle-probes/Cargo.toml --all-targets -- -D warnings
+    cargo test --manifest-path tools/lifecycle-probes/Cargo.toml -- --test-threads=1
+)
+(
+    cargo check --manifest-path fuzz/Cargo.toml --bins
+)
 scripts/verify-evidence.py
 scripts/test-release-readiness.sh
 scripts/capture-2.0-baseline.py --check

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "crate": "sanitization",
-  "release_line": "1.2.0",
+  "release_line": "2.0.0 development",
   "status": "draft",
   "rust_min_version": "1.90.0",
   "claim": {
@@ -112,13 +112,41 @@
     },
     {
       "name": "codegen",
-      "command": "scripts/verify-codegen.sh",
+      "command": "scripts/verify-codegen.sh && scripts/verify-codegen-matrix.sh",
       "coverage": [
         "release LLVM IR wipe checks",
+        "path-specific downstream cleanup probes",
+        "optimization, LTO, panic, and codegen-unit matrix",
         "native ct helper symbol checks",
         "native ct optimizer-barrier and mask-generation checks",
         "memcmp/bcmp absence checks",
         "x86_64 assembly backend checks when run on x86_64"
+      ]
+    },
+    {
+      "name": "lifecycle-probes",
+      "command": "cargo test --manifest-path tools/lifecycle-probes/Cargo.toml -- --test-threads=1",
+      "coverage": [
+        "quarantined released-allocation marker checks",
+        "growth allocation cleanup",
+        "required protection setup fault rollback model"
+      ]
+    },
+    {
+      "name": "loom",
+      "command": "scripts/verify-loom.sh",
+      "coverage": [
+        "consume-once claim ordering",
+        "pool slot clear, release, generation, and reuse",
+        "retired protection-state access ordering"
+      ]
+    },
+    {
+      "name": "verification-negative-fixtures",
+      "command": "scripts/test-verification-fail-closed.py",
+      "coverage": [
+        "malformed evidence rejection",
+        "missing path-specific codegen probe rejection"
       ]
     }
   ],
@@ -142,6 +170,7 @@
     "prove_ct_result_unwrap_or_and_maps_match_success_bit",
     "prove_ct_option_and_result_conditional_select_match_choice",
     "prove_constant_time_eq_rejects_length_mismatch",
+    "prove_secret_bytes_replacement_commits_complete_new_value",
     "prove_next_secret_capacity_never_under_allocates"
   ],
   "release_candidate_requirements": [

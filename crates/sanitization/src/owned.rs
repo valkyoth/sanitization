@@ -1003,6 +1003,19 @@ mod kani_verification {
     }
 
     #[kani::proof]
+    fn prove_secret_bytes_replacement_commits_complete_new_value() {
+        let initial: [u8; 4] = kani::any();
+        let replacement: [u8; 4] = kani::any();
+        let mut secret = SecretBytes::<4>::from_array(initial);
+        let mut observed = [0_u8; 4];
+
+        secret.copy_from_slice(&replacement).unwrap();
+        secret.copy_to_slice(&mut observed).unwrap();
+
+        assert_eq!(observed, replacement);
+    }
+
+    #[kani::proof]
     #[cfg(feature = "alloc")]
     fn prove_next_secret_capacity_never_under_allocates() {
         let current: usize = kani::any();
