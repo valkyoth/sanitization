@@ -140,6 +140,10 @@ under page-protection failure. CP-16 acceptance also requires native target
 evidence and external unsafe review; otherwise the feature will be deferred
 from 2.0 stable.
 
+Accordingly, `SealedSecretBytes<N>` does not claim infallible `SecureSanitize`
+or zeroize compatibility. Callers must handle the result of
+`try_secure_sanitize()` or `clear_secret()`.
+
 ## Serialization And Interop
 
 Serde support serializes secret-owning types as redacted strings. Deserializing

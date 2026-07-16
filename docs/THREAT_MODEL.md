@@ -310,6 +310,8 @@ unwinding attempt to reseal. A reseal failure clears and retires the mapping
 when release succeeds. Signals, process abort, privileged remapping, DMA, and
 failure to make a sealed page writable during `Drop` remain explicit residual
 risks.
+The type therefore exposes fallible explicit sanitization and does not
+implement infallible sanitization or zeroize-on-drop traits.
 
 `SecretBytes::expose_secret` directly borrows the owned fixed-size storage and
 does not intentionally construct a full-size temporary array. This reduces

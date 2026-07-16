@@ -731,6 +731,7 @@ Deliverables:
 - keep storage inaccessible outside a scoped access window;
 - restore protection on success and unwind;
 - define failure behavior when resealing fails;
+- keep sanitization fallible rather than implementing infallible clear traits;
 - test nested access rejection, signal/error behavior, and drop cleanup;
 - defer the type entirely if external unsafe review or target semantics are
   incomplete.

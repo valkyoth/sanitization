@@ -955,6 +955,8 @@ Constraints:
 - the type is not `Sync`;
 - drop restores write access, clears, unlocks, and unmaps;
 - every protection transition is fallible and structured;
+- explicit sanitization remains fallible and the type does not implement
+  infallible sanitization or zeroize traits;
 - process abort, signals, privileged remapping, and external copies remain out
   of scope.
 

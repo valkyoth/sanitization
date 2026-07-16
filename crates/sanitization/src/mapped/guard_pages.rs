@@ -1219,6 +1219,8 @@ pub struct SealedSecretBytes<const N: usize> {
     state: SealedState,
     #[cfg(test)]
     fail_next_seal: bool,
+    #[cfg(test)]
+    fail_next_unseal: bool,
 }
 
 // SAFETY: The value exclusively owns its mapping. Moving ownership to another
@@ -1259,6 +1261,8 @@ impl<const N: usize> SealedSecretBytes<N> {
             state: SealedState::Sealed,
             #[cfg(test)]
             fail_next_seal: false,
+            #[cfg(test)]
+            fail_next_unseal: false,
         })
     }
 
@@ -1323,8 +1327,8 @@ impl<const N: usize> SealedSecretBytes<N> {
     ) -> Result<R, SealedSecretAccessError> {
         self.begin_access()?;
         let guard = SealedAccessGuard::new(self);
-        if let Err(error) = self.inner.verify_integrity() {
-            self.reset_zeroed_payload();
+        if let Err(error) = guard.secret.inner.verify_integrity() {
+            guard.secret.reset_zeroed_payload();
             guard.finish()?;
             return Err(error.into());
         }
@@ -1332,7 +1336,7 @@ impl<const N: usize> SealedSecretBytes<N> {
         // SAFETY: the page is read/write for this access window, the guarded
         // mapping owns at least N payload bytes, and the guard reseals before
         // this method returns or unwinds.
-        let bytes = unsafe { &*(self.inner.payload_ptr() as *const [u8; N]) };
+        let bytes = unsafe { &*(guard.secret.inner.payload_ptr() as *const [u8; N]) };
         let result = inspect(bytes);
         guard.finish()?;
         Ok(result)
@@ -1345,15 +1349,15 @@ impl<const N: usize> SealedSecretBytes<N> {
     ) -> Result<R, SealedSecretAccessError> {
         self.begin_access()?;
         let guard = SealedAccessGuard::new(self);
-        if let Err(error) = self.inner.verify_integrity() {
-            self.reset_zeroed_payload();
+        if let Err(error) = guard.secret.inner.verify_integrity() {
+            guard.secret.reset_zeroed_payload();
             guard.finish()?;
             return Err(error.into());
         }
 
         // SAFETY: `&mut self` provides exclusive access, the page is
         // read/write for this window, and the guard reseals on every exit.
-        let bytes = unsafe { &mut *(self.inner.payload_ptr() as *mut [u8; N]) };
+        let bytes = unsafe { &mut *(guard.secret.inner.payload_ptr() as *mut [u8; N]) };
         let result = edit(bytes);
         compiler_fence(Ordering::SeqCst);
         guard.finish()?;
@@ -1369,8 +1373,19 @@ impl<const N: usize> SealedSecretBytes<N> {
     pub fn clear_secret(&mut self) -> Result<(), SealedSecretAccessError> {
         self.begin_access()?;
         let guard = SealedAccessGuard::new(self);
-        self.reset_zeroed_payload();
+        guard.secret.reset_zeroed_payload();
         guard.finish()
+    }
+
+    /// Attempt to sanitize the payload and restore no-access protection.
+    ///
+    /// This operation is fallible because an operating-system protection
+    /// failure can prevent the sealed page from becoming writable. The type
+    /// therefore does not implement the infallible [`crate::SecureSanitize`]
+    /// contract.
+    #[inline]
+    pub fn try_secure_sanitize(&mut self) -> Result<(), SealedSecretAccessError> {
+        self.clear_secret()
     }
 
     fn begin_access(&mut self) -> Result<(), SealedSecretAccessError> {
@@ -1378,6 +1393,15 @@ impl<const N: usize> SealedSecretBytes<N> {
             SealedState::Sealed => {}
             SealedState::Exposed => return Err(SealedSecretAccessError::AccessInProgress),
             SealedState::Retired => return Err(SealedSecretAccessError::Retired),
+        }
+
+        #[cfg(test)]
+        if core::mem::take(&mut self.fail_next_unseal) {
+            return Err(GuardPageError {
+                operation: GuardPageOperation::Protect,
+                errno: 0,
+            }
+            .into());
         }
 
         protect_data(self.inner.data, self.inner.writable_len)?;
@@ -1442,6 +1466,11 @@ impl<const N: usize> SealedSecretBytes<N> {
     }
 
     #[cfg(test)]
+    pub(crate) fn fail_next_unseal_for_test(&mut self) {
+        self.fail_next_unseal = true;
+    }
+
+    #[cfg(test)]
     pub(crate) fn mark_access_in_progress_for_test(&mut self) -> Result<(), GuardPageError> {
         protect_data(self.inner.data, self.inner.writable_len)?;
         self.state = SealedState::Exposed;
@@ -1452,20 +1481,20 @@ impl<const N: usize> SealedSecretBytes<N> {
     pub(crate) fn corrupt_canary_for_test(&mut self) -> Result<(), SealedSecretAccessError> {
         self.begin_access()?;
         let guard = SealedAccessGuard::new(self);
-        self.inner.corrupt_suffix_canary_for_test();
+        guard.secret.inner.corrupt_suffix_canary_for_test();
         guard.finish()
     }
 }
 
 #[cfg(feature = "page-seal")]
-struct SealedAccessGuard<const N: usize> {
-    secret: *mut SealedSecretBytes<N>,
+struct SealedAccessGuard<'a, const N: usize> {
+    secret: &'a mut SealedSecretBytes<N>,
     active: bool,
 }
 
 #[cfg(feature = "page-seal")]
-impl<const N: usize> SealedAccessGuard<N> {
-    fn new(secret: &mut SealedSecretBytes<N>) -> Self {
+impl<'a, const N: usize> SealedAccessGuard<'a, N> {
+    fn new(secret: &'a mut SealedSecretBytes<N>) -> Self {
         Self {
             secret,
             active: true,
@@ -1473,21 +1502,17 @@ impl<const N: usize> SealedAccessGuard<N> {
     }
 
     fn finish(mut self) -> Result<(), SealedSecretAccessError> {
-        // SAFETY: the guard is created from the exclusive borrow held by the
-        // access method and is finished before that method returns.
-        let result = unsafe { (&mut *self.secret).finish_access() };
+        let result = self.secret.finish_access();
         self.active = false;
         result
     }
 }
 
 #[cfg(feature = "page-seal")]
-impl<const N: usize> Drop for SealedAccessGuard<N> {
+impl<const N: usize> Drop for SealedAccessGuard<'_, N> {
     fn drop(&mut self) {
         if self.active {
-            // SAFETY: this guard owns the active access window and runs before
-            // the originating exclusive borrow can be used again.
-            let _ = unsafe { (&mut *self.secret).finish_access() };
+            let _ = self.secret.finish_access();
         }
     }
 }
@@ -1520,19 +1545,6 @@ impl<const N: usize> Drop for SealedSecretBytes<N> {
         }
     }
 }
-
-#[cfg(feature = "page-seal")]
-impl<const N: usize> crate::SecureSanitize for SealedSecretBytes<N> {
-    fn secure_sanitize(&mut self) {
-        let _ = self.clear_secret();
-    }
-}
-
-#[cfg(feature = "page-seal")]
-impl<const N: usize> crate::StableSharedSecretStorage for SealedSecretBytes<N> {}
-
-#[cfg(feature = "page-seal")]
-impl<const N: usize> crate::StableMutableSecretStorage for SealedSecretBytes<N> {}
 
 #[cfg(feature = "page-seal")]
 impl<const N: usize> fmt::Debug for SealedSecretBytes<N> {

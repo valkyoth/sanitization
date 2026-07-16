@@ -1263,6 +1263,10 @@ unsafe reentry while a window is active. Signal handlers, process abort,
 privileged remapping, DMA, and copies made by the closure remain outside the
 guarantee. If `Drop` cannot make an already sealed page writable, it releases
 the mapping without claiming that the final volatile clear occurred.
+For the same reason, this type intentionally does not implement
+`SecureSanitize`, `zeroize::Zeroize`, `zeroize::ZeroizeOnDrop`, or the stable
+storage marker traits. Use the fallible `try_secure_sanitize()` or
+`clear_secret()` operation and handle its result.
 
 This API remains conditional for 2.0 stable until native Linux, AArch64,
 macOS, and Windows evidence plus external unsafe review are complete. It may be

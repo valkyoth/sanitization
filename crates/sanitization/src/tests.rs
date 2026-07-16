@@ -1029,18 +1029,6 @@ fn zeroize_interop_clears_secret_bytes() {
         boxed.zeroize();
         assert!(boxed.constant_time_eq(&[0, 0, 0, 0]));
     }
-
-    #[cfg(all(
-        feature = "page-seal",
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64"),
-        not(miri)
-    ))]
-    {
-        let mut sealed = SealedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
-        sealed.zeroize();
-        assert_eq!(sealed.with_secret(|bytes| *bytes).unwrap(), [0; 4]);
-    }
 }
 
 #[cfg(feature = "subtle-interop")]
@@ -2166,17 +2154,6 @@ fn storage_contracts_cover_fixed_builtins_and_tuples() {
 
         assert_slot();
     }
-
-    #[cfg(all(
-        feature = "page-seal",
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64"),
-        not(miri)
-    ))]
-    {
-        assert_shared::<SealedSecretBytes<32>>();
-        assert_mutable::<SealedSecretBytes<32>>();
-    }
 }
 
 #[test]
@@ -3250,6 +3227,12 @@ fn sealed_secret_bytes_reseal_after_scoped_access() {
     secret.clear_secret().unwrap();
     assert!(secret.is_sealed());
     assert_eq!(secret.with_secret(|bytes| *bytes).unwrap(), [0, 0, 0, 0]);
+
+    secret
+        .with_secret_mut(|bytes| bytes.copy_from_slice(&[5, 6, 7, 8]))
+        .unwrap();
+    secret.try_secure_sanitize().unwrap();
+    assert_eq!(secret.with_secret(|bytes| *bytes).unwrap(), [0, 0, 0, 0]);
     assert!(std::format!("{secret:?}").contains("redacted"));
 }
 
@@ -3298,6 +3281,25 @@ fn sealed_secret_bytes_reject_nested_state_and_retire_on_reseal_failure() {
         retired.with_secret(|_| ()),
         Err(SealedSecretAccessError::Retired)
     );
+}
+
+#[cfg(all(
+    feature = "page-seal",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn sealed_secret_bytes_reports_failed_unseal_without_claiming_sanitization() {
+    let mut secret = SealedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+    secret.fail_next_unseal_for_test();
+
+    assert!(matches!(
+        secret.try_secure_sanitize(),
+        Err(SealedSecretAccessError::Guard(_))
+    ));
+    assert!(secret.is_sealed());
+    assert_eq!(secret.with_secret(|bytes| *bytes).unwrap(), [1, 2, 3, 4]);
 }
 
 #[cfg(all(

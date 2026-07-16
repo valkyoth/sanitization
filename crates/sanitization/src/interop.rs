@@ -157,17 +157,6 @@ mod zeroize_interop {
 
     #[cfg(all(feature = "guard-pages", not(miri)))]
     impl zeroize::ZeroizeOnDrop for GuardedSecretString {}
-
-    #[cfg(all(feature = "page-seal", not(miri)))]
-    impl<const N: usize> zeroize::Zeroize for SealedSecretBytes<N> {
-        #[inline]
-        fn zeroize(&mut self) {
-            let _ = self.clear_secret();
-        }
-    }
-
-    #[cfg(all(feature = "page-seal", not(miri)))]
-    impl<const N: usize> zeroize::ZeroizeOnDrop for SealedSecretBytes<N> {}
 }
 
 #[cfg(feature = "subtle-interop")]

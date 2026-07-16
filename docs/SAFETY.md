@@ -533,9 +533,10 @@ Invariant:
 - Every public access requires `&mut self`. The type is `Send` but deliberately
   does not implement `Sync`.
 - An access-state transition rejects reentry while the page is exposed.
-- A raw-pointer unwind guard owns the active access window. It attempts to
-  reseal on normal return and during panic unwinding before the originating
-  exclusive borrow may be used again.
+- A lifetime-bound unwind guard owns the exclusive borrow for the complete
+  access window. All payload access goes through that guard, which attempts to
+  reseal on normal return and during panic unwinding before the borrow is
+  released.
 - Canary verification occurs only after the page becomes readable. Corruption
   clears the writable region, restores a zeroed fixed payload and fresh
   canaries, and returns an integrity error after resealing.
@@ -548,6 +549,9 @@ Invariant:
   unlock, and unmap to `GuardedSecretVec`. If making the page writable fails,
   Drop can only attempt unlock and unmap; it cannot truthfully guarantee a
   volatile clear of an inaccessible page.
+- Because making a sealed page writable is fallible, this type exposes
+  `try_secure_sanitize()` and does not implement infallible sanitization,
+  zeroize-on-drop, or stable-storage marker traits.
 - Signal-handler reentry, process abort, and privileged page-table changes are
   outside this Rust ownership boundary.
 

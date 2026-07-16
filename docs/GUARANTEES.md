@@ -171,6 +171,11 @@ This remains a conditional 2.0 guarantee pending the CP-16 unsafe review and
 native target evidence. Existing locked and guarded guarantees do not depend on
 its acceptance.
 
+Page-sealed cleanup is explicitly fallible. `SealedSecretBytes<N>` provides
+`try_secure_sanitize()` but does not implement `SecureSanitize`, zeroize
+interop traits, or stable-storage marker traits because an operating-system
+failure may prevent an inaccessible page from becoming writable.
+
 ## Evidence
 
 The repository carries release evidence in two forms:
