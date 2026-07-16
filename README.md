@@ -118,7 +118,7 @@ Implemented now:
 | --- | --- |
 | License | `MIT OR Apache-2.0` |
 | MSRV | Rust `1.90.0` |
-| Pinned toolchain | Rust `1.97.0` |
+| Pinned toolchain | Rust `1.97.1` |
 | Default target | `no_std` |
 | Runtime dependencies | zero external crates by default |
 | Unsafe policy | `#![deny(unsafe_code)]` at crate root, isolated `#[allow(unsafe_code)]` modules documented in `docs/SAFETY.md` |
@@ -145,7 +145,7 @@ work.
 ## Rust Version Support
 
 The minimum supported Rust version is Rust `1.90.0`. New deployments should use
-the pinned stable Rust `1.97.0` until the toolchain policy is updated.
+the pinned stable Rust `1.97.1` until the toolchain policy is updated.
 
 Compatibility evidence for `1.2.5`:
 
@@ -159,7 +159,8 @@ Compatibility evidence for `1.2.5`:
 | `1.95.0` | `cargo check --workspace --all-features` |
 | `1.96.0` | `cargo check --workspace --all-features` |
 | `1.96.1` | `cargo check --workspace --all-features` |
-| `1.97.0` | full release gate |
+| `1.97.0` | `cargo check --workspace --all-features` |
+| `1.97.1` | full release gate |
 
 ## Install
 
@@ -1885,6 +1886,11 @@ after `sanitization-derive` and `sanitization` so crates.io can index each
 dependency before the dependent crate is published. During preflight it writes
 `target/release-evidence-<version>.json` with the local commit, dirty-state,
 rustc, target, Kani, and Miri metadata for the release handoff.
+
+Release validation and publication preflight also fetch Rust's official stable
+channel manifest and fail when `rust-toolchain.toml` is not pinned to the
+current stable patch release. This online freshness check does not change the
+crate MSRV; compatibility remains checked back to Rust `1.90.0`.
 
 Manual order:
 

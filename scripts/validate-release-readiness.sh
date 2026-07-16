@@ -14,6 +14,8 @@ version="${tag#v}"
 release_notes="release-notes/RELEASE_NOTES_${version}.md"
 pentest_report="security/pentest/${tag}.md"
 
+scripts/check-latest-rust.py
+
 if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
     echo "tag already exists locally: ${tag}" >&2
     exit 1

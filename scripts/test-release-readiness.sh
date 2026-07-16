@@ -13,6 +13,14 @@ make_fixture() {
     mkdir -p "$repo/scripts" "$repo/release-notes" "$repo/security/pentest"
     cp "$source_script" "$repo/scripts/validate-release-readiness.sh"
     chmod +x "$repo/scripts/validate-release-readiness.sh"
+    cat >"$repo/scripts/check-latest-rust.py" <<'EOF'
+#!/usr/bin/env sh
+if [ "${FAIL_LATEST_RUST_CHECK:-0}" = "1" ]; then
+    echo "latest Rust check failed: fixture requested failure" >&2
+    exit 1
+fi
+EOF
+    chmod +x "$repo/scripts/check-latest-rust.py"
 
     (
         cd "$repo"
@@ -74,6 +82,14 @@ repo="$(make_fixture existing-tag)"
     git tag v9.9.9
     assert_fails_with "tag already exists locally: v9.9.9" \
         scripts/validate-release-readiness.sh "v9.9.9"
+)
+
+repo="$(make_fixture stale-rust)"
+(
+    cd "$repo"
+    FAIL_LATEST_RUST_CHECK=1 \
+        assert_fails_with "latest Rust check failed: fixture requested failure" \
+        scripts/validate-release-readiness.sh "v0.2.0"
 )
 
 repo="$(make_fixture scratch-pentest)"

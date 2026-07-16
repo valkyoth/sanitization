@@ -106,6 +106,14 @@ def verify_versions(expected_version: str) -> None:
             )
 
 
+def verify_latest_rust() -> None:
+    subprocess.run(
+        ["scripts/check-latest-rust.py"],
+        cwd=ROOT,
+        check=True,
+    )
+
+
 def verify_release_artifacts(version: str) -> None:
     tag = f"v{version}"
     release_notes = ROOT / "release-notes" / f"RELEASE_NOTES_{version}.md"
@@ -283,6 +291,7 @@ def main() -> int:
 
     require_clean_tree(allow_dirty=args.allow_dirty or args.dry_run)
     verify_versions(args.version)
+    verify_latest_rust()
     verify_release_artifacts(args.version)
     check_release_tag(args.version, require_tag=args.require_tag)
 

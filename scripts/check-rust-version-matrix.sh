@@ -11,6 +11,7 @@ toolchains=(
     1.96.0
     1.96.1
     1.97.0
+    1.97.1
 )
 
 for toolchain in "${toolchains[@]}"; do
