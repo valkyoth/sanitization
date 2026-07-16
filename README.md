@@ -925,13 +925,15 @@ infallible APIs panic with a fixed message. Use `expose_secret_checked`,
 and the applicable checked methods on `LockedSecretVec` and pool slots, when
 callers need explicit error handling with `CanaryCorruptedError`.
 
-Canaries are derived from the mapping or slot address and a fixed mask on
-native mapped backends, so they require no RNG or dependency. That deterministic
-mode assumes ASLR or otherwise unpredictable mapping addresses and is best
-understood as blind-overwrite detection. If one deterministic canary value is
-disclosed, the expected value for that mapping or slot is recoverable because
-the mask is fixed; enable `random-canary` in ASLR-disabled, weak-ASLR,
-canary-disclosure, or compliance-sensitive environments. On WASM,
+Standalone canaries are derived from the mapping address and a fixed mask on
+native mapped backends. Deterministic pool-slot canaries additionally mix in a
+per-slot allocation generation, so reuse rotates the value without requiring
+an RNG or dependency. Deterministic mode assumes ASLR or otherwise
+unpredictable mapping addresses and is best understood as blind-overwrite
+detection. If one live deterministic canary value is disclosed, the expected
+value for that mapping or slot occupancy is recoverable; enable
+`random-canary` in ASLR-disabled, weak-ASLR, canary-disclosure, or
+compliance-sensitive environments. On WASM,
 `canary-check` requires `random-canary` because inline storage has no stable
 ASLR-backed mapping address. Canaries detect overwrites that reach the canary
 words; they do not detect corruption entirely inside the secret bytes,
@@ -1019,6 +1021,11 @@ currently only lock the pages and release them on drop. None of these APIs
 protect against all crash dump mechanisms, hibernation, debuggers, privileged
 process reads, DMA, malicious firmware, or copies made before data enters the
 locked container.
+
+Locked and guarded constructors also consume mapping entries and locked-memory
+quota. Do not construct one mapping per untrusted event without a bounded
+application policy and rate limiting. For high-volume same-size secrets,
+pre-allocate a bounded `SecretPool<N, SLOTS>` during trusted startup.
 
 ## Guarded Heap Secrets
 

@@ -175,18 +175,20 @@ The locked and guarded UTF-8 wrappers expose checked text access through
 `SecretTextIntegrityError`, which distinguishes canary corruption from invalid
 UTF-8 payload bytes.
 
-By default, canary words are derived from mapping or slot addresses and a fixed
-mask. This deterministic mode assumes ASLR or otherwise unpredictable mapping
-addresses and is intended for blind-overwrite resistance. Disclosure of one
-deterministic canary value reveals the expected value for that mapping or slot
-because the mask is fixed, so an attacker who can both read and write memory can
-forge the canary. Use `random-canary` when ASLR is disabled, weakened, canary
-disclosure is in scope, or deterministic canaries are not acceptable for the
-threat model. With `random-canary`, canaries are generated from the
-operating-system CSPRNG using dependency-free platform backends. Random canaries
-improve blind overwrite detection and audit posture, but they still do not
-authenticate memory against an attacker who can read and rewrite both the owner
-metadata and mapped canary bytes.
+By default, standalone mapped canary words are derived from mapping addresses
+and a fixed mask. Deterministic pooled canaries additionally mix in a per-slot
+allocation generation so a disclosed value is not reused by the next occupant
+of that slot. This mode assumes ASLR or otherwise unpredictable mapping
+addresses and is intended for blind-overwrite resistance. Disclosure of a live
+deterministic canary still reveals the expected value for that mapping or slot
+occupancy, so an attacker who can both read and write memory can forge it. Use
+`random-canary` when ASLR is disabled, weakened, canary disclosure is in scope,
+or deterministic canaries are not acceptable for the threat model. With
+`random-canary`, canaries are generated from the operating-system CSPRNG using
+dependency-free platform backends. Random canaries improve blind overwrite
+detection and audit posture, but they still do not authenticate memory against
+an attacker who can read and rewrite both the owner metadata and mapped canary
+bytes.
 `strict-canary-check` is a named profile for environments where deterministic
 canaries are not acceptable; it enables `random-canary` and therefore fails
 construction on targets without a supported dependency-free random backend
@@ -292,3 +294,10 @@ copies created before bytes enter the container. Use mapped locked or guarded
 types when those platform protections are required. Infallible constructors
 still require a trusted, bounded public length; use the bounded fallible
 constructors for untrusted length metadata and availability-sensitive code.
+
+Mapped and locked constructors consume process and kernel resources such as
+mapping entries and locked-memory quota. Do not create one locked or guarded
+mapping per untrusted network event without an application-level bound and rate
+limit. For many same-size secrets on an untrusted or high-volume path,
+pre-allocate a bounded `SecretPool<N, SLOTS>` during trusted startup and treat
+pool exhaustion as an explicit availability policy.

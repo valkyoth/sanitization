@@ -51,3 +51,19 @@ The codegen gate checks the canonical backend symbol, volatile stores, both
 compiler fences, the hardware fence, and one backend dispatch from
 `SecretBoxBytes::clear_secret`. It also rejects reintroduction of the removed
 best-effort alias.
+
+## Pentest Follow-Up
+
+The CP-10 review identified that deterministic pooled canaries originally
+depended only on a slot's stable address. The native pool now advances a
+per-slot atomic generation after exclusive allocation and mixes it into the
+canary value. A regression test verifies that dropping and reallocating the
+same slot changes the canary while preserving integrity.
+
+The review also produced two documentation hardenings:
+
+- locked and guarded construction must be bounded and rate-limited on
+  untrusted paths, with `SecretPool` preferred for high-volume fixed-size
+  secrets; and
+- public-backing `CtOption` and `CtResult` must not contain secret-bearing
+  values; their rustdoc now points to the redacted clear-on-drop alternatives.

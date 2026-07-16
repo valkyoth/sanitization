@@ -3553,6 +3553,33 @@ fn secret_pool_slot_canaries_detect_corruption() {
 
 #[cfg(all(
     feature = "std",
+    feature = "canary-check",
+    not(feature = "random-canary"),
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn secret_pool_deterministic_canary_rotates_when_slot_is_reused() {
+    let pool = match SecretPool::<4, 1>::new() {
+        Ok(pool) => pool,
+        Err(_) => return,
+    };
+
+    let first = pool.allocate().unwrap();
+    let first_canary = first.deterministic_canary_for_test();
+    let slot_index = first.slot_index();
+    drop(first);
+
+    let second = pool.allocate().unwrap();
+    assert_eq!(second.slot_index(), slot_index);
+    assert_ne!(second.deterministic_canary_for_test(), first_canary);
+    assert_eq!(second.verify_integrity(), Ok(()));
+}
+
+#[cfg(all(
+    feature = "std",
     feature = "memory-lock",
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64"),

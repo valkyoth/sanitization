@@ -4,6 +4,9 @@ use core::{
     sync::atomic::{compiler_fence, AtomicBool, Ordering},
 };
 
+#[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+use core::sync::atomic::AtomicUsize;
+
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -115,6 +118,8 @@ const PAGE_READWRITE: u32 = 0x04;
 const CANARY_SIZE: usize = 8;
 #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
 const CANARY_MASK: u64 = 0xDEAD_BEEF_CAFE_BABE;
+#[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+const CANARY_GENERATION_MIX: u64 = 0xD6E8_FEB8_6659_FD93;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const SYS_MMAP: usize = 9;
@@ -1902,6 +1907,8 @@ pub struct SecretPool<const N: usize, const SLOTS: usize> {
     map_len: usize,
     slot_stride: usize,
     used: [AtomicBool; SLOTS],
+    #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+    generations: [AtomicUsize; SLOTS],
 }
 
 /// A live fixed-size secret slot allocated from a [`SecretPool`].
@@ -1913,6 +1920,8 @@ pub struct SecretPoolSlot<'pool, const N: usize, const SLOTS: usize> {
     ptr: NonNull<u8>,
     slot_index: usize,
     pool: &'pool SecretPool<N, SLOTS>,
+    #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+    generation: usize,
     #[cfg(feature = "random-canary")]
     canary: [u8; CANARY_SIZE],
 }
@@ -1938,6 +1947,8 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     #[inline]
     pub fn new() -> Result<Self, MemoryLockError> {
         let used = core::array::from_fn(|_| AtomicBool::new(false));
+        #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+        let generations = core::array::from_fn(|_| AtomicUsize::new(0));
         let slot_stride = Self::slot_stride()?;
         let total_bytes = slot_stride.checked_mul(SLOTS).ok_or(MemoryLockError {
             operation: MemoryLockOperation::Length,
@@ -1950,6 +1961,8 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
                 map_len: 0,
                 slot_stride,
                 used,
+                #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+                generations,
             });
         }
 
@@ -1973,6 +1986,8 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
             map_len,
             slot_stride,
             used,
+            #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+            generations,
         })
     }
 
@@ -2054,10 +2069,16 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
                         continue;
                     }
                 };
+                #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+                let generation = self.generations[slot_index]
+                    .fetch_add(1, Ordering::Relaxed)
+                    .wrapping_add(1);
                 let mut slot = SecretPoolSlot {
                     ptr,
                     slot_index,
                     pool: self,
+                    #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+                    generation,
                     #[cfg(feature = "random-canary")]
                     canary: [0; CANARY_SIZE],
                 };
@@ -2496,7 +2517,8 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
     #[inline]
     fn canary_value(&self) -> [u8; CANARY_SIZE] {
-        ((self.ptr.as_ptr() as u64) ^ CANARY_MASK).to_ne_bytes()
+        let generation = (self.generation as u64).wrapping_mul(CANARY_GENERATION_MIX);
+        ((self.ptr.as_ptr() as u64) ^ generation ^ CANARY_MASK).to_ne_bytes()
     }
 
     #[cfg(feature = "random-canary")]
@@ -2614,6 +2636,18 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
             let byte = self.ptr.as_ptr();
             core::ptr::write(byte, core::ptr::read(byte) ^ 0xFF);
         }
+    }
+
+    #[cfg(all(
+        test,
+        feature = "canary-check",
+        not(feature = "random-canary"),
+        feature = "std"
+    ))]
+    #[allow(dead_code)]
+    #[inline]
+    pub(crate) fn deterministic_canary_for_test(&self) -> [u8; CANARY_SIZE] {
+        self.canary_value()
     }
 }
 

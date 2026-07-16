@@ -623,6 +623,13 @@ fn sanitize_owned_option<T: SecureSanitize>(value: &mut Option<T>) {
 /// `CtOption` stores a value regardless of whether it is logically present.
 /// Callers should combine or select on the [`Choice`] returned by
 /// [`CtOption::is_some`] and declassify only at a public boundary.
+///
+/// # Warning
+///
+/// This public-backing type is `Copy` when `T` is `Copy` and exposes
+/// unredacted `Debug` output when `T` does. Do not instantiate it with
+/// secret-bearing storage. Use [`SecretCtOption`] for non-`Copy`, redacted,
+/// clear-on-drop backing values.
 #[derive(Clone, Copy, Debug)]
 pub struct CtOption<T> {
     value: T,
@@ -753,6 +760,13 @@ where
 }
 
 /// Result-like value with a hidden success bit.
+///
+/// # Warning
+///
+/// This public-backing type is `Copy` when both backing types are `Copy` and
+/// exposes their normal `Debug` output. Do not place secret-bearing values in
+/// either side. Use [`SecretCtResult`] when a success or error backing value
+/// is secret and must be redacted and cleared on drop.
 #[derive(Clone, Copy, Debug)]
 pub struct CtResult<T, E> {
     value: T,

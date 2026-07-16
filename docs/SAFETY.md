@@ -302,6 +302,10 @@ Invariant:
 - The pool tracks live slots with `[AtomicBool; SLOTS]`. Slot allocation uses a
   compare-exchange from unused to used, preventing two live safe handles for the
   same slot.
+- Deterministic canary mode tracks a per-slot atomic allocation generation.
+  Allocation advances that generation only after the bitmap grants exclusive
+  ownership, and mixes it into the address-derived canary so successive
+  occupants of a reused slot receive different canary values.
 - Each `SecretPoolSlot` carries a lifetime-bound shared borrow of the pool, so
   Rust prevents the pool from being dropped or mutably cleared while slots are
   live.

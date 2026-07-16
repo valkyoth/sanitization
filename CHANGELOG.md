@@ -28,6 +28,10 @@
   retained the reviewed 1.x compiler and hardware fence policy.
 - Removed best-effort, volatile-alias, volatile-constructor, and misleading
   `unsafe_wipe` compatibility APIs, including the no-op `unsafe-wipe` feature.
+- Rotated deterministic `SecretPool` canaries on every slot allocation by
+  mixing a per-slot atomic generation into the address-derived value.
+- Documented locked-mapping resource exhaustion policy and warned against
+  placing secret-bearing values in public-backing `CtOption`/`CtResult`.
 
 ## 1.2.5
 
