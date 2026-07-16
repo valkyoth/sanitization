@@ -1409,6 +1409,12 @@ These traits do not prevent deliberate copying, logging, replacement, or
 external calls inside a user-provided closure. Generic `Secret<T>` exposure is
 available only when the corresponding storage contract is implemented.
 
+For a closed high-assurance deployment, treat marker implementations and
+exposure closures as reviewed policy boundaries. Allow-list concrete storage
+types instead of accepting arbitrary downstream marker implementations, and
+keep exposure closures small enough to audit for copying, logging, allocation,
+or export. See [the strict-assurance guidance](docs/SAFETY.md#strict-assurance-use).
+
 ## Read-Once Secrets
 
 Use `ReadOnceSecret<T>` when a value should be accessed once and then cleared.

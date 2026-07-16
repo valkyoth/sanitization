@@ -59,6 +59,19 @@ available for storage-unstable owned values without reopening generic access.
 No `Deref`, `DerefMut`, `AsRef`, `AsMut`, `Borrow`, `BorrowMut`, ordinary
 equality, cloning, or secret-printing debug path is added.
 
+## Strict-Assurance Residual Risks
+
+The storage contracts are public, safe, manually implementable attestations.
+An incorrect downstream implementation can invalidate the documented secrecy
+guarantee without violating Rust memory safety. Closed deployments should
+allow-list reviewed concrete implementations or hide the public markers behind
+private application-level wrapper traits.
+
+Exposure closures remain deliberate declassification boundaries. They can
+copy, log, export, replace, or otherwise persist secrets. Strict deployments
+must review the closure bodies and should avoid passing arbitrary downstream
+callbacks into exposure APIs.
+
 ## Verification
 
 The checkpoint includes:
@@ -70,3 +83,8 @@ The checkpoint includes:
 - workspace all-feature checks on Rust 1.97.1;
 - MSRV workspace checks on Rust 1.90.0;
 - the normal repository check path.
+
+Local verification may skip cross-compilation targets that are not installed.
+Checkpoint acceptance additionally requires the hosted Linux, Windows, Apple,
+Android, BSD, WASM, and embedded CI matrix to be green. Local host success is
+not a substitute for that matrix.

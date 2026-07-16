@@ -89,6 +89,13 @@ pub trait SecureSanitize {
 /// Rust memory safety. Generic guarantees are conditional on downstream
 /// implementations satisfying this contract.
 ///
+/// High-assurance applications should not accept arbitrary third-party
+/// implementations merely because they satisfy this public marker. Maintain an
+/// application-level allow-list of reviewed concrete types, or expose only
+/// constructors and APIs whose generic bounds are closed over that reviewed
+/// set. The crate keeps this trait public so downstream fixed-storage types can
+/// opt in without making their implementations part of this crate.
+///
 /// Deliberate copying, logging, `mem::replace`, or calls to external code by an
 /// exposure closure remain caller responsibility. This marker describes the
 /// operations supplied by the marked type; it does not make hostile closure

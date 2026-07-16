@@ -279,6 +279,9 @@ Exit criteria:
 
 - storage-unstable types can be owned and cleared but not generically exposed;
 - stable user types can opt in explicitly;
+- the complete hosted Linux, Windows, Apple, Android, BSD, WASM, and embedded
+  checkpoint matrix is green; locally skipped non-host targets do not satisfy
+  this criterion;
 - temporary findings are removed after accepted retest and CI is green.
 
 ### `CP-04`: Direct Fixed-Secret Exposure

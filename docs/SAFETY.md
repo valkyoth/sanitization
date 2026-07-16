@@ -34,6 +34,30 @@ The marker contracts do not prevent a caller from deliberately copying,
 logging, replacing, or exporting a secret inside an exposure closure. They
 describe the marked type's own safe operations, not arbitrary caller code.
 
+### Strict-Assurance Use
+
+The storage markers are public, safe attestations so downstream fixed-storage
+types can participate without becoming dependencies of this crate. A type
+checking the trait bound is not evidence that its implementation received an
+independent review.
+
+Deployments with a closed or military-controlled assurance profile should:
+
+- allow-list the exact concrete marker implementations accepted at application
+  boundaries;
+- avoid public APIs that accept arbitrary downstream implementations of the
+  marker traits;
+- review exposure closures as declassification boundaries and reject closures
+  that copy, log, export, replace, allocate from, or otherwise persist secret
+  values;
+- prefer this crate's audited fixed and dedicated dynamic containers over
+  manual marker implementations where possible.
+
+Sealing the traits in the core crate would prevent legitimate downstream
+fixed-storage implementations and is therefore not the general API policy.
+Applications can enforce a closed set with private wrapper traits or
+non-generic constructors.
+
 The core crate intentionally does not certify `Vec<T>`, `String`, `Box<T>`,
 references, shared ownership, standard interior-mutability wrappers, or
 arbitrary third-party containers. Generic `Secret<T>` exposure is therefore
