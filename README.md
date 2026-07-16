@@ -135,6 +135,7 @@ Read [GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/GUA
 [NON_GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/NON_GUARANTEES.md),
 [THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/docs/THREAT_MODEL.md),
 [BARRIERS.md](https://github.com/valkyoth/sanitization/blob/main/docs/BARRIERS.md),
+[ERASURE_BACKENDS.md](https://github.com/valkyoth/sanitization/blob/main/docs/ERASURE_BACKENDS.md),
 [TARGETS.md](https://github.com/valkyoth/sanitization/blob/main/docs/TARGETS.md),
 [SAFETY.md](https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md),
 and [REPRODUCIBLE_BUILDS.md](https://github.com/valkyoth/sanitization/blob/main/docs/REPRODUCIBLE_BUILDS.md)
@@ -1561,6 +1562,13 @@ container shapes:
 - `Option<T>` and `Result<T, E>` when their contents implement
   `SecureSanitize`.
 - with `alloc`: `Box<T>`, `Vec<T>`, and `String`.
+
+The primitive scalar implementations use a private unsafe representation
+marker whose complete reviewed set is fixed inside the crate. Raw pointers,
+references, arbitrary user-defined `Copy` types, and unknown representations
+are not accepted by that path. The ordinary RAM wipe backend is also not a
+generic MMIO, DMA, or persistent-memory erasure interface; see
+[ERASURE_BACKENDS.md](docs/ERASURE_BACKENDS.md).
 
 ```rust
 use sanitization::{Secret, SecureSanitize};

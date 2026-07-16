@@ -4,7 +4,6 @@ use core::{
     fmt,
     hint::black_box,
     marker::PhantomData,
-    mem,
     sync::atomic::{compiler_fence, Ordering},
 };
 
@@ -65,6 +64,27 @@ impl std::error::Error for LengthError {}
 /// `MaybeUninit<T>`, unions, and types whose all-zero representation is invalid
 /// need type-specific review. The crate intentionally provides no blanket
 /// implementation for those categories.
+///
+/// Raw pointers and arbitrary user-defined `Copy` types are not accepted by
+/// the built-in representation wipe:
+///
+/// ```compile_fail
+/// use sanitization::SecureSanitize;
+///
+/// let byte = 7_u8;
+/// let mut pointer = &byte as *const u8;
+/// pointer.secure_sanitize();
+/// ```
+///
+/// ```compile_fail
+/// use sanitization::SecureSanitize;
+///
+/// #[derive(Clone, Copy)]
+/// struct Unreviewed(u32);
+///
+/// let mut value = Unreviewed(7);
+/// value.secure_sanitize();
+/// ```
 pub trait SecureSanitize {
     /// Clear the sensitive bytes owned by this value.
     fn secure_sanitize(&mut self);
@@ -214,18 +234,13 @@ pub fn secure_replace<T: SecureSanitize>(slot: &mut T, replacement: T) {
     *slot = replacement;
 }
 
-#[inline(never)]
-fn sanitize_plain_value<T>(value: &mut T) {
-    wipe_backend::erase((value as *mut T).cast::<u8>(), mem::size_of::<T>());
-}
-
 macro_rules! impl_secure_sanitize_scalar {
     ($($ty:ty),+ $(,)?) => {
         $(
             impl SecureSanitize for $ty {
                 #[inline(never)]
                 fn secure_sanitize(&mut self) {
-                    sanitize_plain_value(self);
+                    wipe_backend::erase_plain_data(self);
                 }
             }
 
@@ -2747,7 +2762,7 @@ impl SecretBoxBytes {
     #[inline]
     fn replace_staged(&mut self, mut replacement: Self) {
         self.clear_secret();
-        mem::swap(&mut self.inner, &mut replacement.inner);
+        core::mem::swap(&mut self.inner, &mut replacement.inner);
     }
 }
 

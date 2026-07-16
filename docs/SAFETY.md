@@ -3,6 +3,9 @@
 The crate root uses `#![deny(unsafe_code)]` and
 `#![deny(unsafe_op_in_unsafe_fn)]`.
 
+Representation wiping and target-memory categories are documented in
+`docs/ERASURE_BACKENDS.md`.
+
 ## Safe Security Contracts
 
 `SecureSanitize` and the storage-stability markers are safe traits, but their
@@ -111,6 +114,33 @@ Unsafe code is allowed only inside narrow, reviewable implementation modules:
 
 Public APIs in `sanitization::wipe` are safe wrappers around the private,
 sealed `wipe_backend`.
+
+### Built-in zero-valid representations
+
+Location: `wipe_backend::ZeroValidPlainData`
+
+Purpose: constrain the full-representation wipe used by primitive scalar
+`SecureSanitize` implementations.
+
+Invariant:
+
+- the marker is private and unsafe, so downstream crates cannot extend the
+  reviewed set;
+- every implementation is `Copy`, has no destructor, ownership, pointer
+  provenance, interior mutability, or invalid all-zero representation;
+- the complete stable implementation set is the primitive integer types,
+  `bool`, `char`, `f32`, and `f64`;
+- each implementation supplies a typed zero constant whose representation is
+  all zero; one typed volatile write avoids transient invalid values such as an
+  invalid intermediate `char`;
+- arbitrary arrays, aggregates, pointers, references, unions, enums,
+  `NonZero*`, and `MaybeUninit<T>` are not representation-wiped through this
+  path;
+- safe user-defined sanitization remains field-wise through
+  `SecureSanitize`.
+
+A public target-provided backend is not part of 2.0. Safe APIs dispatch only
+through the crate's private ordinary-RAM backend.
 
 ### `sanitization-arrayvec` complete inline backing wipe
 

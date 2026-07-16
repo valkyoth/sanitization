@@ -440,6 +440,11 @@ Stabilization requirements:
 This trait is optional for 2.0 stable. If its review is incomplete, defer it
 without delaying the mandatory architecture corrections.
 
+CP-17 resolves this by keeping `ZeroValidPlainData` private and built-in-only.
+It constrains the primitive scalar representation wipes already present
+without creating a downstream implementation surface. A public marker remains
+deferred.
+
 ## Workstream 4: Data-Oblivious API Redesign
 
 ### 4.1 Security claim
@@ -776,6 +781,10 @@ The design must distinguish:
 Do not pretend one generic fence or volatile loop is sufficient for every
 category. If a public extension trait is eventually exposed, it must be unsafe,
 target-specific, and externally reviewed.
+
+CP-17 defers the public target-provided backend from 2.0. The category
+contracts and requirements for a future companion or unsafe API are recorded
+in `ERASURE_BACKENDS.md`.
 
 Multi-pass overwrite remains a compliance option, not a claim of stronger
 security for volatile RAM.

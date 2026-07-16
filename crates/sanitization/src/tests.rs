@@ -2083,20 +2083,34 @@ fn register_scrub_reports_the_executed_scope() {
 
 #[test]
 fn scalar_values_implement_secure_sanitize() {
-    let mut unsigned = Secret::new(0xDEAD_BEEF_u64);
-    let mut signed = Secret::new(-42_i32);
-    let mut flag = Secret::new(true);
-    let mut float = Secret::new(12.5_f64);
+    fn assert_clears<T>(mut value: T)
+    where
+        T: crate::wipe_backend::ZeroValidPlainData
+            + SecureSanitize
+            + Default
+            + PartialEq
+            + core::fmt::Debug,
+    {
+        value.secure_sanitize();
+        assert_eq!(value, T::default());
+    }
 
-    unsigned.with_secret_mut(SecureSanitize::secure_sanitize);
-    signed.with_secret_mut(SecureSanitize::secure_sanitize);
-    flag.with_secret_mut(SecureSanitize::secure_sanitize);
-    float.with_secret_mut(SecureSanitize::secure_sanitize);
-
-    assert_eq!(unsigned.with_secret(|value| *value), 0);
-    assert_eq!(signed.with_secret(|value| *value), 0);
-    assert!(!flag.with_secret(|value| *value));
-    assert_eq!(float.with_secret(|value| value.to_bits()), 0);
+    assert_clears(0xA5_u8);
+    assert_clears(0xA5A5_u16);
+    assert_clears(0xA5A5_A5A5_u32);
+    assert_clears(0xDEAD_BEEF_CAFE_BABE_u64);
+    assert_clears(u128::MAX);
+    assert_clears(usize::MAX);
+    assert_clears(-1_i8);
+    assert_clears(-2_i16);
+    assert_clears(-3_i32);
+    assert_clears(-4_i64);
+    assert_clears(-5_i128);
+    assert_clears(-6_isize);
+    assert_clears(true);
+    assert_clears('S');
+    assert_clears(12.5_f32);
+    assert_clears(-42.25_f64);
 }
 
 #[test]

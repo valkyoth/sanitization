@@ -9,6 +9,52 @@ mod sealed {
     pub trait Sealed {}
 }
 
+/// Internal marker for built-in plain-data representations that remain valid
+/// after every byte is overwritten with zero.
+///
+/// # Safety
+///
+/// Implementations must be `Copy`, have no destructor, contain no references,
+/// pointers, provenance, ownership, or interior mutability, and accept the
+/// all-zero representation as a valid live value. This trait is intentionally
+/// private and implemented only for the reviewed primitive scalar set.
+pub(crate) unsafe trait ZeroValidPlainData: Copy {
+    /// A valid value whose complete representation is zero.
+    const ZERO: Self;
+}
+
+macro_rules! impl_zero_valid_plain_data {
+    ($($ty:ty => $zero:expr),+ $(,)?) => {
+        $(
+            // SAFETY: this primitive is `Copy`, has no destructor, contains no
+            // pointer or ownership state, and its all-zero bit pattern is a
+            // valid value.
+            unsafe impl ZeroValidPlainData for $ty {
+                const ZERO: Self = $zero;
+            }
+        )+
+    };
+}
+
+impl_zero_valid_plain_data!(
+    u8 => 0,
+    u16 => 0,
+    u32 => 0,
+    u64 => 0,
+    u128 => 0,
+    usize => 0,
+    i8 => 0,
+    i16 => 0,
+    i32 => 0,
+    i64 => 0,
+    i128 => 0,
+    isize => 0,
+    bool => false,
+    char => '\0',
+    f32 => 0.0,
+    f64 => 0.0,
+);
+
 pub(crate) trait ErasureBackend: sealed::Sealed {
     fn erase(ptr: *mut u8, len: usize);
 
@@ -36,6 +82,20 @@ impl ErasureBackend for VolatileRam {
 #[inline(never)]
 pub(crate) fn erase(ptr: *mut u8, len: usize) {
     VolatileRam::erase(ptr, len);
+}
+
+#[inline(never)]
+pub(crate) fn erase_plain_data<T: ZeroValidPlainData>(value: &mut T) {
+    compiler_fence(Ordering::SeqCst);
+    // SAFETY: `value` is exclusively borrowed and `T::ZERO` is a valid value
+    // with an all-zero representation. A typed volatile write avoids
+    // transient invalid representations for validity-constrained primitives
+    // such as `char`.
+    unsafe {
+        ptr::write_volatile(value, T::ZERO);
+    }
+    compiler_fence(Ordering::SeqCst);
+    fence(Ordering::SeqCst);
 }
 
 #[cfg(feature = "multi-pass-clear")]

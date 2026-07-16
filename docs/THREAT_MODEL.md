@@ -79,6 +79,8 @@ Rust applications.
   compromise, DMA, malicious firmware, or privileged co-tenants.
 - Revoking external copies after a secret has already been exposed to caller
   code or third-party libraries.
+- Treating the ordinary coherent-RAM wipe backend as sufficient for MMIO,
+  non-coherent DMA buffers, persistent memory, or hardware-keystore handles.
 - Preventing a deserializer or transport from allocating its own input before
   the 1 MiB `SecretVec`/`SecretString` ceilings or a caller-selected bounded
   byte/text container receives visitor control.

@@ -3,7 +3,8 @@
 This document defines the security claims this repository is willing to make.
 It should be read together with `docs/NON_GUARANTEES.md`, `docs/THREAT_MODEL.md`,
 `docs/SAFETY.md`, `docs/BARRIERS.md`, `docs/TARGETS.md`,
-`docs/REPRODUCIBLE_BUILDS.md`, and `docs/EVIDENCE.md`.
+`docs/ERASURE_BACKENDS.md`, `docs/REPRODUCIBLE_BUILDS.md`, and
+`docs/EVIDENCE.md`.
 
 The short version: `sanitization` provides dependency-free secret ownership,
 optimizer-resistant clearing, and data-oblivious primitives under documented
@@ -55,6 +56,11 @@ The guarantee is about bytes reachable through the current allocation or
 container. It does not cover allocator metadata, stale copies from earlier
 Rust moves, prior stack frames, external buffers, or allocations already freed
 before they entered a crate-owned type.
+
+Primitive scalar representation wiping is closed over a reviewed internal set:
+integer primitives, `bool`, `char`, `f32`, and `f64`. The crate does not offer
+a blanket representation wipe for user-defined types or a public
+target-provided erasure callback.
 
 ## Locked And Guarded Storage
 

@@ -3,6 +3,9 @@
 This document states what `sanitization` does not claim. These limits are part
 of the security model, not fine print.
 
+The category-specific erasure decision is described in
+`docs/ERASURE_BACKENDS.md`.
+
 ## Timing And Microarchitecture
 
 The crate does not guarantee exact identical wall-clock timing. It also does
@@ -72,6 +75,12 @@ WASM, but the WASM specification has no volatile-memory instruction. Browser
 and Node JIT runtimes may optimize the generated native code again. For WASM,
 the crate provides API compatibility and best-effort clearing, not strong
 native-equivalent clearing or timing claims.
+
+The ordinary RAM wipe backend is not claimed to erase MMIO, synchronize with a
+DMA device, clean non-coherent target caches, or persist erasure across a
+persistent-memory power-failure domain. Version 2.0 intentionally exposes no
+generic target-provided backend because those categories require different
+unsafe contracts.
 
 ## Process, OS, And Hardware Limits
 
