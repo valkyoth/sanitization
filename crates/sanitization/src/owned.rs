@@ -1398,10 +1398,12 @@ impl<const N: usize> SecretBytes<N> {
 
     /// Clear all bytes now with volatile writes, then flush the cache lines
     /// covering the fixed-size storage.
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn secure_clear_and_flush(&mut self) {
-        crate::cache_flush::cache_flush_sanitize_bytes(self.bytes.as_mut_slice());
+    pub fn secure_clear_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
+        crate::cache_flush::cache_flush_sanitize_bytes(self.bytes.as_mut_slice())
     }
 
     #[inline]
@@ -3091,10 +3093,12 @@ impl SecretVec {
 
     /// Clear this value immediately with volatile writes, then flush the cache
     /// lines covering the heap allocation.
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn clear_secret_and_flush(&mut self) {
-        crate::cache_flush::cache_flush_sanitize_vec(&mut self.inner);
+    pub fn clear_secret_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
+        crate::cache_flush::cache_flush_sanitize_vec(&mut self.inner)
     }
 
     /// Compare against a byte slice without early exit for equal-length inputs.
@@ -3662,10 +3666,12 @@ impl SecretString {
 
     /// Clear this value immediately with volatile writes, then flush the cache
     /// lines covering the heap allocation.
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn clear_secret_and_flush(&mut self) {
-        crate::cache_flush::cache_flush_sanitize_vec(&mut self.inner);
+    pub fn clear_secret_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
+        crate::cache_flush::cache_flush_sanitize_vec(&mut self.inner)
     }
 
     /// Compare against UTF-8 text without early exit for equal-length inputs.

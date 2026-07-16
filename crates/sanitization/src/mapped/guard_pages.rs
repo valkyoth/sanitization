@@ -704,11 +704,13 @@ impl GuardedSecretVec {
 
     /// Clear the full writable data region with volatile writes, flush the
     /// cache lines covering that region, and reset initialized length.
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn clear_secret_and_flush(&mut self) {
+    pub fn clear_secret_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
         self.clear_secret();
-        crate::cache_flush::flush_cache_lines(self.as_capacity_slice());
+        crate::cache_flush::flush_cache_lines(self.as_capacity_slice())
     }
 
     /// Compare against a byte slice without early exit for equal-length
@@ -850,7 +852,7 @@ impl GuardedSecretVec {
         unsafe { core::slice::from_raw_parts_mut(self.payload_ptr(), self.data_capacity) }
     }
 
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline]
     fn as_capacity_slice(&self) -> &[u8] {
         // SAFETY: `data` points to the live writable data region between
@@ -973,11 +975,13 @@ impl Drop for GuardedSecretVec {
     }
 }
 
-#[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+#[cfg(feature = "cache-flush")]
 impl crate::cache_flush::CacheFlushSanitize for GuardedSecretVec {
     #[inline(never)]
-    fn cache_flush_sanitize(&mut self) {
-        self.clear_secret_and_flush();
+    fn cache_flush_sanitize(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
+        self.clear_secret_and_flush()
     }
 }
 

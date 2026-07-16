@@ -1968,8 +1968,31 @@ fn hardware_secret_error_is_displayable() {
 
 #[cfg(feature = "register-scrub")]
 #[test]
-fn register_scrub_api_is_callable() {
-    register_scrub::scrub_simd_registers();
+fn register_scrub_reports_the_executed_scope() {
+    let report = register_scrub::scrub_simd_registers();
+
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    assert!(matches!(
+        report,
+        register_scrub::RegisterScrubReport::X86CallerSavedXmm
+            | register_scrub::RegisterScrubReport::X86AvxYmm0To15
+            | register_scrub::RegisterScrubReport::X86WindowsCallerSavedXmmAndYmmUpper
+    ));
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
+    assert_eq!(
+        report,
+        register_scrub::RegisterScrubReport::Aarch64CallerSavedVector
+    );
+    #[cfg(miri)]
+    assert_eq!(
+        report,
+        register_scrub::RegisterScrubReport::UnavailableUnderMiri
+    );
+    #[cfg(all(not(miri), not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    assert_eq!(
+        report,
+        register_scrub::RegisterScrubReport::UnsupportedArchitecture
+    );
 }
 
 #[test]
@@ -2858,39 +2881,53 @@ fn wipe_on_drop_wrapper_is_explicit() {
     secret.into_cleared();
 }
 
-#[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+#[cfg(feature = "cache-flush")]
 #[test]
 fn cache_flush_sanitize_clears_slice_and_secret_bytes() {
     let mut bytes = [0xA5; 16];
-    crate::cache_flush::cache_flush_sanitize_array(&mut bytes);
+    let capability = crate::cache_flush::cache_flush_capability();
+    let result = crate::cache_flush::cache_flush_sanitize_array(&mut bytes);
     assert_eq!(bytes, [0; 16]);
+    assert_eq!(result.is_ok(), capability.is_ok());
+    if let (Ok(report), Ok(capability)) = (result, capability) {
+        assert_eq!(report.cache_line_size(), capability.cache_line_size());
+        assert_eq!(report.bytes_covered(), bytes.len());
+        assert!(report.cache_lines_flushed() >= 1);
+    }
+    #[cfg(miri)]
+    assert_eq!(
+        result,
+        Err(crate::cache_flush::CacheFlushError::UnavailableUnderMiri)
+    );
+    #[cfg(all(not(miri), not(target_arch = "x86_64")))]
+    assert_eq!(
+        result,
+        Err(crate::cache_flush::CacheFlushError::UnsupportedArchitecture)
+    );
 
     let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
-    secret.secure_clear_and_flush();
+    let secret_result = secret.secure_clear_and_flush();
     assert!(secret.constant_time_eq(&[0, 0, 0, 0]));
+    assert_eq!(secret_result.is_ok(), capability.is_ok());
 
     let mut wrapped = crate::cache_flush::CacheFlushOnDrop::new([1, 2, 3, 4]);
     wrapped.with_secret_mut(|value| value[0] = 9);
     assert_eq!(wrapped.with_secret(|value| value[0]), 9);
-    wrapped.into_cleared();
+    assert_eq!(wrapped.into_cleared().is_ok(), capability.is_ok());
 }
 
-#[cfg(all(
-    feature = "cache-flush",
-    feature = "alloc",
-    target_arch = "x86_64",
-    not(miri)
-))]
+#[cfg(all(feature = "cache-flush", feature = "alloc"))]
 #[test]
 fn cache_flush_sanitize_clears_alloc_types() {
     let mut bytes = SecretVec::from_slice(&[1, 2, 3]);
     let mut text = SecretString::from_secret_str("secret");
 
-    bytes.clear_secret_and_flush();
-    text.clear_secret_and_flush();
+    let bytes_result = bytes.clear_secret_and_flush();
+    let text_result = text.clear_secret_and_flush();
 
     assert!(bytes.is_empty());
     assert!(text.is_empty());
+    assert_eq!(bytes_result.is_ok(), text_result.is_ok());
 }
 
 #[cfg(all(
@@ -3338,7 +3375,7 @@ fn locked_secret_bytes_can_clear_and_flush() {
     #[cfg(not(feature = "canary-check"))]
     let mut out = [0; 4];
 
-    secret.secure_clear_and_flush();
+    secret.secure_clear_and_flush().unwrap();
 
     #[cfg(feature = "canary-check")]
     assert_eq!(secret.verify_integrity(), Ok(()));
@@ -3737,7 +3774,7 @@ fn guarded_secret_vec_can_replace_from_fn() {
 fn guarded_secret_vec_can_clear_and_flush() {
     let mut secret = GuardedSecretVec::from_slice(&[1, 2, 3, 4]).unwrap();
 
-    secret.clear_secret_and_flush();
+    secret.clear_secret_and_flush().unwrap();
 
     assert!(secret.is_empty());
     #[cfg(feature = "canary-check")]
@@ -3749,7 +3786,7 @@ fn guarded_secret_vec_can_clear_and_flush() {
         GuardedSecretVec::from_slice(&[5, 6, 7, 8]).unwrap(),
     );
     assert_eq!(wrapped.with_secret(|secret| secret.len()), 4);
-    wrapped.into_cleared();
+    wrapped.into_cleared().unwrap();
 }
 
 #[cfg(all(

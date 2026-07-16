@@ -30,6 +30,13 @@
   `unsafe_wipe` compatibility APIs, including the no-op `unsafe-wipe` feature.
 - Rotated deterministic `SecretPool` canaries on every slot allocation by
   mixing a per-slot atomic generation into the address-derived value.
+- Replaced infallible, fixed-64-byte cache eviction with checked CPUID `CLFSH`
+  capability detection, validated runtime line sizes, overflow-checked ranges,
+  structured reports/errors, and wipe-before-error semantics.
+- Made register scrubbing report the exact x86_64 or AArch64 architectural
+  subset executed, including explicit unsupported and Miri outcomes.
+- Extended release codegen checks to cover x86 SSE/AVX and AArch64 vector
+  register-zeroing instructions.
 - Documented locked-mapping resource exhaustion policy and warned against
   placing secret-bearing values in public-backing `CtOption`/`CtResult`.
 

@@ -212,22 +212,28 @@ optimizer barriers rather than a target-specific assembly boundary.
 `strict-compare` does not strengthen ordering, selection, copying, swapping,
 lookup, or caller code.
 
-With the `cache-flush` feature on x86_64, explicit clear-and-flush helpers
-volatile-clear the target storage and then execute `clflush` over the covered
-cache lines. This can evict the addressed lines from CPU caches, but it does not
-prove all historical copies are gone and does not solve general
-microarchitectural side channels. When combined with `guard-pages`,
-`GuardedSecretVec` can explicitly clear and flush its full writable data region.
-`clflush` itself is an unprivileged instruction commonly used in cache-timing
-attacks such as Flush+Reload; this feature reduces post-use residency but does
-not protect against an attacker who can observe cache timing while the secret is
-live.
+With the `cache-flush` feature, explicit clear-and-flush helpers volatile-clear
+the target storage before attempting eviction. On x86_64, the backend verifies
+CPUID `CLFSH`, validates the reported line size, and executes `clflush` over the
+overflow-checked covered range followed by `mfence`. Unsupported CPUs,
+architectures, and Miri return a structured error after sanitizing helpers have
+still wiped. This can evict addressed lines from CPU caches, but it does not
+prove all historical copies are gone, guarantee eviction from every private
+buffer, or solve general microarchitectural side channels. When combined with
+`guard-pages`, `GuardedSecretVec` can explicitly clear and flush its full
+writable data region. `clflush` itself is an unprivileged instruction commonly
+used in cache-timing attacks such as Flush+Reload; this feature reduces post-use
+residency but does not protect against an attacker who can observe cache timing
+while the secret is live.
 
 With the `register-scrub` feature, explicit helpers clear selected
-current-thread SIMD/vector registers on x86_64 and AArch64. This is a local
-post-crypto hygiene boundary, not proof that all register, stack, spill, kernel,
-or other-thread copies have been removed. AVX-512 opmask registers, ZMM16-ZMM31,
-and AArch64 V8-V15 upper halves remain outside the implemented scrub path.
+current-thread SIMD/vector registers on x86_64 and AArch64 and return the
+architectural subset actually covered. Unsupported targets and Miri return an
+explicit no-instruction result. This is a local post-crypto hygiene boundary,
+not proof that all general-purpose, callee-saved, interrupt, signal, stack,
+spill, kernel, or other-thread copies have been removed. AVX-512 opmask
+registers, ZMM16-ZMM31, and AArch64 V8-V15 upper halves remain outside the
+implemented scrub path.
 
 With the `split-secret` feature, `SplitSecretBytes<N, SHARES>` stores a
 fixed-size secret as N-of-N XOR shares. This can reduce the impact of a single

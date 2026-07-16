@@ -574,6 +574,17 @@ impl<const N: usize> LockedSecretBytes<N> {
         self.write_canaries();
     }
 
+    /// Clear the WASM-owned storage, then report that native cache eviction is
+    /// unavailable.
+    #[cfg(feature = "cache-flush")]
+    #[inline(never)]
+    pub fn secure_clear_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
+        self.secure_clear();
+        crate::cache_flush::flush_cache_lines(self.as_slice())
+    }
+
     /// Consume this value after first clearing its storage.
     #[inline]
     pub fn into_cleared(mut self) {
@@ -932,6 +943,17 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
         }
         compiler_fence(Ordering::SeqCst);
     }
+
+    /// Clear every WASM-owned slot, then report that native cache eviction is
+    /// unavailable.
+    #[cfg(feature = "cache-flush")]
+    #[inline(never)]
+    pub fn secure_clear_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
+        self.secure_clear();
+        crate::cache_flush::flush_cache_lines(&[])
+    }
 }
 
 impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> {
@@ -1117,6 +1139,17 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     pub fn secure_clear(&mut self) {
         self.storage_mut().clear_all();
         self.write_canaries();
+    }
+
+    /// Clear this WASM-owned slot, then report that native cache eviction is
+    /// unavailable.
+    #[cfg(feature = "cache-flush")]
+    #[inline(never)]
+    pub fn secure_clear_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
+        self.secure_clear();
+        crate::cache_flush::flush_cache_lines(&[])
     }
 
     /// Consume this slot after clearing it, then return it to the pool.

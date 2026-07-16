@@ -35,8 +35,8 @@ Tier names are evidence labels, not security certifications.
 | `canary-check` | Yes | Yes | Yes | Yes for compat backends where exposed |
 | `random-canary` | OS CSPRNG | OS CSPRNG | OS CSPRNG | WASI where host random exists; unsupported otherwise |
 | `asm-compare` | x86_64/AArch64 where implemented | x86_64/AArch64 where implemented | x86_64/AArch64 where ABI-safe | No strong JIT claim |
-| `cache-flush` | x86_64 | x86_64 | x86_64 | No |
-| `register-scrub` | x86_64/AArch64 best effort | x86_64/AArch64 best effort | x86_64/AArch64 best effort | No |
+| `cache-flush` | Checked x86_64 eviction; other architectures return unsupported after wipe | Checked x86_64 eviction; other architectures return unsupported after wipe | Checked x86_64 eviction | Structured unsupported result |
+| `register-scrub` | x86_64/AArch64 reported best effort | x86_64/AArch64 reported best effort | x86_64/AArch64 reported best effort | Structured unsupported result |
 
 ## Release-Candidate Requirements
 

@@ -549,7 +549,8 @@ proofs for selected properties, not a complete formal audit of every feature.
 
 ### 3. Architecture-Specific Cache Eviction
 
-Status: implemented for x86_64 behind the `cache-flush` feature.
+Status: checked x86_64 implementation behind the `cache-flush` feature;
+unsupported targets retain wipe-first APIs with structured errors.
 
 Priority: optional, target-specific hardening.
 
@@ -559,27 +560,33 @@ Some targets provide cache-line flush instructions such as x86/x86_64 `clflush`.
 This is available as an explicit feature because:
 
 - instructions and guarantees differ by architecture;
-- cache-line size detection matters: current x86_64 support uses 64-byte
-  stepping and documents the limit;
-- the operation is not universally available: unsupported targets do not expose
-  the module;
+- cache-line size detection matters: x86_64 support validates the CPUID-reported
+  `clflush` line size;
+- the operation is not universally available: unsupported targets return a
+  structured result rather than executing an instruction;
 - cache eviction does not solve all side channels: documented;
 - it can be expensive and surprising as a default: it remains explicit.
 
 Current implementation:
 
-- `cache-flush` exposes the `cache_flush` module on x86_64 outside Miri.
-- Helpers clear with the crate's volatile wipe backend before issuing
-  `clflush` over covered cache lines and `mfence`.
+- `cache-flush` exposes checked helpers on every target.
+- Sanitizing helpers clear with the crate's volatile wipe backend before any
+  capability or range failure can be returned.
+- The x86_64 backend checks CPUID `CLFSH`, validates the reported line size,
+  issues `clflush` over an overflow-checked covered range, and completes with
+  `mfence`.
+- Unsupported CPUs, architectures, and Miri return a structured error without
+  skipping the wipe performed by sanitizing helpers.
 - `SecretBytes<N>`, `SecretVec`, `SecretString`, and `LockedSecretBytes<N>`
   have explicit clear-and-flush methods when the feature is available.
-- `GuardedSecretVec` also has `clear_secret_and_flush` when both `guard-pages`
-  and x86_64 `cache-flush` are enabled.
+- `GuardedSecretVec` also has checked `clear_secret_and_flush` when both
+  `guard-pages` and `cache-flush` are enabled.
 
 Remaining work:
 
 - evaluate additional non-x86_64/AArch64 support separately;
-- review cache-line sizing assumptions during future target expansion;
+- review platform-specific cache-maintenance semantics during future target
+  expansion;
 - keep guard-page allocation as a separate design.
 
 ### 4. Assembly-Backed Constant-Time Comparison

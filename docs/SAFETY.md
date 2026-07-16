@@ -93,8 +93,9 @@ Unsafe code is allowed only inside narrow, reviewable implementation modules:
   compatibility backend on WASM only when `wasm-compat` is also enabled.
 - `platform::compare_asm`, available only with the `asm-compare` feature on x86_64 and
   AArch64 outside Miri.
-- `platform::cache_flush`, available only with the `cache-flush` feature on x86_64
-  outside Miri.
+- `platform::cache_flush`, available with the `cache-flush` feature. It emits
+  `clflush` only on x86_64 outside Miri after runtime capability and line-size
+  validation; other targets return a structured unsupported result.
 - `platform::register_scrub`, available with the `register-scrub` feature. It emits
   architecture-specific register-zeroing instructions on x86_64 and AArch64
   outside Miri, and is a fenced no-op elsewhere. x86_64 uses runtime AVX OS
@@ -335,7 +336,8 @@ Operation:
   `pxor xmmN, xmmN` for caller-saved XMM0-XMM5.
 - AArch64 emits `eor vN.16b, vN.16b, vN.16b` for caller-saved V0-V7 and
   V16-V31.
-- Unsupported targets and Miri use a fenced no-op.
+- Unsupported targets and Miri use a fenced no-op and return an explicit
+  report that no architecture instructions executed.
 
 Invariant:
 
@@ -388,15 +390,17 @@ call sites that need x86_64 cache hardening.
 Operation:
 
 - Public sanitization helpers first route through the crate's volatile wipe
-  backend.
-- The module aligns the provided address range down to 64-byte cache-line
-  boundaries.
+  backend, before capability or range checks can return an error.
+- The x86_64 backend checks CPUID `CLFSH`, reads the reported cache-line flush
+  size, and rejects zero, non-power-of-two, or unreasonable values.
+- The module aligns the provided address range down to the validated line-size
+  boundary with checked end-address arithmetic.
 - The module executes `clflush` for every covered cache line, followed by
   `mfence`.
 - `GuardedSecretVec::clear_secret_and_flush` clears the full writable data
   region before flushing the cache lines covering that same region.
-- Unsupported targets, Miri, and builds without `cache-flush` do not expose the
-  module.
+- Unsupported CPUs, architectures, and Miri expose the checked API but do not
+  execute `clflush`.
 
 Invariant:
 
@@ -404,9 +408,12 @@ Invariant:
 - The zero-length path does not execute `clflush`.
 - `clflush` does not read or write through the Rust pointer; it asks the CPU to
   evict the addressed cache line.
-- The module assumes 64-byte x86_64 cache-line stepping. This can over-flush
-  adjacent bytes in the same cache line but does not read or write them through
-  Rust references.
+- CPUID capability and line-size checks occur before the first `clflush`, so an
+  unsupported CPU cannot reach an illegal instruction.
+- Alignment can flush adjacent bytes in the same cache line but does not read
+  or write them through Rust references.
+- Address-range overflow returns `CacheFlushError::AddressRangeOverflow`; a
+  sanitizing helper has already wiped before surfacing that error.
 - `mfence` orders the flush operations before later memory operations.
 
 ### Platform guard-page mappings

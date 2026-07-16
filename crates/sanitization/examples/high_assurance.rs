@@ -13,7 +13,7 @@ use sanitization::LockedSecretBytes;
     not(miri)
 ))]
 use sanitization::LockedSecretString;
-#[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+#[cfg(feature = "cache-flush")]
 use sanitization::{cache_flush::cache_flush_sanitize_bytes, SecretBytes};
 #[cfg(all(
     feature = "guard-pages",
@@ -62,15 +62,16 @@ fn main() {
         assert!(token.constant_time_eq("session-token-v2"));
     }
 
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     {
         let mut scratch = [0xA5; 32];
-        cache_flush_sanitize_bytes(&mut scratch);
+        let scratch_result = cache_flush_sanitize_bytes(&mut scratch);
         assert_eq!(scratch, [0; 32]);
 
         let mut key = SecretBytes::<32>::from_array([1; 32]);
-        key.secure_clear_and_flush();
+        let key_result = key.secure_clear_and_flush();
         assert!(key.constant_time_eq(&[0; 32]));
+        assert_eq!(scratch_result.is_ok(), key_result.is_ok());
     }
 
     #[cfg(all(

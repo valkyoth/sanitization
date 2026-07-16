@@ -218,12 +218,39 @@ if [[ "${host}" == x86_64-* ]]; then
         exit 1
     fi
 
+    if ! grep -q 'cpuid' "${asm_file}"; then
+        echo "x86_64 cache flush capability check missing from assembly" >&2
+        exit 1
+    fi
+
     if ! grep -q 'mfence' "${asm_file}"; then
         echo "x86_64 cache flush fence missing from assembly" >&2
         exit 1
     fi
 
+    if ! grep -q 'pxor' "${asm_file}"; then
+        echo "x86_64 caller-saved XMM scrub instructions missing from assembly" >&2
+        exit 1
+    fi
+
+    if ! grep -Eq '\bvzeroall\b|\bvzeroupper\b' "${asm_file}"; then
+        echo "x86_64 AVX register scrub instruction missing from assembly" >&2
+        exit 1
+    fi
+
     echo "verified x86_64 architecture-specific codegen in ${asm_file}"
+elif [[ "${host}" == aarch64-* ]]; then
+    if ! grep -Eq 'eor[[:space:]]+v0\.16b' "${asm_file}"; then
+        echo "AArch64 V0 register scrub instruction missing from assembly" >&2
+        exit 1
+    fi
+
+    if ! grep -Eq 'eor[[:space:]]+v31\.16b' "${asm_file}"; then
+        echo "AArch64 V31 register scrub instruction missing from assembly" >&2
+        exit 1
+    fi
+
+    echo "verified AArch64 register-scrub codegen in ${asm_file}"
 else
     echo "skipped architecture-specific codegen checks for ${host}"
 fi

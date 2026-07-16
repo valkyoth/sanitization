@@ -41,8 +41,9 @@
 //!   through `strict-compare`. This feature does not strengthen ordering,
 //!   selection, lookup, or caller code. Other fail-closed profiles include
 //!   `strict-canary-check` and `require-fork-exclusion`.
-//! - x86_64 cache-line eviction is available only through the explicit
-//!   `cache-flush` feature.
+//! - Checked x86_64 cache-line eviction is available through the explicit
+//!   `cache-flush` feature. Other architectures and Miri return a structured
+//!   unsupported result after sanitizing helpers have still cleared memory.
 //! - Proc-macro derives are available only through the explicit `derive`
 //!   feature. The default build remains dependency-free.
 //! - `zeroize`, `subtle`, and `serde` integration are available only through

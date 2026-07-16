@@ -65,8 +65,10 @@ portable implementations when `strict-compare` is enabled.
 
 `cache-flush` and `register-scrub` are explicit hardening helpers:
 
-- cache flush helpers zero first, then evict affected x86_64 cache lines;
-- register scrub helpers clear a documented subset of SIMD/vector state.
+- cache sanitization helpers zero first, then use CPUID-gated x86_64 eviction
+  and return a structured report or error;
+- register scrub helpers return the documented subset of SIMD/vector state
+  actually covered, or an explicit unsupported result.
 
 These helpers reduce post-use residency. They are not defenses against an
 attacker who already has cache-timing, register-save-area, or privileged

@@ -353,10 +353,12 @@ impl LockedSecretString {
     }
 
     /// Clear the locked mapping, then flush its cache lines.
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn clear_secret_and_flush(&mut self) {
-        self.inner.clear_secret_and_flush();
+    pub fn clear_secret_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
+        self.inner.clear_secret_and_flush()
     }
 
     /// Compare against UTF-8 text without early exit for equal-length inputs.
@@ -673,10 +675,12 @@ impl GuardedSecretString {
     }
 
     /// Clear the writable guarded region, then flush its cache lines.
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn clear_secret_and_flush(&mut self) {
-        self.inner.clear_secret_and_flush();
+    pub fn clear_secret_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
+        self.inner.clear_secret_and_flush()
     }
 
     /// Compare against UTF-8 text without early exit for equal-length inputs.

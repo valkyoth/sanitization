@@ -256,103 +256,229 @@ pub(crate) mod compare_asm {
     }
 }
 
-#[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+#[cfg(feature = "cache-flush")]
 #[allow(unsafe_code)]
 pub mod cache_flush {
     #[cfg(feature = "alloc")]
     use alloc::{string::String, vec::Vec};
-    use core::{
-        arch::asm,
-        sync::atomic::{compiler_fence, Ordering},
-    };
+    use core::fmt;
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    use core::sync::atomic::{compiler_fence, Ordering};
 
-    const CACHE_LINE_SIZE: usize = 64;
+    #[cfg(any(all(target_arch = "x86_64", not(miri)), test))]
+    const MIN_CACHE_LINE_SIZE: usize = 8;
+    #[cfg(any(all(target_arch = "x86_64", not(miri)), test))]
+    const MAX_CACHE_LINE_SIZE: usize = 4096;
+
+    /// Runtime capability required for x86 cache-line eviction.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct CacheFlushCapability {
+        cache_line_size: usize,
+    }
+
+    impl CacheFlushCapability {
+        /// Cache-line size reported by CPUID for `clflush`, in bytes.
+        #[must_use]
+        #[inline]
+        pub const fn cache_line_size(self) -> usize {
+            self.cache_line_size
+        }
+    }
+
+    /// Successful cache-eviction outcome.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct CacheFlushReport {
+        bytes_covered: usize,
+        cache_line_size: usize,
+        cache_lines_flushed: usize,
+    }
+
+    impl CacheFlushReport {
+        /// Number of bytes in the caller-provided range.
+        #[must_use]
+        #[inline]
+        pub const fn bytes_covered(self) -> usize {
+            self.bytes_covered
+        }
+
+        /// Cache-line size used for range alignment and stepping.
+        #[must_use]
+        #[inline]
+        pub const fn cache_line_size(self) -> usize {
+            self.cache_line_size
+        }
+
+        /// Number of cache lines on which `clflush` executed.
+        #[must_use]
+        #[inline]
+        pub const fn cache_lines_flushed(self) -> usize {
+            self.cache_lines_flushed
+        }
+    }
+
+    /// Why cache-line eviction could not be completed.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum CacheFlushError {
+        /// The current architecture has no backend in this crate.
+        UnsupportedArchitecture,
+        /// Miri cannot execute or validate the native cache instruction.
+        UnavailableUnderMiri,
+        /// CPUID reports that `clflush` is unavailable.
+        InstructionUnavailable,
+        /// CPUID reported a zero, non-power-of-two, or unreasonable line size.
+        InvalidReportedLineSize {
+            /// Raw CPUID line size in bytes.
+            reported: usize,
+        },
+        /// The provided pointer range could not be represented without overflow.
+        AddressRangeOverflow,
+    }
+
+    impl fmt::Display for CacheFlushError {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Self::UnsupportedArchitecture => {
+                    formatter.write_str("cache-line eviction is unsupported on this architecture")
+                }
+                Self::UnavailableUnderMiri => {
+                    formatter.write_str("cache-line eviction is unavailable under Miri")
+                }
+                Self::InstructionUnavailable => {
+                    formatter.write_str("CPUID reports that clflush is unavailable")
+                }
+                Self::InvalidReportedLineSize { reported } => {
+                    write!(
+                        formatter,
+                        "CPUID reported invalid clflush line size {reported}"
+                    )
+                }
+                Self::AddressRangeOverflow => {
+                    formatter.write_str("cache-flush address range overflowed")
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    impl std::error::Error for CacheFlushError {}
 
     /// Trait for values that should be cleared with volatile byte writes and
-    /// then evicted from x86_64 cache lines.
+    /// then evicted from x86_64 cache lines when supported.
     pub trait CacheFlushSanitize {
-        /// Clear this value and flush the cache lines covering its storage.
-        fn cache_flush_sanitize(&mut self);
+        /// Clear this value, then try to flush the cache lines covering its
+        /// storage.
+        ///
+        /// Implementations must clear before returning any error.
+        fn cache_flush_sanitize(&mut self) -> Result<CacheFlushReport, CacheFlushError>;
+    }
+
+    /// Query the runtime cache-flush capability.
+    ///
+    /// The x86_64 backend checks the CPUID `CLFSH` bit and validates the
+    /// reported line size before any `clflush` instruction can execute.
+    #[inline]
+    pub fn cache_flush_capability() -> Result<CacheFlushCapability, CacheFlushError> {
+        detect_capability()
     }
 
     /// Flush the cache lines covering a byte slice.
     ///
     /// This does not clear memory by itself. Prefer
     /// [`cache_flush_sanitize_bytes`] for secret clearing.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured error when the backend is unsupported, unavailable,
+    /// or cannot safely represent the address range.
     #[inline(never)]
-    pub fn flush_cache_lines(bytes: &[u8]) {
-        flush_raw(bytes.as_ptr(), bytes.len());
+    pub fn flush_cache_lines(bytes: &[u8]) -> Result<CacheFlushReport, CacheFlushError> {
+        flush_raw(bytes.as_ptr(), bytes.len())
     }
 
     /// Clear a mutable byte slice with volatile writes, then flush its cache
     /// lines.
+    ///
+    /// The volatile clear always occurs, including when cache eviction returns
+    /// an error.
     #[inline(never)]
-    pub fn cache_flush_sanitize_bytes(bytes: &mut [u8]) {
+    pub fn cache_flush_sanitize_bytes(
+        bytes: &mut [u8],
+    ) -> Result<CacheFlushReport, CacheFlushError> {
         crate::wipe::bytes(bytes);
-        flush_raw(bytes.as_ptr(), bytes.len());
+        flush_raw(bytes.as_ptr(), bytes.len())
     }
 
     /// Clear a fixed-size byte array with volatile writes, then flush its cache
     /// lines.
     #[inline(never)]
-    pub fn cache_flush_sanitize_array<const N: usize>(bytes: &mut [u8; N]) {
-        cache_flush_sanitize_bytes(bytes);
+    pub fn cache_flush_sanitize_array<const N: usize>(
+        bytes: &mut [u8; N],
+    ) -> Result<CacheFlushReport, CacheFlushError> {
+        cache_flush_sanitize_bytes(bytes)
     }
 
     /// Clear a `Vec<u8>` allocation capacity with volatile writes, then flush
     /// the cache lines covering the allocation.
     #[cfg(feature = "alloc")]
     #[inline(never)]
-    pub fn cache_flush_sanitize_vec(bytes: &mut Vec<u8>) {
+    pub fn cache_flush_sanitize_vec(
+        bytes: &mut Vec<u8>,
+    ) -> Result<CacheFlushReport, CacheFlushError> {
         let ptr = bytes.as_ptr();
         let len = bytes.capacity();
         crate::wipe::vec(bytes);
-        flush_raw(ptr, len);
+        flush_raw(ptr, len)
     }
 
     /// Clear a `String` allocation capacity with volatile writes, then flush
     /// the cache lines covering the allocation.
     #[cfg(feature = "alloc")]
     #[inline(never)]
-    pub fn cache_flush_sanitize_string(text: &mut String) {
+    pub fn cache_flush_sanitize_string(
+        text: &mut String,
+    ) -> Result<CacheFlushReport, CacheFlushError> {
         let ptr = text.as_ptr();
         let len = text.capacity();
         crate::wipe::string(text);
-        flush_raw(ptr, len);
+        flush_raw(ptr, len)
     }
 
     impl CacheFlushSanitize for [u8] {
         #[inline(never)]
-        fn cache_flush_sanitize(&mut self) {
-            cache_flush_sanitize_bytes(self);
+        fn cache_flush_sanitize(&mut self) -> Result<CacheFlushReport, CacheFlushError> {
+            cache_flush_sanitize_bytes(self)
         }
     }
 
     impl<const N: usize> CacheFlushSanitize for [u8; N] {
         #[inline(never)]
-        fn cache_flush_sanitize(&mut self) {
-            cache_flush_sanitize_array(self);
+        fn cache_flush_sanitize(&mut self) -> Result<CacheFlushReport, CacheFlushError> {
+            cache_flush_sanitize_array(self)
         }
     }
 
     #[cfg(feature = "alloc")]
     impl CacheFlushSanitize for Vec<u8> {
         #[inline(never)]
-        fn cache_flush_sanitize(&mut self) {
-            cache_flush_sanitize_vec(self);
+        fn cache_flush_sanitize(&mut self) -> Result<CacheFlushReport, CacheFlushError> {
+            cache_flush_sanitize_vec(self)
         }
     }
 
     #[cfg(feature = "alloc")]
     impl CacheFlushSanitize for String {
         #[inline(never)]
-        fn cache_flush_sanitize(&mut self) {
-            cache_flush_sanitize_string(self);
+        fn cache_flush_sanitize(&mut self) -> Result<CacheFlushReport, CacheFlushError> {
+            cache_flush_sanitize_string(self)
         }
     }
 
-    /// Clear-on-drop wrapper using volatile writes followed by x86_64 cache
-    /// line eviction.
+    /// Clear-on-drop wrapper using volatile writes followed by checked x86_64
+    /// cache-line eviction.
+    ///
+    /// `Drop` cannot return an error, so it always clears and treats eviction
+    /// as best effort. Use [`CacheFlushOnDrop::into_cleared`] when the caller
+    /// must observe the eviction result.
     pub struct CacheFlushOnDrop<T: CacheFlushSanitize> {
         inner: T,
     }
@@ -377,18 +503,23 @@ pub mod cache_flush {
             edit(&mut self.inner)
         }
 
-        /// Consume the wrapper after first clearing and flushing the wrapped
-        /// value.
+        /// Consume the wrapper after first clearing the wrapped value and
+        /// attempting cache eviction.
+        ///
+        /// # Errors
+        ///
+        /// The wrapped value has already been cleared when an error is
+        /// returned.
         #[inline]
-        pub fn into_cleared(mut self) {
-            self.inner.cache_flush_sanitize();
+        pub fn into_cleared(mut self) -> Result<CacheFlushReport, CacheFlushError> {
+            self.inner.cache_flush_sanitize()
         }
     }
 
     impl<T: CacheFlushSanitize> Drop for CacheFlushOnDrop<T> {
         #[inline]
         fn drop(&mut self) {
-            self.inner.cache_flush_sanitize();
+            let _ = self.inner.cache_flush_sanitize();
         }
     }
 
@@ -402,43 +533,157 @@ pub mod cache_flush {
     }
 
     #[inline(never)]
-    fn flush_raw(ptr: *const u8, len: usize) {
-        if len == 0 {
-            return;
-        }
+    fn flush_raw(ptr: *const u8, len: usize) -> Result<CacheFlushReport, CacheFlushError> {
+        let capability = detect_capability()?;
 
-        compiler_fence(Ordering::SeqCst);
+        #[cfg(all(target_arch = "x86_64", not(miri)))]
+        {
+            let cache_line_size = capability.cache_line_size;
+            let Some((first_line, end_line, expected_lines)) =
+                cache_line_range(ptr as usize, len, cache_line_size)?
+            else {
+                return Ok(CacheFlushReport {
+                    bytes_covered: 0,
+                    cache_line_size,
+                    cache_lines_flushed: 0,
+                });
+            };
+            let mut current = first_line;
+            let mut cache_lines_flushed = 0usize;
 
-        let start = ptr as usize;
-        let end = start.saturating_add(len.saturating_sub(1));
-        let mut current = start & !(CACHE_LINE_SIZE - 1);
-        let end_line = end & !(CACHE_LINE_SIZE - 1);
+            compiler_fence(Ordering::SeqCst);
 
-        while current <= end_line {
-            // SAFETY: `clflush` accepts any virtual address. Callers provide a
-            // pointer range derived from a live slice or owned allocation, and
-            // this function does not read or write through the pointer.
+            loop {
+                // SAFETY: capability detection verified `clflush` support.
+                // Callers provide a range derived from a live slice or owned
+                // allocation. `clflush` identifies a cache line by virtual
+                // address and does not dereference it through a Rust pointer.
+                unsafe {
+                    core::arch::asm!(
+                        "clflush [{address}]",
+                        address = in(reg) current as *const u8,
+                        options(nostack, preserves_flags)
+                    );
+                }
+                cache_lines_flushed += 1;
+
+                if current == end_line {
+                    break;
+                }
+                current = current
+                    .checked_add(cache_line_size)
+                    .ok_or(CacheFlushError::AddressRangeOverflow)?;
+            }
+
+            // SAFETY: `mfence` orders prior cache flushes before later memory
+            // operations and does not access memory itself.
             unsafe {
-                asm!(
-                    "clflush [{address}]",
-                    address = in(reg) current as *const u8,
-                    options(nostack, preserves_flags)
-                );
+                core::arch::asm!("mfence", options(nostack, preserves_flags));
             }
 
-            match current.checked_add(CACHE_LINE_SIZE) {
-                Some(next) => current = next,
-                None => break,
-            }
+            compiler_fence(Ordering::SeqCst);
+            debug_assert_eq!(cache_lines_flushed, expected_lines);
+            Ok(CacheFlushReport {
+                bytes_covered: len,
+                cache_line_size,
+                cache_lines_flushed,
+            })
         }
 
-        // SAFETY: `mfence` orders prior cache flushes before later memory
-        // operations and does not access memory itself.
-        unsafe {
-            asm!("mfence", options(nostack, preserves_flags));
+        #[cfg(any(not(target_arch = "x86_64"), miri))]
+        {
+            let _ = (ptr, len, capability);
+            unreachable!("unsupported cache-flush targets cannot yield a capability")
+        }
+    }
+
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[allow(unused_unsafe)]
+    #[inline]
+    fn detect_capability() -> Result<CacheFlushCapability, CacheFlushError> {
+        const CPUID_1_EDX_CLFSH: u32 = 1 << 19;
+
+        // SAFETY: CPUID leaf 1 is available on x86_64 and only reads CPU
+        // feature metadata. Newer compilers expose this intrinsic as safe,
+        // while the MSRV still requires an unsafe call.
+        let cpuid = unsafe { core::arch::x86_64::__cpuid_count(1, 0) };
+        if cpuid.edx & CPUID_1_EDX_CLFSH == 0 {
+            return Err(CacheFlushError::InstructionUnavailable);
         }
 
-        compiler_fence(Ordering::SeqCst);
+        let cache_line_size = (((cpuid.ebx >> 8) & 0xFF) as usize) * 8;
+        if !valid_cache_line_size(cache_line_size) {
+            return Err(CacheFlushError::InvalidReportedLineSize {
+                reported: cache_line_size,
+            });
+        }
+
+        Ok(CacheFlushCapability { cache_line_size })
+    }
+
+    #[cfg(miri)]
+    #[inline]
+    const fn detect_capability() -> Result<CacheFlushCapability, CacheFlushError> {
+        Err(CacheFlushError::UnavailableUnderMiri)
+    }
+
+    #[cfg(all(not(target_arch = "x86_64"), not(miri)))]
+    #[inline]
+    const fn detect_capability() -> Result<CacheFlushCapability, CacheFlushError> {
+        Err(CacheFlushError::UnsupportedArchitecture)
+    }
+
+    #[cfg(any(all(target_arch = "x86_64", not(miri)), test))]
+    #[inline]
+    const fn valid_cache_line_size(cache_line_size: usize) -> bool {
+        cache_line_size >= MIN_CACHE_LINE_SIZE
+            && cache_line_size <= MAX_CACHE_LINE_SIZE
+            && cache_line_size.is_power_of_two()
+    }
+
+    #[cfg(any(all(target_arch = "x86_64", not(miri)), test))]
+    #[inline]
+    fn cache_line_range(
+        start: usize,
+        len: usize,
+        cache_line_size: usize,
+    ) -> Result<Option<(usize, usize, usize)>, CacheFlushError> {
+        if len == 0 {
+            return Ok(None);
+        }
+
+        let end = start
+            .checked_add(len - 1)
+            .ok_or(CacheFlushError::AddressRangeOverflow)?;
+        let first_line = start & !(cache_line_size - 1);
+        let end_line = end & !(cache_line_size - 1);
+        let lines = ((end_line - first_line) / cache_line_size) + 1;
+        Ok(Some((first_line, end_line, lines)))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{cache_line_range, valid_cache_line_size, CacheFlushError};
+
+        #[test]
+        fn cache_line_size_validation_rejects_unusable_values() {
+            assert!(valid_cache_line_size(64));
+            assert!(valid_cache_line_size(128));
+            assert!(!valid_cache_line_size(0));
+            assert!(!valid_cache_line_size(24));
+            assert!(!valid_cache_line_size(8192));
+        }
+
+        #[test]
+        fn cache_line_range_handles_alignment_and_overflow() {
+            assert_eq!(cache_line_range(64, 0, 64), Ok(None));
+            assert_eq!(cache_line_range(64, 64, 64), Ok(Some((64, 64, 1))));
+            assert_eq!(cache_line_range(63, 2, 64), Ok(Some((0, 64, 2))));
+            assert_eq!(
+                cache_line_range(usize::MAX - 3, 8, 64),
+                Err(CacheFlushError::AddressRangeOverflow)
+            );
+        }
     }
 }
 
@@ -466,10 +711,40 @@ pub mod register_scrub {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     static AVX_STATE: AtomicU8 = AtomicU8::new(AVX_UNKNOWN);
 
+    /// Architectural register subset scrubbed by one call.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum RegisterScrubReport {
+        /// x86_64 XMM0-XMM5 were cleared.
+        X86CallerSavedXmm,
+        /// Non-Windows x86_64 YMM0-YMM15 were cleared with `vzeroall`.
+        X86AvxYmm0To15,
+        /// Windows x64 XMM0-XMM5 and all YMM upper halves were cleared.
+        X86WindowsCallerSavedXmmAndYmmUpper,
+        /// AArch64 V0-V7 and V16-V31 were cleared.
+        Aarch64CallerSavedVector,
+        /// The architecture has no register-scrub backend in this crate.
+        UnsupportedArchitecture,
+        /// Miri cannot execute or validate the architecture instructions.
+        UnavailableUnderMiri,
+    }
+
+    impl RegisterScrubReport {
+        /// Whether architecture-specific register-zeroing instructions ran.
+        #[must_use]
+        #[inline]
+        pub const fn instructions_executed(self) -> bool {
+            !matches!(
+                self,
+                Self::UnsupportedArchitecture | Self::UnavailableUnderMiri
+            )
+        }
+    }
+
     /// Best-effort scrub of architecture SIMD/vector registers supported by
     /// this crate.
     ///
-    /// On unsupported architectures this is a fenced no-op. On x86_64 it
+    /// On unsupported architectures this returns an explicit unsupported
+    /// report after a compiler fence. On x86_64 it
     /// clears caller-saved XMM0-XMM5 and, when AVX OS support is detected,
     /// clears AVX upper register state. Non-Windows x86_64 targets use
     /// `vzeroall` when AVX is available; Windows x64 uses `vzeroupper` to avoid
@@ -482,27 +757,37 @@ pub mod register_scrub {
     /// and ZMM16-ZMM31 are not scrubbed, and AArch64 V8-V15 upper halves are
     /// intentionally not modified because Rust inline assembly cannot express
     /// that partial-register clobber safely.
+    #[must_use]
     #[inline(never)]
-    pub fn scrub_simd_registers() {
+    pub fn scrub_simd_registers() -> RegisterScrubReport {
         compiler_fence(Ordering::SeqCst);
 
         #[cfg(all(target_arch = "x86_64", not(miri)))]
-        scrub_x86_64_simd_registers();
+        let report = scrub_x86_64_simd_registers();
 
         #[cfg(all(target_arch = "aarch64", not(miri)))]
-        scrub_aarch64_neon_registers();
+        let report = scrub_aarch64_neon_registers();
+
+        #[cfg(miri)]
+        let report = RegisterScrubReport::UnavailableUnderMiri;
+
+        #[cfg(all(not(miri), not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+        let report = RegisterScrubReport::UnsupportedArchitecture;
 
         compiler_fence(Ordering::SeqCst);
+        report
     }
 
     /// Clear x86_64 XMM registers with zeroing instructions.
     #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[must_use]
     #[inline(never)]
-    pub fn scrub_x86_64_simd_registers() {
+    pub fn scrub_x86_64_simd_registers() -> RegisterScrubReport {
         if avx_os_supported() {
-            scrub_x86_64_avx_registers();
+            scrub_x86_64_avx_registers()
         } else {
             scrub_x86_64_sse_registers();
+            RegisterScrubReport::X86CallerSavedXmm
         }
     }
 
@@ -533,7 +818,7 @@ pub mod register_scrub {
 
     #[cfg(all(target_arch = "x86_64", not(target_os = "windows"), not(miri)))]
     #[inline(never)]
-    fn scrub_x86_64_avx_registers() {
+    fn scrub_x86_64_avx_registers() -> RegisterScrubReport {
         // SAFETY: `avx_os_supported` verified AVX and XMM/YMM OS save support.
         // On non-Windows x86_64 ABIs, XMM/YMM registers are caller-saved. The
         // instruction does not read or write memory.
@@ -559,11 +844,12 @@ pub mod register_scrub {
                 options(nostack, nomem, preserves_flags)
             );
         }
+        RegisterScrubReport::X86AvxYmm0To15
     }
 
     #[cfg(all(target_arch = "x86_64", target_os = "windows", not(miri)))]
     #[inline(never)]
-    fn scrub_x86_64_avx_registers() {
+    fn scrub_x86_64_avx_registers() -> RegisterScrubReport {
         scrub_x86_64_sse_registers();
         // SAFETY: `avx_os_supported` verified AVX and XMM/YMM OS save support.
         // `vzeroupper` clears the upper vector state without clobbering the
@@ -571,6 +857,7 @@ pub mod register_scrub {
         unsafe {
             core::arch::asm!("vzeroupper", options(nostack, nomem, preserves_flags));
         }
+        RegisterScrubReport::X86WindowsCallerSavedXmmAndYmmUpper
     }
 
     #[cfg(all(target_arch = "x86_64", not(miri)))]
@@ -622,8 +909,9 @@ pub mod register_scrub {
 
     /// Clear AArch64 NEON vector registers with zeroing instructions.
     #[cfg(all(target_arch = "aarch64", not(miri)))]
+    #[must_use]
     #[inline(never)]
-    pub fn scrub_aarch64_neon_registers() {
+    pub fn scrub_aarch64_neon_registers() -> RegisterScrubReport {
         // SAFETY: These instructions write only architectural vector registers
         // in the current thread. They do not read or write memory.
         unsafe {
@@ -679,6 +967,7 @@ pub mod register_scrub {
                 options(nostack, nomem)
             );
         }
+        RegisterScrubReport::Aarch64CallerSavedVector
     }
 }
 

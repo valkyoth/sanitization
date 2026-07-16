@@ -90,7 +90,7 @@ Implemented now:
   `canary-check`.
 - optional OS-CSPRNG canary words with `random-canary`.
 - optional x86_64/AArch64 assembly-backed equal-length comparison.
-- optional x86_64 volatile-clear plus cache-line eviction helpers.
+- optional checked volatile-clear plus x86_64 cache-line eviction helpers.
 - optional explicit multi-pass volatile clear helpers.
 - optional SIMD/vector register scrubbing helpers on x86_64 and AArch64.
 - optional hardware-backed secret provider traits for enclave, HSM, TEE, or
@@ -233,8 +233,8 @@ sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3",
 | `strict-canary-check` | no | Enables `random-canary`; use this profile when deterministic address-derived canaries are not acceptable. |
 | `asm-compare` | no | Uses an x86_64/AArch64 inline-assembly loop for equal-length byte comparison. |
 | `strict-compare` | no | Enables `asm-compare` and rejects non-Miri targets without a supported assembly comparison backend. |
-| `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
-| `register-scrub` | no | Enables explicit best-effort SIMD/vector register scrubbing helpers on x86_64 and AArch64. |
+| `cache-flush` | no | Enables checked clear-and-cache-line-evict helpers. x86_64 uses CPUID-gated `clflush`; unsupported targets return a structured error after sanitizing helpers still wipe. |
+| `register-scrub` | no | Enables explicit best-effort SIMD/vector register scrubbing helpers with a report of the architectural subset actually covered. |
 | `guard-pages` | no | Enables `GuardedSecretVec` and `GuardedSecretString` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. This feature is rejected at compile time on WASM. |
 | `require-fork-exclusion` | no | Enables `memory-lock` and makes locked constructors fail when fork-inheritance exclusion cannot be applied. Currently this is a Linux-only hardening guarantee. |
 | `multi-pass-clear` | no | Enables explicit three-pass volatile overwrite helpers for policy or audit compatibility. |
@@ -1605,8 +1605,8 @@ language and audit compatibility, not because modern DRAM needs it.
 
 ## Cache Flush Sanitization
 
-Enable `cache-flush` on x86_64 when a call site explicitly needs volatile
-clearing followed by `clflush`/`mfence` over the affected cache lines:
+Enable `cache-flush` when a call site explicitly needs volatile clearing
+followed by checked x86_64 `clflush`/`mfence` eviction:
 
 ```toml
 [dependencies]
@@ -1617,22 +1617,29 @@ sanitization = { version = "1.2.5", features = ["cache-flush"] }
 use sanitization::{cache_flush::cache_flush_sanitize_bytes, SecretBytes};
 
 let mut scratch = [0xA5; 32];
-cache_flush_sanitize_bytes(&mut scratch);
+let report = cache_flush_sanitize_bytes(&mut scratch)
+    .expect("this deployment requires x86_64 clflush support");
 assert_eq!(scratch, [0; 32]);
+assert!(report.cache_line_size().is_power_of_two());
 
 let mut key = SecretBytes::<32>::from_array([7; 32]);
-key.secure_clear_and_flush();
+key.secure_clear_and_flush()
+    .expect("this deployment requires x86_64 clflush support");
 assert!(key.constant_time_eq(&[0; 32]));
 ```
 
 With `alloc`, `cache_flush_sanitize_vec` and `cache_flush_sanitize_string`
 clear the full allocation capacity before flushing the allocation's cache
 lines. With both `guard-pages` and `cache-flush`, `GuardedSecretVec` also
-provides `clear_secret_and_flush` for its full writable data region. Unsupported
-targets, Miri, and builds without `cache-flush` do not expose the `cache_flush`
-module. This feature reduces post-clear cache residency; it does not protect
-against an attacker who can already observe cache timing while the secret is
-live.
+provides checked `clear_secret_and_flush` for its full writable data region.
+On x86_64, the backend checks CPUID `CLFSH`, obtains and validates the reported
+line size, uses overflow-checked range arithmetic, and reports the bytes and
+cache lines covered. Unsupported CPUs, architectures, and Miri return
+`CacheFlushError`; sanitizing helpers perform their volatile wipe before
+returning that error. `flush_cache_lines` does not wipe and should be used only
+when the caller has already cleared the range. This feature reduces post-clear
+cache residency; it does not protect against an attacker who can already
+observe cache timing while the secret is live.
 
 ## Assembly Comparison
 
@@ -1679,21 +1686,32 @@ sanitization = { version = "1.2.5", features = ["register-scrub"] }
 ```
 
 ```rust
-use sanitization::register_scrub::scrub_simd_registers;
+use sanitization::register_scrub::{scrub_simd_registers, RegisterScrubReport};
 
 // Run crypto code that may use vector registers.
-scrub_simd_registers();
+let report = scrub_simd_registers();
+assert!(matches!(
+    report,
+    RegisterScrubReport::X86CallerSavedXmm
+        | RegisterScrubReport::X86AvxYmm0To15
+        | RegisterScrubReport::X86WindowsCallerSavedXmmAndYmmUpper
+        | RegisterScrubReport::Aarch64CallerSavedVector
+        | RegisterScrubReport::UnsupportedArchitecture
+        | RegisterScrubReport::UnavailableUnderMiri
+));
 ```
 
 On non-Windows x86_64 this uses `vzeroall` when AVX OS support is available,
 falling back to caller-saved XMM clears. On Windows x64 it clears XMM0-XMM5 and
 uses `vzeroupper` when AVX OS support is available, preserving ABI-required
 XMM6-XMM15 lower halves. On AArch64 this clears caller-saved V0-V7 and
-V16-V31. Unsupported targets expose a fenced no-op. This is not a whole-process
-register hygiene guarantee: it cannot clear compiler spills, callee-saved
-vector state, AVX-512 opmask registers, ZMM16-ZMM31, AArch64 V8-V15 upper
-halves, kernel context-switch buffers, registers used by other threads, or
-copies already written to memory.
+V16-V31. The returned `RegisterScrubReport` identifies which subset ran;
+unsupported targets and Miri report that no architecture instructions were
+executed after the fenced boundary. This is not a whole-process register
+hygiene guarantee: it cannot clear compiler spills, general-purpose registers,
+callee-saved vector state, AVX-512 opmask registers, ZMM16-ZMM31, AArch64
+V8-V15 upper halves, interrupt or signal frames, kernel context-switch buffers,
+registers used by other threads, or copies already written to memory.
 
 ## Split Secrets
 

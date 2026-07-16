@@ -177,14 +177,17 @@ The script checks:
 
 - the volatile wipe function is present in LLVM IR;
 - volatile byte-zero stores are present in LLVM IR;
-- the compatibility clear alias remains present;
+- removed best-effort compatibility aliases remain absent;
 - native `ct` slice helper symbols are present in LLVM IR;
 - the native `ct` optimizer barrier and mask-generation patterns remain present
   in LLVM IR;
 - no `memcmp` or `bcmp` call is emitted in the checked release IR or assembly;
 - on x86_64 hosts, the assembly comparison symbol and byte-load instructions
   are present;
-- on x86_64 hosts, cache-flush instructions and fences are present.
+- on x86_64 hosts, CPUID-gated cache-flush instructions, completion fences,
+  and SSE/AVX register-scrub instructions are present;
+- on AArch64 hosts, the claimed V0-V7 and V16-V31 register-zeroing
+  instructions are present.
 
 This is a regression check, not a formal proof. Manual review should still be
 performed for release candidates that change unsafe code, comparison backends,

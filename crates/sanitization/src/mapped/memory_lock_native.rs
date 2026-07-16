@@ -879,11 +879,13 @@ impl<const N: usize> LockedSecretBytes<N> {
 
     /// Clear the full private mapping with volatile writes, then flush the
     /// cache lines covering that mapping.
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn secure_clear_and_flush(&mut self) {
+    pub fn secure_clear_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
         self.secure_clear();
-        crate::cache_flush::flush_cache_lines(self.as_mapping_slice());
+        crate::cache_flush::flush_cache_lines(self.as_mapping_slice())
     }
 
     #[inline]
@@ -893,7 +895,7 @@ impl<const N: usize> LockedSecretBytes<N> {
         unsafe { core::slice::from_raw_parts(self.data_ptr(), N) }
     }
 
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline]
     fn as_mapping_slice(&self) -> &[u8] {
         // SAFETY: `ptr` either points to a live mapping of `map_len` bytes
@@ -1591,11 +1593,13 @@ impl LockedSecretVec {
     }
 
     /// Clear the full locked mapping, then flush its cache lines.
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn clear_secret_and_flush(&mut self) {
+    pub fn clear_secret_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
         self.clear_secret();
-        crate::cache_flush::flush_cache_lines(self.as_mapping_slice());
+        crate::cache_flush::flush_cache_lines(self.as_mapping_slice())
     }
 
     /// Compare against a byte slice without early exit for equal-length
@@ -1716,7 +1720,7 @@ impl LockedSecretVec {
         unsafe { core::slice::from_raw_parts_mut(self.payload_ptr(), self.data_capacity) }
     }
 
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline]
     fn as_mapping_slice(&self) -> &[u8] {
         // SAFETY: `ptr` points to this value's live mapping, or is
@@ -2189,11 +2193,13 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
         compiler_fence(Ordering::SeqCst);
     }
 
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn secure_clear_and_flush(&mut self) {
+    pub fn secure_clear_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
         self.secure_clear();
-        crate::cache_flush::flush_cache_lines(self.as_mapping_slice());
+        crate::cache_flush::flush_cache_lines(self.as_mapping_slice())
     }
 
     #[inline]
@@ -2230,7 +2236,7 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
         Ok(N)
     }
 
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline]
     fn as_mapping_slice(&self) -> &[u8] {
         // SAFETY: `base` either points to a live mapping of `map_len` bytes
@@ -2443,11 +2449,13 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     }
 
     /// Clear this slot with volatile writes, then flush its cache lines.
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn secure_clear_and_flush(&mut self) {
+    pub fn secure_clear_and_flush(
+        &mut self,
+    ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
         self.secure_clear();
-        crate::cache_flush::flush_cache_lines(self.as_slot_slice());
+        crate::cache_flush::flush_cache_lines(self.as_slot_slice())
     }
 
     #[inline]
@@ -2506,7 +2514,7 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
         self.pool.slot_stride
     }
 
-    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[cfg(feature = "cache-flush")]
     #[inline]
     fn as_slot_slice(&self) -> &[u8] {
         // SAFETY: `ptr` points to this live slot's full stride, or is
