@@ -991,7 +991,9 @@ pub struct ConsumeOnceSecret<T: SecureSanitize> { ... }
 
 The name reflects the real guarantee:
 
-- exactly one accessor wins through this API;
+- exactly one scoped shared accessor wins through this API;
+- the accessor receives `&T`, requires `T: StableSharedSecretStorage`, and
+  cannot request `&mut T` through this wrapper;
 - the value is cleared when that access returns or unwinds;
 - later access is rejected;
 - a never-consumed value is cleared on drop.
@@ -1001,7 +1003,8 @@ successful closure.
 
 Required verification:
 
-- Loom tests for competing accessors;
+- the standalone `tools/consume-once-loom` model for competing accessors and
+  cleanup ordering;
 - panic-unwind cleanup tests;
 - Miri coverage;
 - explicit `panic = "abort"` non-guarantee;

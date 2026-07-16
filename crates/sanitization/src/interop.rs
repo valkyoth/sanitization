@@ -83,14 +83,14 @@ mod zeroize_interop {
 
     impl<T: SecureSanitize> zeroize::ZeroizeOnDrop for Secret<T> {}
 
-    impl<T: SecureSanitize> zeroize::Zeroize for ReadOnceSecret<T> {
+    impl<T: SecureSanitize> zeroize::Zeroize for ConsumeOnceSecret<T> {
         #[inline]
         fn zeroize(&mut self) {
             self.secure_sanitize();
         }
     }
 
-    impl<T: SecureSanitize> zeroize::ZeroizeOnDrop for ReadOnceSecret<T> {}
+    impl<T: SecureSanitize> zeroize::ZeroizeOnDrop for ConsumeOnceSecret<T> {}
 
     #[cfg(feature = "split-secret")]
     impl<const N: usize, const SHARES: usize> zeroize::Zeroize for SplitSecretBytes<N, SHARES> {
@@ -755,7 +755,7 @@ mod serde_impls {
         }
     }
 
-    impl<T> Serialize for ReadOnceSecret<T>
+    impl<T> Serialize for ConsumeOnceSecret<T>
     where
         T: SecureSanitize,
     {
@@ -768,7 +768,7 @@ mod serde_impls {
         }
     }
 
-    impl<'de, T> Deserialize<'de> for ReadOnceSecret<T>
+    impl<'de, T> Deserialize<'de> for ConsumeOnceSecret<T>
     where
         T: SecureSanitize + Deserialize<'de>,
     {
@@ -777,7 +777,7 @@ mod serde_impls {
         where
             D: Deserializer<'de>,
         {
-            T::deserialize(deserializer).map(ReadOnceSecret::new)
+            T::deserialize(deserializer).map(ConsumeOnceSecret::new)
         }
     }
 

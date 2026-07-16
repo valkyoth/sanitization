@@ -103,7 +103,7 @@ Unsafe code is allowed only inside narrow, reviewable implementation modules:
 - `mapped::guard_pages`, available only with the `guard-pages` feature on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets outside Miri. The
   feature is rejected at compile time on WASM.
-- `owned::read_once`, which uses `UnsafeCell` behind an atomic one-consumer
+- `owned::consume_once`, which uses `UnsafeCell` behind an atomic one-consumer
   state machine.
 - `sanitization-arrayvec::backing_wipe`, in the optional sister crate, which
   converts `ArrayVec::spare_capacity_mut()` from `MaybeUninit<T>` storage into
@@ -506,25 +506,34 @@ Invariant:
 - Drop ignores unlock and unmap/free errors because destructors cannot report
   failure.
 
-## Read-Once Secrets
+## Consume-Once Secrets
 
-`ReadOnceSecret<T>` uses an `AtomicBool` consumed flag and an `UnsafeCell<T>`.
+`ConsumeOnceSecret<T>` uses an `AtomicBool` claim flag and an `UnsafeCell<T>`.
 The unsafe boundary is intentionally small:
 
-- `consume` and `consume_mut` first claim access with
-  `AtomicBool::swap(true, Ordering::AcqRel)`.
+- `consume` first claims access with `AtomicBool::swap(true,
+  Ordering::AcqRel)`.
 - Only the caller that observes the previous value as `false` receives access
   to the inner `T`; every later caller receives `AlreadyConsumedError`.
+- Exposure is scoped and shared. The wrapper does not move ownership of `T`
+  out, and it intentionally provides no mutable consume method.
+- `consume` requires `T: StableSharedSecretStorage`, so safe operations reached
+  through the shared reference may not release uncleared secret storage.
 - The successful caller installs a private cleanup guard before invoking caller
   code. The guard clears the inner value after normal return or during unwind,
   even if another `Arc` or owner keeps the wrapper alive after `catch_unwind`.
+- A closure return value, including an application-level error, is produced
+  before the guard clears the wrapped value and the method returns.
 - The cleanup guard runs only after the closure frame and its borrow of the
   inner value have ended. Process abort remains outside destructor guarantees.
-- `ReadOnceSecret<T>` is `Sync` when `T: Send`, following the same runtime
+- `ConsumeOnceSecret<T>` is `Sync` when `T: Send`, following the same runtime
   exclusivity principle as lock-like containers: shared references may race to
   claim the value, but only one can access it.
-- `secure_sanitize` and `into_cleared` mark the value consumed before clearing
+- `secure_sanitize` and `into_cleared` mark the value claimed before clearing
   it, so later consume attempts fail closed.
+- The winning closure can deliberately copy, log, or export data. Rust moves,
+  optimizer-created temporaries, and register residue remain outside this
+  ownership guarantee.
 
 ## Safe Temporary Buffers
 

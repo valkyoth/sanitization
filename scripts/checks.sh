@@ -6,6 +6,7 @@ scripts/verify-action-pins.sh
 scripts/test-latest-rust.py
 if command -v cargo-audit >/dev/null 2>&1; then
     cargo audit --deny warnings
+    cargo audit --deny warnings --file tools/consume-once-loom/Cargo.lock
 else
     printf 'skipping cargo audit; cargo-audit is not installed\n'
 fi
@@ -45,6 +46,7 @@ scripts/verify-derive-failures.sh
 scripts/verify-secret-exposure-failures.sh
 scripts/verify-ct-declassification.sh
 scripts/verify-leakage-smoke.sh
+scripts/verify-loom.sh
 scripts/verify-evidence.py
 scripts/test-release-readiness.sh
 scripts/capture-2.0-baseline.py --check

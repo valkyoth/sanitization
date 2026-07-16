@@ -1764,8 +1764,8 @@ fn generic_secret_default_wraps_default_value() {
 }
 
 #[test]
-fn read_once_secret_consumes_once_by_shared_reference() {
-    let secret = ReadOnceSecret::new(SecretBytes::<4>::from_array([1, 2, 3, 4]));
+fn consume_once_secret_consumes_once_by_shared_reference() {
+    let secret = ConsumeOnceSecret::new(SecretBytes::<4>::from_array([1, 2, 3, 4]));
 
     let sum = secret.consume(|bytes| {
         let mut out = [0; 4];
@@ -1778,28 +1778,12 @@ fn read_once_secret_consumes_once_by_shared_reference() {
         secret.consume(|_| unreachable!()),
         Err(AlreadyConsumedError)
     );
-    assert!(secret.is_consumed());
+    assert!(secret.is_claimed());
 }
 
 #[test]
-fn read_once_secret_allows_mutable_finalization() {
-    let secret = ReadOnceSecret::new([1_u8, 2, 3, 4]);
-
-    let first = secret.consume_mut(|bytes| {
-        bytes[0] = 9;
-        bytes[0]
-    });
-
-    assert_eq!(first, Ok(9));
-    assert_eq!(
-        secret.consume_mut(|_| unreachable!()),
-        Err(AlreadyConsumedError)
-    );
-}
-
-#[test]
-fn read_once_secret_allows_only_one_shared_consumer() {
-    let secret = std::sync::Arc::new(ReadOnceSecret::new([1_u8, 2, 3, 4]));
+fn consume_once_secret_allows_only_one_shared_consumer() {
+    let secret = std::sync::Arc::new(ConsumeOnceSecret::new([1_u8, 2, 3, 4]));
     let worker_secret = std::sync::Arc::clone(&secret);
     let start = std::sync::Arc::new(std::sync::Barrier::new(2));
     let worker_start = std::sync::Arc::clone(&start);
@@ -1822,7 +1806,7 @@ fn read_once_secret_allows_only_one_shared_consumer() {
 }
 
 #[test]
-fn read_once_secret_clears_when_consume_unwinds_while_shared() {
+fn consume_once_secret_clears_when_consume_unwinds_while_shared() {
     use core::sync::atomic::{AtomicBool, Ordering};
     use std::{
         panic::{catch_unwind, AssertUnwindSafe},
@@ -1838,7 +1822,10 @@ fn read_once_secret_clears_when_consume_unwinds_while_shared() {
     }
 
     let cleared = Arc::new(AtomicBool::new(false));
-    let secret = Arc::new(ReadOnceSecret::new(Probe(Arc::clone(&cleared))));
+    // STORAGE CONTRACT: `Probe` has no shared methods that release storage.
+    impl StableSharedSecretStorage for Probe {}
+
+    let secret = Arc::new(ConsumeOnceSecret::new(Probe(Arc::clone(&cleared))));
     let retained_owner = Arc::clone(&secret);
 
     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -1847,17 +1834,40 @@ fn read_once_secret_clears_when_consume_unwinds_while_shared() {
 
     assert!(result.is_err());
     assert!(cleared.load(Ordering::Acquire));
-    assert!(retained_owner.is_consumed());
+    assert!(retained_owner.is_claimed());
     assert!(Arc::strong_count(&retained_owner) > 1);
 }
 
 #[test]
-fn read_once_secret_clears_when_mutable_consume_unwinds_while_shared() {
+fn consume_once_secret_clears_after_a_closure_returns_an_error() {
     use core::sync::atomic::{AtomicBool, Ordering};
-    use std::{
-        panic::{catch_unwind, AssertUnwindSafe},
-        sync::Arc,
-    };
+    use std::sync::Arc;
+
+    struct Probe(Arc<AtomicBool>);
+
+    impl SecureSanitize for Probe {
+        fn secure_sanitize(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    // STORAGE CONTRACT: `Probe` has no shared methods that release storage.
+    impl StableSharedSecretStorage for Probe {}
+
+    let cleared = Arc::new(AtomicBool::new(false));
+    let secret = ConsumeOnceSecret::new(Probe(Arc::clone(&cleared)));
+    let result: Result<Result<(), &'static str>, AlreadyConsumedError> =
+        secret.consume(|_| Err("operation failed"));
+
+    assert_eq!(result, Ok(Err("operation failed")));
+    assert!(cleared.load(Ordering::Acquire));
+    assert!(secret.is_claimed());
+}
+
+#[test]
+fn consume_once_secret_clears_when_never_consumed() {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     struct Probe(Arc<AtomicBool>);
 
@@ -1868,22 +1878,18 @@ fn read_once_secret_clears_when_mutable_consume_unwinds_while_shared() {
     }
 
     let cleared = Arc::new(AtomicBool::new(false));
-    let secret = Arc::new(ReadOnceSecret::new(Probe(Arc::clone(&cleared))));
-    let retained_owner = Arc::clone(&secret);
+    drop(ConsumeOnceSecret::new(Probe(Arc::clone(&cleared))));
 
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let _ = secret.consume_mut(|_| panic!("mutable consumer panic"));
-    }));
-
-    assert!(result.is_err());
     assert!(cleared.load(Ordering::Acquire));
-    assert!(retained_owner.is_consumed());
-    assert!(Arc::strong_count(&retained_owner) > 1);
 }
 
 #[test]
-fn read_once_secret_default_and_debug_are_safe() {
-    let secret = ReadOnceSecret::<[u8; 4]>::default();
+fn consume_once_secret_default_debug_and_auto_traits_are_safe() {
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    assert_send_sync::<ConsumeOnceSecret<[u8; 4]>>();
+
+    let secret = ConsumeOnceSecret::<[u8; 4]>::default();
     let rendered = std::format!("{secret:?}");
 
     assert!(rendered.contains("redacted"));

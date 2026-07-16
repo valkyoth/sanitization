@@ -101,6 +101,7 @@ def main() -> int:
             "scripts/verify-codegen.sh",
             "scripts/verify-derive-failures.sh",
             "scripts/verify-leakage-smoke.sh",
+            "scripts/verify-loom.sh",
             "scripts/verify-kani.sh",
             "scripts/verify-miri.sh",
             "scripts/verify-evidence.py",

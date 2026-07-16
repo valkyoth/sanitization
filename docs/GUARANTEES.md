@@ -127,6 +127,22 @@ explicit `declassify(reason)` boundary. The reason string is not a runtime
 security mechanism; it exists to make public-branch decisions searchable and
 reviewable.
 
+## Consume-Once Ownership
+
+`ConsumeOnceSecret<T>` permits exactly one successful scoped shared exposure:
+
+- racing callers claim access with one atomic transition;
+- the successful closure receives `&T`, not ownership or mutable access;
+- later callers are rejected;
+- the wrapped value is cleared after normal return, application-level error,
+  or panic unwinding;
+- a never-consumed value is cleared on drop; and
+- shared exposure requires `T: StableSharedSecretStorage`.
+
+This guarantee covers access through the wrapper. The winning closure can
+deliberately copy or export data, and process abort, compiler-created
+temporaries, Rust move history, and register residue remain outside it.
+
 ## Evidence
 
 The repository carries release evidence in two forms:

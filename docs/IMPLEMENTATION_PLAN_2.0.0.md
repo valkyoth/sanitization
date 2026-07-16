@@ -89,6 +89,7 @@ Every implementation and remediation stop must run the applicable subset of:
 - `scripts/verify-codegen.sh`;
 - `scripts/verify-derive-failures.sh`;
 - `scripts/verify-leakage-smoke.sh`;
+- `scripts/verify-loom.sh`;
 - `scripts/verify-kani.sh`;
 - `scripts/verify-miri.sh`;
 - `scripts/verify-evidence.py`;
@@ -119,8 +120,8 @@ its retest.
 | `CP-10` | Accepted |
 | `CP-11` | Accepted |
 | `CP-12` | Accepted |
-| `CP-13` | Pentest |
-| `CP-14` | Planned |
+| `CP-13` | Accepted |
+| `CP-14` | Pentest |
 | `CP-15` | Planned |
 | `CP-16` | Planned |
 | `CP-17` | Planned |

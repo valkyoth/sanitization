@@ -108,11 +108,19 @@ For the highest assurance, construct secrets directly inside crate-owned
 containers, use in-place APIs, keep exposure closures small, and avoid passing
 secret material through ordinary temporary arrays, strings, or vectors.
 
+`ConsumeOnceSecret<T>` means one successful access through that wrapper. It
+does not prove the value was never copied before construction, prevent the
+winning closure from copying or exporting bytes, clear values deliberately
+returned by caller code, or guarantee cleanup after `panic = "abort"`. Cleanup
+also depends on `T::secure_sanitize` honoring its documented non-panicking
+implementer contract; a downstream sanitizer that panics can leave partial
+cleanup and can abort if it panics during unwinding.
+
 ## Serialization And Interop
 
 Serde support serializes secret-owning types as redacted strings. Deserializing
 into the crate's own leaf secret types keeps ingestion on the secret-aware path.
-For generic `Secret<T>` or `ReadOnceSecret<T>`, secrecy during deserialization
+For generic `Secret<T>` or `ConsumeOnceSecret<T>`, secrecy during deserialization
 depends on `T`'s own `Deserialize` implementation and any intermediate buffers
 it creates.
 `SecretVec` and `SecretString` use 1 MiB default serde ceilings.

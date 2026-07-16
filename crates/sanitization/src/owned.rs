@@ -4215,40 +4215,45 @@ impl<T: SecureSanitize> fmt::Debug for Secret<T> {
 }
 
 #[allow(unsafe_code)]
-mod read_once {
-    use super::{fmt, SecureSanitize};
+mod consume_once {
+    use super::{fmt, SecureSanitize, StableMutableSecretStorage, StableSharedSecretStorage};
     use core::{
         cell::UnsafeCell,
         sync::atomic::{AtomicBool, Ordering},
     };
 
-    /// Error returned after a [`ReadOnceSecret`] has already been consumed.
+    /// Error returned after a [`ConsumeOnceSecret`] has already been claimed.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub struct AlreadyConsumedError;
 
     impl fmt::Display for AlreadyConsumedError {
         fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("read-once secret already consumed")
+            formatter.write_str("consume-once secret already claimed")
         }
     }
 
     #[cfg(feature = "std")]
     impl std::error::Error for AlreadyConsumedError {}
 
-    /// Clear-on-drop wrapper that can be consumed exactly once.
+    /// Clear-on-drop wrapper that permits one scoped secret exposure.
     ///
-    /// `ReadOnceSecret<T>` uses an atomic consumed flag, so repeated access is
-    /// rejected even when callers hold multiple shared references to the same
-    /// wrapper. A cleanup guard clears the wrapped value after the first closure
-    /// returns or unwinds, even when another owner keeps the wrapper alive.
-    /// `Drop` also clears a value that is never consumed.
-    pub struct ReadOnceSecret<T: SecureSanitize> {
+    /// `ConsumeOnceSecret<T>` uses an atomic claim flag, so exactly one caller
+    /// may enter [`ConsumeOnceSecret::consume`], including when multiple shared
+    /// references race. The winning closure receives `&T`; ownership of `T` is
+    /// not moved out through this API. A cleanup guard clears the wrapped value
+    /// after that closure returns or unwinds, even when another owner keeps the
+    /// wrapper alive. `Drop` clears a value that is never consumed.
+    ///
+    /// The successful closure can still deliberately copy or export data it
+    /// reads. Rust moves and compiler-generated register copies remain outside
+    /// the memory-sanitization guarantee.
+    pub struct ConsumeOnceSecret<T: SecureSanitize> {
         inner: UnsafeCell<T>,
-        consumed: AtomicBool,
+        claimed: AtomicBool,
     }
 
     struct ClearOnExit<'a, T: SecureSanitize> {
-        owner: &'a ReadOnceSecret<T>,
+        owner: &'a ConsumeOnceSecret<T>,
     }
 
     impl<T: SecureSanitize> Drop for ClearOnExit<'_, T> {
@@ -4260,86 +4265,51 @@ mod read_once {
 
     // SAFETY: Moving the wrapper to another thread transfers ownership of the
     // inner value and atomic flag. Access to the inner value is still mediated
-    // by the consumed flag.
-    unsafe impl<T: SecureSanitize + Send> Send for ReadOnceSecret<T> {}
+    // by the claim flag.
+    unsafe impl<T: SecureSanitize + Send> Send for ConsumeOnceSecret<T> {}
 
     // SAFETY: Shared references may race to consume the value, but the atomic
     // swap permits exactly one successful accessor. That accessor has exclusive
     // logical access until its cleanup guard clears the inner value before
     // returning or while unwinding.
-    unsafe impl<T: SecureSanitize + Send> Sync for ReadOnceSecret<T> {}
+    unsafe impl<T: SecureSanitize + Send> Sync for ConsumeOnceSecret<T> {}
 
-    impl<T: SecureSanitize> ReadOnceSecret<T> {
+    impl<T: SecureSanitize> ConsumeOnceSecret<T> {
         /// Wrap a sanitizable value for one-time consumption.
         #[must_use]
         #[inline]
         pub const fn new(inner: T) -> Self {
             Self {
                 inner: UnsafeCell::new(inner),
-                consumed: AtomicBool::new(false),
+                claimed: AtomicBool::new(false),
             }
-        }
-
-        /// Run a closure with read-only access exactly once, then clear the
-        /// wrapped value.
-        ///
-        /// The first caller wins by atomically setting the consumed flag. Any
-        /// later caller receives [`AlreadyConsumedError`]. A private cleanup
-        /// guard clears the wrapped value on normal return and while unwinding,
-        /// even when another owner keeps this wrapper alive. As with all
-        /// destructor-based cleanup, process abort prevents cleanup from
-        /// running.
-        #[inline]
-        pub fn consume<R>(&self, inspect: impl FnOnce(&T) -> R) -> Result<R, AlreadyConsumedError> {
-            self.claim()?;
-            let clear_guard = ClearOnExit { owner: self };
-            // SAFETY: `claim` permits exactly one successful accessor. No other
-            // safe method can access `inner` after the consumed flag is set.
-            let result = inspect(unsafe { &*self.inner.get() });
-            drop(clear_guard);
-            Ok(result)
-        }
-
-        /// Run a closure with mutable access exactly once, then clear the
-        /// wrapped value.
-        ///
-        /// This is useful for one-time protocol values that need final in-place
-        /// normalization or decoding at the access boundary.
-        #[inline]
-        pub fn consume_mut<R>(
-            &self,
-            edit: impl FnOnce(&mut T) -> R,
-        ) -> Result<R, AlreadyConsumedError> {
-            self.claim()?;
-            let clear_guard = ClearOnExit { owner: self };
-            // SAFETY: `claim` permits exactly one successful accessor. The
-            // successful caller therefore has exclusive logical access.
-            let result = edit(unsafe { &mut *self.inner.get() });
-            drop(clear_guard);
-            Ok(result)
         }
 
         /// Consume the wrapper after first clearing the wrapped value.
         #[inline]
         pub fn into_cleared(mut self) {
-            self.consumed.store(true, Ordering::Release);
+            self.claimed.store(true, Ordering::Release);
             self.inner.get_mut().secure_sanitize();
         }
 
-        /// Returns true after the one successful consume attempt, after manual
-        /// sanitization, or after [`ReadOnceSecret::into_cleared`].
+        /// Returns true after an accessor claims the value, after manual
+        /// sanitization, or after [`ConsumeOnceSecret::into_cleared`].
+        ///
+        /// A `true` result means later access is rejected. It does not
+        /// distinguish an accessor that is still running from one whose cleanup
+        /// guard has already cleared the value.
         #[must_use]
         #[inline]
-        pub fn is_consumed(&self) -> bool {
-            self.consumed.load(Ordering::Acquire)
+        pub fn is_claimed(&self) -> bool {
+            self.claimed.load(Ordering::Acquire)
         }
 
         #[inline]
-        fn claim(&self) -> Result<(), AlreadyConsumedError> {
-            if self.consumed.swap(true, Ordering::AcqRel) {
+        fn claim(&self) -> Result<ClearOnExit<'_, T>, AlreadyConsumedError> {
+            if self.claimed.swap(true, Ordering::AcqRel) {
                 Err(AlreadyConsumedError)
             } else {
-                Ok(())
+                Ok(ClearOnExit { owner: self })
             }
         }
 
@@ -4352,36 +4322,81 @@ mod read_once {
         }
     }
 
-    impl<T: SecureSanitize> Drop for ReadOnceSecret<T> {
+    impl<T: StableSharedSecretStorage> ConsumeOnceSecret<T> {
+        /// Run a closure with shared access exactly once, then clear the
+        /// wrapped value.
+        ///
+        /// The first caller atomically claims the value. Every later caller
+        /// receives [`AlreadyConsumedError`]. The closure's return value may
+        /// report success or failure; either way, a private cleanup guard clears
+        /// the wrapped value before this method returns. The same guard runs
+        /// during panic unwinding.
+        ///
+        /// Requiring [`StableSharedSecretStorage`] prevents safe methods reached
+        /// through `&T` from silently releasing uncleared secret storage.
+        /// Caller code can still deliberately copy, log, or export bytes.
+        /// Process abort prevents the cleanup guard from running.
+        ///
+        /// ```compile_fail
+        /// use sanitization::{ConsumeOnceSecret, SecureSanitize};
+        ///
+        /// struct Unreviewed(Vec<u8>);
+        ///
+        /// impl SecureSanitize for Unreviewed {
+        ///     fn secure_sanitize(&mut self) {
+        ///         self.0.secure_sanitize();
+        ///     }
+        /// }
+        ///
+        /// let secret = ConsumeOnceSecret::new(Unreviewed(vec![1, 2, 3]));
+        /// // Rejected until `Unreviewed` explicitly satisfies the shared
+        /// // storage-stability contract.
+        /// let _ = secret.consume(|value| value.0.len());
+        /// ```
+        #[inline]
+        pub fn consume<R>(&self, inspect: impl FnOnce(&T) -> R) -> Result<R, AlreadyConsumedError> {
+            let clear_guard = self.claim()?;
+            // SAFETY: `claim` permits exactly one successful accessor. No other
+            // safe method can access `inner` after the claim flag is set.
+            let result = inspect(unsafe { &*self.inner.get() });
+            drop(clear_guard);
+            Ok(result)
+        }
+    }
+
+    impl<T: SecureSanitize> Drop for ConsumeOnceSecret<T> {
         #[inline]
         fn drop(&mut self) {
             self.inner.get_mut().secure_sanitize();
         }
     }
 
-    impl<T: SecureSanitize + Default> Default for ReadOnceSecret<T> {
+    impl<T: SecureSanitize + Default> Default for ConsumeOnceSecret<T> {
         #[inline]
         fn default() -> Self {
             Self::new(T::default())
         }
     }
 
-    impl<T: SecureSanitize> SecureSanitize for ReadOnceSecret<T> {
+    impl<T: SecureSanitize> SecureSanitize for ConsumeOnceSecret<T> {
         #[inline]
         fn secure_sanitize(&mut self) {
-            self.consumed.store(true, Ordering::Release);
+            self.claimed.store(true, Ordering::Release);
             self.inner.get_mut().secure_sanitize();
         }
     }
 
-    impl<T: SecureSanitize> fmt::Debug for ReadOnceSecret<T> {
+    impl<T: StableSharedSecretStorage> StableSharedSecretStorage for ConsumeOnceSecret<T> {}
+    impl<T: StableMutableSecretStorage> StableMutableSecretStorage for ConsumeOnceSecret<T> {}
+
+    impl<T: SecureSanitize> fmt::Debug for ConsumeOnceSecret<T> {
         fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
             formatter
-                .debug_struct("ReadOnceSecret")
+                .debug_struct("ConsumeOnceSecret")
                 .field("contents", &"<redacted>")
                 .finish()
         }
     }
 }
 
-pub use read_once::{AlreadyConsumedError, ReadOnceSecret};
+pub use consume_once::{AlreadyConsumedError, ConsumeOnceSecret};

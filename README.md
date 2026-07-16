@@ -391,7 +391,7 @@ source-compatible.
 
 ## WASM Support
 
-The base containers (`SecretBytes`, `Secret`, `ReadOnceSecret`, and with
+The base containers (`SecretBytes`, `Secret`, `ConsumeOnceSecret`, and with
 `alloc`, `SecretBoxBytes`, `SecretVec`, `BoundedSecretVec<MAX>`, and
 `SecretString`) compile on `wasm32` targets.
 `memory-lock` compiles on WASM only when `wasm-compat` is also enabled. That
@@ -1414,7 +1414,7 @@ struct Config {
 
 This serde support is intentionally for ingestion. Do not rely on serde
 serialization to export or back up secrets; it redacts by design. For generic
-`Secret<T>` and `ReadOnceSecret<T>`, deserialization uses `T`'s own
+`Secret<T>` and `ConsumeOnceSecret<T>`, deserialization uses `T`'s own
 `Deserialize` implementation, so use this crate's leaf types such as
 `SecretBytes<N>`, `SecretBoxBytes`, `SecretVec`, `SecretString`, and their
 bounded variants at secret-bearing fields when you need secret-aware ingestion
@@ -1582,16 +1582,19 @@ types instead of accepting arbitrary downstream marker implementations, and
 keep exposure closures small enough to audit for copying, logging, allocation,
 or export. See [the strict-assurance guidance](docs/SAFETY.md#strict-assurance-use).
 
-## Read-Once Secrets
+## Consume-Once Secrets
 
-Use `ReadOnceSecret<T>` when a value should be accessed once and then cleared.
-The consume methods take `&self` and atomically mark the wrapper as consumed,
-so repeated access through shared references returns `AlreadyConsumedError`.
+Use `ConsumeOnceSecret<T>` when a value should receive one scoped shared
+exposure and then be cleared. `consume` takes `&self` and atomically claims the
+wrapper, so repeated or racing access through shared references returns
+`AlreadyConsumedError`. The exposed `T` must implement
+`StableSharedSecretStorage`; mutable exposure is intentionally not provided
+because it could move the protected value out with `mem::replace`.
 
 ```rust
-use sanitization::{AlreadyConsumedError, ReadOnceSecret, SecretBytes};
+use sanitization::{AlreadyConsumedError, ConsumeOnceSecret, SecretBytes};
 
-let token = ReadOnceSecret::new(SecretBytes::<4>::from_array([1, 2, 3, 4]));
+let token = ConsumeOnceSecret::new(SecretBytes::<4>::from_array([1, 2, 3, 4]));
 
 let sum = token.consume(|secret| {
     let mut out = [0; 4];
@@ -1603,9 +1606,12 @@ assert_eq!(sum, 10);
 assert_eq!(token.consume(|_| unreachable!()), Err(AlreadyConsumedError));
 ```
 
-The wrapped value is cleared immediately after the first successful closure
-returns. If the closure unwinds, `Drop` clears during unwinding. Like all
-destructor-based cleanup, this cannot run if the process aborts.
+The wrapped value is cleared after the winning closure returns, including when
+the closure returns an application error. If the closure unwinds, a private
+cleanup guard clears during unwinding. A value that is never consumed is
+cleared on drop. The closure can still deliberately copy or export data, Rust
+moves and registers remain outside the guarantee, and destructor cleanup
+cannot run if the process aborts.
 
 ## Direct Wiping
 
@@ -1978,7 +1984,7 @@ the first mismatching byte.
 | Guarded secret UTF-8 text with in-region corruption checks | `GuardedSecretString` with `guard-pages` and `canary-check` |
 | Secret scalar such as `u64` | `Secret<u64>` |
 | Standard compound value | `Secret<T>` where `T: SecureSanitize` |
-| One-time access secret | `ReadOnceSecret<T>` |
+| One-time access secret | `ConsumeOnceSecret<T>` |
 | Custom struct or enum with compiler-generated sanitization | `#[derive(SecureSanitize)]` with `derive` |
 | Custom struct or enum with compiler-generated drop clearing | `#[derive(SecureSanitize, SecureSanitizeOnDrop)]` with `derive` |
 | Custom struct with compiler-generated native `ct` equality | `#[derive(ConstantTimeEq)]` with `derive` |

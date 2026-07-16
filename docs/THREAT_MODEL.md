@@ -325,3 +325,9 @@ mapping per untrusted network event without an application-level bound and rate
 limit. For many same-size secrets on an untrusted or high-volume path,
 pre-allocate a bounded `SecretPool<N, SLOTS>` during trusted startup and treat
 pool exhaustion as an explicit availability policy.
+
+`ConsumeOnceSecret<T>` protects against accidental repeated access through the
+same wrapper, including racing consumers. It uses scoped shared exposure and
+clears after return or unwind. It does not defend against a malicious winning
+closure, copies made before construction, process abort, or residual compiler
+and register copies.
