@@ -75,10 +75,14 @@ these markers: a derive can inspect fields but cannot prove the behavior of
 inherent or trait methods.
 
 `SecretBoxBytes` is an audited exception for runtime-length heap storage. Its
-`Box<[u8]>` length is fixed, exposure returns only slices, and every
+private `Vec<u8>` is reserved only during construction; safe methods cannot
+grow it, shrink it, or extract it. Exposure returns only slices, and every
 replacement requires the same public length. Replacement constructs a separate
-clear-on-drop box before clearing and exchanging the old allocation.
-`clear_secret` wipes the complete boxed slice before drop releases it.
+clear-on-drop allocation before clearing and exchanging the old allocation.
+`clear_secret` wipes the private vector's full capacity while preserving its
+fixed public length, before drop releases the allocation. Bounded constructors
+use `try_reserve_exact` before initialization so untrusted public lengths can
+return an allocation error instead of entering an infallible growth path.
 
 Unsafe code is allowed only inside narrow, reviewable implementation modules:
 

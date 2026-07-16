@@ -332,15 +332,19 @@ Add:
 
 ```rust
 pub struct SecretBoxBytes {
-    inner: Box<[u8]>,
+    // Private fixed-capacity backing. No safe growth or extraction API.
+    inner: Vec<u8>,
 }
 ```
 
-This type serves dynamic lengths that are fixed after construction.
+This type serves dynamic lengths that are fixed after construction. The
+private vector permits stable-Rust fallible reservation; its safe API preserves
+length and capacity and clears the full capacity before release.
 
 Required API:
 
 - `zeroed(len)`;
+- bounded, genuinely fallible allocation constructors;
 - `from_boxed_slice`;
 - `from_fn(len, ...)`;
 - `try_from_fn(len, ...)`;
@@ -358,6 +362,8 @@ Required properties:
 - replacement creates a new clear-on-drop value before clearing and swapping
   the old value;
 - complete allocation is cleared before release;
+- untrusted lengths can be rejected before allocation and reserve failure can
+  be returned without entering an infallible allocation path;
 - `Debug` is redacted;
 - no ordinary equality, `Deref`, `AsRef`, `Clone`, or `Copy`.
 

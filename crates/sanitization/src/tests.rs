@@ -1650,6 +1650,65 @@ fn secret_box_bytes_owns_fixed_allocation_and_clears_in_place() {
 
 #[cfg(feature = "alloc")]
 #[test]
+fn secret_box_bytes_bounded_construction_is_fallible() {
+    let secret = SecretBoxBytes::try_zeroed(4, 4).unwrap();
+    assert_eq!(secret.len(), 4);
+    assert!(secret.constant_time_eq(&[0, 0, 0, 0]));
+
+    assert!(matches!(
+        SecretBoxBytes::try_zeroed(5, 4),
+        Err(SecretBoxBytesBuildError::TooLong {
+            maximum: 4,
+            actual: 5
+        })
+    ));
+    assert!(matches!(
+        SecretBoxBytes::try_zeroed(usize::MAX, usize::MAX),
+        Err(SecretBoxBytesBuildError::Allocation(_))
+    ));
+
+    let copied = SecretBoxBytes::try_from_slice(&[1, 2, 3, 4], 4).unwrap();
+    assert!(copied.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(matches!(
+        SecretBoxBytes::try_from_slice(&[1, 2, 3, 4, 5], 4),
+        Err(SecretBoxBytesBuildError::TooLong {
+            maximum: 4,
+            actual: 5
+        })
+    ));
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_box_bytes_bounded_generation_reports_build_and_generator_errors() {
+    let generated =
+        SecretBoxBytes::try_from_fn_bounded(4, 4, |index| Ok::<u8, &'static str>(index as u8))
+            .unwrap();
+    assert!(generated.constant_time_eq(&[0, 1, 2, 3]));
+
+    assert!(matches!(
+        SecretBoxBytes::try_from_fn_bounded(5, 4, |_| Ok::<u8, &'static str>(0)),
+        Err(SecretBoxBytesGenerateError::Build(
+            SecretBoxBytesBuildError::TooLong {
+                maximum: 4,
+                actual: 5
+            }
+        ))
+    ));
+    assert!(matches!(
+        SecretBoxBytes::try_from_fn_bounded(4, 4, |index| {
+            if index == 2 {
+                Err("generation failed")
+            } else {
+                Ok(index as u8)
+            }
+        }),
+        Err(SecretBoxBytesGenerateError::Generate("generation failed"))
+    ));
+}
+
+#[cfg(feature = "alloc")]
+#[test]
 fn secret_box_bytes_stages_same_length_replacements() {
     let mut secret = SecretBoxBytes::from_slice(&[1, 2, 3, 4]);
     let old_address = secret.with_secret(|bytes| bytes.as_ptr() as usize);

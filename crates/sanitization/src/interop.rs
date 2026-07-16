@@ -395,22 +395,21 @@ mod serde_impls {
         where
             E: DeError,
         {
-            validate_default_secret_vec_len::<E>(bytes.len())?;
-            Ok(SecretBoxBytes::from_slice(bytes))
+            SecretBoxBytes::try_from_slice(bytes, DEFAULT_SECRET_VEC_SERDE_MAX_LEN)
+                .map_err(E::custom)
         }
 
-        fn visit_byte_buf<E>(self, mut bytes: Vec<u8>) -> Result<Self::Value, E>
+        fn visit_byte_buf<E>(self, bytes: Vec<u8>) -> Result<Self::Value, E>
         where
             E: DeError,
         {
-            if let Err(error) = validate_default_secret_vec_len::<E>(bytes.len()) {
-                crate::owned::sanitize_vec_capacity(&mut bytes);
-                return Err(error);
-            }
-
-            let secret = SecretBoxBytes::from_slice(&bytes);
-            crate::owned::sanitize_vec_capacity(&mut bytes);
-            Ok(secret)
+            // Own the plaintext through a clear-on-drop type before invoking
+            // generic error conversion or allocating the destination.
+            let temporary = SecretVec::from_vec(bytes);
+            temporary.with_secret(|bytes| {
+                SecretBoxBytes::try_from_slice(bytes, DEFAULT_SECRET_VEC_SERDE_MAX_LEN)
+                    .map_err(E::custom)
+            })
         }
 
         fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
@@ -426,7 +425,10 @@ mod serde_impls {
 
             while temporary.len() < DEFAULT_SECRET_VEC_SERDE_MAX_LEN {
                 let Some(byte) = sequence.next_element::<u8>()? else {
-                    return Ok(temporary.with_secret(SecretBoxBytes::from_slice));
+                    return temporary.with_secret(|bytes| {
+                        SecretBoxBytes::try_from_slice(bytes, DEFAULT_SECRET_VEC_SERDE_MAX_LEN)
+                            .map_err(A::Error::custom)
+                    });
                 };
                 temporary.extend_from_slice(&[byte]);
             }
@@ -438,7 +440,10 @@ mod serde_impls {
                 }));
             }
 
-            Ok(temporary.with_secret(SecretBoxBytes::from_slice))
+            temporary.with_secret(|bytes| {
+                SecretBoxBytes::try_from_slice(bytes, DEFAULT_SECRET_VEC_SERDE_MAX_LEN)
+                    .map_err(A::Error::custom)
+            })
         }
     }
 
@@ -772,6 +777,24 @@ mod serde_impls {
     mod tests {
         use super::*;
         use serde::de::value::Error as ValueError;
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+
+        #[derive(Debug)]
+        struct PanickingError;
+
+        impl fmt::Display for PanickingError {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("panicking serde error")
+            }
+        }
+
+        impl std::error::Error for PanickingError {}
+
+        impl DeError for PanickingError {
+            fn custom<T: fmt::Display>(_message: T) -> Self {
+                panic!("exercise serde error unwind")
+            }
+        }
 
         #[test]
         fn default_secret_vec_limit_rejects_excess_length() {
@@ -795,6 +818,17 @@ mod serde_impls {
                 DEFAULT_SECRET_STRING_SERDE_MAX_LEN.saturating_add(1)
             )
             .is_err());
+        }
+
+        #[test]
+        fn secret_box_owned_buffer_is_guarded_before_error_conversion() {
+            let bytes = alloc::vec![0xA5; DEFAULT_SECRET_VEC_SERDE_MAX_LEN + 1];
+
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                let _ = SecretBoxBytesVisitor.visit_byte_buf::<PanickingError>(bytes);
+            }));
+
+            assert!(result.is_err());
         }
     }
 }

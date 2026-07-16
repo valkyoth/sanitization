@@ -13,7 +13,8 @@ Rust applications.
 - Volatile clearing of `SecretVec` and `SecretString` initialized bytes and
   spare heap capacity before freeing their allocations.
 - Fixed-allocation runtime-length byte storage through `SecretBoxBytes`, whose
-  safe operations cannot resize the backing `Box<[u8]>`.
+  safe operations cannot resize or extract the private backing allocation and
+  whose clear path wipes its full capacity.
 - Const-generic `BoundedSecretVec<MAX>` enforcement for dynamic secret input
   whose length must be limited at an application trust boundary.
 - Const-generic `BoundedSecretString<MAX>` enforcement for secret UTF-8 input
@@ -286,4 +287,6 @@ be borrowed directly because it does not exist contiguously at rest.
 replacement. It does not lock allocator-backed pages, prevent swap or
 hibernation copies, control allocator metadata, or recover allocations and
 copies created before bytes enter the container. Use mapped locked or guarded
-types when those platform protections are required.
+types when those platform protections are required. Infallible constructors
+still require a trusted, bounded public length; use the bounded fallible
+constructors for untrusted length metadata and availability-sensitive code.

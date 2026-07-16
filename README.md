@@ -652,9 +652,11 @@ assert!(bytes.constant_time_eq(b"allocation-transfer"));
 
 Choose the allocation model deliberately:
 
-- `SecretBoxBytes` owns one runtime-length `Box<[u8]>`. Its length cannot
-  change, mutable exposure cannot reallocate, and same-length replacement
-  stages a fresh clear-on-drop allocation before clearing the old one.
+- `SecretBoxBytes` owns one private runtime-length allocation. Its public
+  length and capacity cannot change, mutable exposure cannot reallocate, and
+  same-length replacement stages a fresh clear-on-drop allocation before
+  clearing the old one. The private vector representation supports genuinely
+  fallible bounded construction and is wiped across its full capacity.
 - `SecretVec` and `SecretString` support managed growth. Their growth paths copy
   into a replacement allocation and clear the previous allocation before
   releasing it.
@@ -663,7 +665,11 @@ Choose the allocation model deliberately:
 
 All of these byte/text containers clear their reachable allocations before
 release. Use `SecretBoxBytes::from_slice` or `from_boxed_slice` when the runtime
-length is fixed. Use `SecretVec::from_slice` and
+length is fixed and already trusted. For lengths derived from untrusted
+metadata or availability-sensitive paths, use `SecretBoxBytes::try_zeroed`,
+`try_from_slice`, or `try_from_fn_bounded` with an application maximum; these
+return public-length, allocation, or generator errors instead of silently
+accepting an unbounded infallible allocation. Use `SecretVec::from_slice` and
 `SecretString::from_secret_str` when loading borrowed growable data. Use
 `from_vec`, `from_string`, `replace_from_vec`, and `replace_from_string` to take
 ownership of existing heap allocations without copying; those allocations

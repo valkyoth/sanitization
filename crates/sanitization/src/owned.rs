@@ -2415,31 +2415,63 @@ impl<const N: usize> fmt::Debug for ExpiringSecretBytes<N> {
 /// Fixed-allocation secret bytes with a runtime length.
 ///
 /// This type is available with the `alloc` feature. Unlike [`SecretVec`], its
-/// allocation length cannot grow or shrink after construction. Mutable
-/// exposure receives only `&mut [u8]`, so safe operations cannot reallocate the
-/// backing box.
+/// public API cannot grow or shrink the private backing allocation after
+/// construction. Mutable exposure receives only `&mut [u8]`, so safe
+/// operations cannot reallocate it. The private `Vec<u8>` representation exists
+/// so bounded constructors can use fallible reservation; the safe API never
+/// exposes vector growth or ownership extraction.
 ///
 /// Replacement requires the same public length. A replacement value is fully
 /// constructed in a separate clear-on-drop allocation before the old
 /// allocation is cleared and exchanged. Use [`SecretVec`] when the secret
 /// length must change over time.
 ///
+/// Clearing covers the backing allocation's full capacity, including any
+/// allocator-provided spare bytes.
+///
 /// The type deliberately does not implement `Clone`, `Copy`, `Deref`,
 /// `AsRef<[u8]>`, `PartialEq`, or secret-printing `Debug`.
 #[cfg(feature = "alloc")]
 pub struct SecretBoxBytes {
-    pub(crate) inner: Box<[u8]>,
+    pub(crate) inner: Vec<u8>,
 }
 
 #[cfg(feature = "alloc")]
 impl SecretBoxBytes {
     /// Allocate `len` zeroed secret bytes.
+    ///
+    /// `len` must already be validated as trusted public metadata. Like
+    /// ordinary infallible Rust allocation APIs, allocation failure may abort
+    /// the process. Use [`SecretBoxBytes::try_zeroed`] for untrusted lengths or
+    /// availability-sensitive code.
     #[must_use]
     #[inline]
     pub fn zeroed(len: usize) -> Self {
         Self {
-            inner: alloc::vec![0; len].into_boxed_slice(),
+            inner: alloc::vec![0; len],
         }
+    }
+
+    /// Allocate a bounded fixed-length secret without aborting on reserve
+    /// failure.
+    ///
+    /// The public maximum is checked before allocation. After
+    /// `try_reserve_exact` succeeds, resizing to `len` cannot allocate.
+    #[inline]
+    pub fn try_zeroed(len: usize, maximum: usize) -> Result<Self, SecretBoxBytesBuildError> {
+        if len > maximum {
+            return Err(SecretBoxBytesBuildError::TooLong {
+                maximum,
+                actual: len,
+            });
+        }
+
+        let mut inner = Vec::new();
+        inner
+            .try_reserve_exact(len)
+            .map_err(SecretBoxBytesBuildError::Allocation)?;
+        inner.resize(len, 0);
+        Ok(Self { inner })
     }
 
     /// Take ownership of an existing boxed byte slice.
@@ -2448,23 +2480,39 @@ impl SecretBoxBytes {
     /// when this value is cleared or dropped.
     #[must_use]
     #[inline]
-    pub const fn from_boxed_slice(inner: Box<[u8]>) -> Self {
-        Self { inner }
+    pub fn from_boxed_slice(inner: Box<[u8]>) -> Self {
+        Self {
+            inner: inner.into_vec(),
+        }
     }
 
     /// Allocate fixed-length storage and copy bytes into it.
+    ///
+    /// The slice length must already be validated when it comes from untrusted
+    /// metadata. Use [`SecretBoxBytes::try_from_slice`] to apply a public bound
+    /// and return allocation failure.
     #[must_use]
     #[inline]
     pub fn from_slice(bytes: &[u8]) -> Self {
         Self {
-            inner: Box::<[u8]>::from(bytes),
+            inner: Vec::from(bytes),
         }
+    }
+
+    /// Copy a bounded slice into fallibly allocated fixed-length storage.
+    #[inline]
+    pub fn try_from_slice(bytes: &[u8], maximum: usize) -> Result<Self, SecretBoxBytesBuildError> {
+        let mut secret = Self::try_zeroed(bytes.len(), maximum)?;
+        secret.inner.copy_from_slice(bytes);
+        Ok(secret)
     }
 
     /// Generate each byte directly into fixed-length clear-on-drop storage.
     ///
     /// If the generator panics, the partially initialized value is cleared
-    /// during unwinding.
+    /// during unwinding. `len` must already be trusted and bounded; allocation
+    /// failure may abort. Use [`SecretBoxBytes::try_from_fn_bounded`] for
+    /// untrusted lengths.
     #[must_use]
     #[inline]
     pub fn from_fn(len: usize, mut make_byte: impl FnMut(usize) -> u8) -> Self {
@@ -2480,7 +2528,10 @@ impl SecretBoxBytes {
     /// Generate each byte with a fallible generator.
     ///
     /// If generation fails, the partially initialized allocation is cleared
-    /// before the error is returned.
+    /// before the error is returned. This method only reports generator errors;
+    /// `len` must already be trusted and bounded, and allocation failure may
+    /// abort. Use [`SecretBoxBytes::try_from_fn_bounded`] when allocation must
+    /// also be fallible.
     #[inline]
     pub fn try_from_fn<E>(
         len: usize,
@@ -2495,7 +2546,26 @@ impl SecretBoxBytes {
         Ok(secret)
     }
 
-    /// Number of bytes in the fixed allocation.
+    /// Generate a bounded fixed-length secret with fallible allocation and
+    /// fallible byte generation.
+    #[inline]
+    pub fn try_from_fn_bounded<E>(
+        len: usize,
+        maximum: usize,
+        mut make_byte: impl FnMut(usize) -> Result<u8, E>,
+    ) -> Result<Self, SecretBoxBytesGenerateError<E>> {
+        let mut secret =
+            Self::try_zeroed(len, maximum).map_err(SecretBoxBytesGenerateError::Build)?;
+        let mut index = 0;
+        while index < len {
+            secret.inner[index] =
+                make_byte(index).map_err(SecretBoxBytesGenerateError::Generate)?;
+            index += 1;
+        }
+        Ok(secret)
+    }
+
+    /// Number of initialized bytes in the fixed allocation.
     #[must_use]
     #[inline]
     pub const fn len(&self) -> usize {
@@ -2522,7 +2592,7 @@ impl SecretBoxBytes {
     /// ```
     #[inline]
     pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8]) -> R) -> R {
-        inspect(&self.inner)
+        inspect(self.inner.as_slice())
     }
 
     /// Run a closure with direct mutable access to the fixed allocation.
@@ -2530,7 +2600,7 @@ impl SecretBoxBytes {
     /// A mutable slice cannot resize or replace the backing allocation.
     #[inline]
     pub fn with_secret_mut<R>(&mut self, edit: impl FnOnce(&mut [u8]) -> R) -> R {
-        edit(&mut self.inner)
+        edit(self.inner.as_mut_slice())
     }
 
     /// Copy the secret into a caller-provided slice of the same public length.
@@ -2543,7 +2613,7 @@ impl SecretBoxBytes {
             });
         }
 
-        destination.copy_from_slice(&self.inner);
+        destination.copy_from_slice(self.inner.as_slice());
         Ok(())
     }
 
@@ -2598,7 +2668,7 @@ impl SecretBoxBytes {
     /// Clear every byte while retaining the fixed allocation and length.
     #[inline(never)]
     pub fn clear_secret(&mut self) {
-        sanitize_bytes(&mut self.inner);
+        wipe::volatile_wipe(self.inner.as_mut_ptr(), self.inner.capacity());
     }
 
     /// Consume this value after clearing its complete allocation.
@@ -2613,7 +2683,7 @@ impl SecretBoxBytes {
     #[must_use]
     #[inline]
     pub fn constant_time_eq(&self, other: &[u8]) -> bool {
-        constant_time_eq_slices(&self.inner, other)
+        constant_time_eq_slices(self.inner.as_slice(), other)
     }
 
     #[inline]
@@ -2680,7 +2750,7 @@ impl fmt::Debug for SecretBoxBytes {
 impl ct::ConstantTimeEq for SecretBoxBytes {
     #[inline]
     fn ct_eq(&self, other: &Self) -> ct::Choice {
-        ct::eq_public_len(&self.inner, &other.inner)
+        ct::eq_public_len(self.inner.as_slice(), other.inner.as_slice())
     }
 }
 
@@ -2688,7 +2758,78 @@ impl ct::ConstantTimeEq for SecretBoxBytes {
 impl ct::ConstantTimeEq<[u8]> for SecretBoxBytes {
     #[inline]
     fn ct_eq(&self, other: &[u8]) -> ct::Choice {
-        ct::eq_public_len(&self.inner, other)
+        ct::eq_public_len(self.inner.as_slice(), other)
+    }
+}
+
+/// Error returned when bounded fixed-allocation secret construction fails.
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+pub enum SecretBoxBytesBuildError {
+    /// The requested public length exceeded the caller's maximum.
+    TooLong {
+        /// Maximum accepted length.
+        maximum: usize,
+        /// Rejected requested length.
+        actual: usize,
+    },
+    /// The allocator could not reserve the requested storage.
+    Allocation(alloc::collections::TryReserveError),
+}
+
+#[cfg(feature = "alloc")]
+impl fmt::Display for SecretBoxBytesBuildError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooLong { maximum, actual } => write!(
+                formatter,
+                "secret length exceeds limit: maximum {maximum} bytes, got {actual} bytes"
+            ),
+            Self::Allocation(error) => write!(formatter, "secret allocation failed: {error}"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for SecretBoxBytesBuildError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::TooLong { .. } => None,
+            Self::Allocation(error) => Some(error),
+        }
+    }
+}
+
+/// Error returned by bounded fallible byte generation.
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+pub enum SecretBoxBytesGenerateError<E> {
+    /// Allocation or public-length validation failed.
+    Build(SecretBoxBytesBuildError),
+    /// The caller's byte generator failed.
+    Generate(E),
+}
+
+#[cfg(feature = "alloc")]
+impl<E: fmt::Display> fmt::Display for SecretBoxBytesGenerateError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Build(error) => error.fmt(formatter),
+            Self::Generate(error) => write!(formatter, "secret generation failed: {error}"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<E> std::error::Error for SecretBoxBytesGenerateError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Build(error) => Some(error),
+            Self::Generate(error) => Some(error),
+        }
     }
 }
 

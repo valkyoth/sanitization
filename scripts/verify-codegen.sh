@@ -136,7 +136,7 @@ if grep -Eq 'fence (acquire|release|acq_rel|seq_cst)' <<<"${secret_box_clear_bod
     exit 1
 fi
 
-if [[ "$(grep -Ec '^[[:space:]]+(tail )?call void .*sanitize_bytes' <<<"${secret_box_core_clear_body}")" -ne 1 ]]; then
+if [[ "$(grep -Ec '^[[:space:]]+(tail )?call void .*wipe_backend.*volatile_wipe' <<<"${secret_box_core_clear_body}")" -ne 1 ]]; then
     echo "SecretBoxBytes clear method does not dispatch exactly once" >&2
     exit 1
 fi
