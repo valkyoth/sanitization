@@ -1319,6 +1319,96 @@ fn scalar_values_implement_secure_sanitize() {
 }
 
 #[test]
+fn storage_contracts_cover_fixed_builtins_and_tuples() {
+    use crate::{StableMutableSecretStorage, StableSharedSecretStorage};
+
+    fn assert_shared<T: StableSharedSecretStorage + ?Sized>() {}
+    fn assert_mutable<T: StableMutableSecretStorage + ?Sized>() {}
+
+    assert_shared::<u64>();
+    assert_mutable::<u64>();
+    assert_shared::<[u8]>();
+    assert_mutable::<[u8]>();
+    assert_shared::<[u8; 32]>();
+    assert_mutable::<[u8; 32]>();
+    assert_shared::<(u8, [u8; 4], SecretBytes<8>)>();
+    assert_mutable::<(u8, [u8; 4], SecretBytes<8>)>();
+    assert_shared::<(u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, SecretBytes<8>)>();
+    assert_mutable::<(u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, SecretBytes<8>)>();
+    assert_shared::<SecretBytes<32>>();
+    assert_mutable::<SecretBytes<32>>();
+
+    #[cfg(feature = "split-secret")]
+    {
+        assert_shared::<SplitSecretBytes<4, 2>>();
+        assert_mutable::<SplitSecretBytes<4, 2>>();
+    }
+
+    #[cfg(feature = "std")]
+    {
+        assert_shared::<ExpiringSecretBytes<32>>();
+        assert_mutable::<ExpiringSecretBytes<32>>();
+    }
+
+    #[cfg(feature = "memory-lock")]
+    {
+        assert_shared::<LockedSecretBytes<32>>();
+        assert_mutable::<LockedSecretBytes<32>>();
+        assert_shared::<SecretPool<32, 4>>();
+        assert_mutable::<SecretPool<32, 4>>();
+
+        fn assert_slot<'pool>()
+        where
+            SecretPoolSlot<'pool, 32, 4>: StableMutableSecretStorage,
+        {
+        }
+
+        assert_slot();
+    }
+}
+
+#[test]
+fn tuple_sanitization_runs_left_to_right() {
+    use std::{cell::RefCell, rc::Rc, vec::Vec};
+
+    struct OrderedProbe {
+        position: u8,
+        observed: Rc<RefCell<Vec<u8>>>,
+    }
+
+    impl SecureSanitize for OrderedProbe {
+        fn secure_sanitize(&mut self) {
+            self.observed.borrow_mut().push(self.position);
+            self.position = 0;
+        }
+    }
+
+    let observed = Rc::new(RefCell::new(Vec::new()));
+    let mut tuple = (
+        OrderedProbe {
+            position: 1,
+            observed: Rc::clone(&observed),
+        },
+        OrderedProbe {
+            position: 2,
+            observed: Rc::clone(&observed),
+        },
+        OrderedProbe {
+            position: 3,
+            observed: Rc::clone(&observed),
+        },
+    );
+
+    tuple.secure_sanitize();
+
+    assert_eq!(*observed.borrow(), [1, 2, 3]);
+    assert_eq!(
+        (tuple.0.position, tuple.1.position, tuple.2.position),
+        (0, 0, 0)
+    );
+}
+
+#[test]
 fn compound_standard_types_implement_secure_sanitize() {
     let mut array = [1_u64, 2, 3, 4];
     let mut optional = Some([9_u8, 8, 7, 6]);

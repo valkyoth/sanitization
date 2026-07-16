@@ -32,17 +32,161 @@ impl fmt::Display for LengthError {
 #[cfg(feature = "std")]
 impl std::error::Error for LengthError {}
 
-/// Shared trait for values that can clear their own sensitive contents.
+/// Clear the currently reachable sensitive contents owned by a value.
 ///
 /// The crate implements this trait for common scalar types, arrays, slices,
 /// `Option<T>`, `Result<T, E>`, and, with `alloc`, `Box<T>`, `Vec<T>`, and
 /// `String`. Opaque third-party types cannot be implemented here without
 /// taking dependencies on them; wrap those values in a local newtype and
 /// implement this trait there.
+///
+/// # Implementer contract
+///
+/// An implementation must:
+///
+/// - be idempotent;
+/// - avoid panicking where reasonably possible;
+/// - allocate no new storage while sanitizing;
+/// - leave the value valid for later sanitization and drop;
+/// - clear every currently owned secret element and all reachable
+///   secret-bearing allocation capacity;
+/// - clear secret-bearing storage before releasing, replacing, or transferring
+///   that storage; and
+/// - document external allocations, shared storage, historical copies,
+///   representation padding, allocator metadata, platform copies, or other
+///   secret-bearing state that it cannot reach.
+///
+/// This contract covers the value and storage reachable when
+/// [`SecureSanitize::secure_sanitize`] is called. It does not imply that the
+/// type's other safe operations preserve storage, and it cannot recover
+/// allocations or copies that were already released.
+///
+/// References, shared owners such as `Rc` and `Arc`, `NonZero*`,
+/// `MaybeUninit<T>`, unions, and types whose all-zero representation is invalid
+/// need type-specific review. The crate intentionally provides no blanket
+/// implementation for those categories.
 pub trait SecureSanitize {
     /// Clear the sensitive bytes owned by this value.
     fn secure_sanitize(&mut self);
 }
+
+/// Security contract for secret storage exposed through shared references.
+///
+/// Implementing this marker asserts:
+///
+/// > No safe operation provided by the type and reachable through `&self`
+/// > releases, transfers, replaces, or schedules later release of
+/// > secret-bearing storage without clearing it first.
+///
+/// The assertion covers inherent and trait methods, interior mutation,
+/// returned guards and destructors, callbacks invoked by those methods, and
+/// deferred cleanup they schedule. The type must retain a valid later
+/// [`SecureSanitize`] and drop path and document external, shared, deferred, or
+/// historical storage it cannot reach.
+///
+/// This is a normal trait rather than an `unsafe trait`: an incorrect
+/// implementation violates a security promise but must never be relied on for
+/// Rust memory safety. Generic guarantees are conditional on downstream
+/// implementations satisfying this contract.
+///
+/// Deliberate copying, logging, `mem::replace`, or calls to external code by an
+/// exposure closure remain caller responsibility. This marker describes the
+/// operations supplied by the marked type; it does not make hostile closure
+/// code safe.
+///
+/// # Manual implementations
+///
+/// Manual implementations should include a `STORAGE CONTRACT` comment that
+/// identifies every safe shared operation and explains why none can release
+/// uncleared secret storage:
+///
+/// ```
+/// use sanitization::{SecureSanitize, StableSharedSecretStorage};
+///
+/// struct FixedRecord {
+///     key: [u8; 32],
+/// }
+///
+/// impl SecureSanitize for FixedRecord {
+///     fn secure_sanitize(&mut self) {
+///         self.key.secure_sanitize();
+///     }
+/// }
+///
+/// // STORAGE CONTRACT: shared methods only inspect the inline byte array.
+/// impl StableSharedSecretStorage for FixedRecord {}
+/// ```
+///
+/// Types with interior mutation are not stable merely because their
+/// `SecureSanitize` implementation clears the current value:
+///
+/// ```compile_fail
+/// use std::cell::RefCell;
+/// use sanitization::{
+///     sanitize_bytes, SecureSanitize, StableSharedSecretStorage,
+/// };
+///
+/// struct Rotating {
+///     bytes: RefCell<Vec<u8>>,
+/// }
+///
+/// impl SecureSanitize for Rotating {
+///     fn secure_sanitize(&mut self) {
+///         let bytes = self.bytes.get_mut();
+///         sanitize_bytes(bytes.as_mut_slice());
+///         bytes.clear();
+///     }
+/// }
+///
+/// fn require_shared_stability<T: StableSharedSecretStorage>() {}
+///
+/// // Rejected: `Rotating` can replace its allocation through `&self`.
+/// require_shared_stability::<Rotating>();
+/// ```
+pub trait StableSharedSecretStorage: SecureSanitize {}
+
+/// Security contract for secret storage exposed through mutable references.
+///
+/// This extends [`StableSharedSecretStorage`] and asserts that no safe operation
+/// provided by the type and reachable through `&mut self` releases, transfers,
+/// replaces, or schedules later release of secret-bearing storage without
+/// clearing it first.
+///
+/// The same interior-mutation, guard, callback, destructor, deferred-cleanup,
+/// documentation, and caller-responsibility rules described by
+/// [`StableSharedSecretStorage`] apply. Manual implementations should include a
+/// `STORAGE CONTRACT` comment covering both shared and mutable operations.
+///
+/// The crate intentionally does not implement this trait for `Vec<T>`,
+/// `String`, `Box<T>`, references, shared owners, or arbitrary third-party
+/// containers.
+///
+/// ```compile_fail
+/// use sanitization::{
+///     sanitize_bytes, SecureSanitize, StableMutableSecretStorage,
+/// };
+///
+/// struct Reallocating(Vec<u8>);
+///
+/// impl Reallocating {
+///     fn replace_without_clearing(&mut self, replacement: Vec<u8>) {
+///         self.0 = replacement;
+///     }
+/// }
+///
+/// impl SecureSanitize for Reallocating {
+///     fn secure_sanitize(&mut self) {
+///         sanitize_bytes(self.0.as_mut_slice());
+///         self.0.clear();
+///     }
+/// }
+///
+/// fn require_mutable_stability<T: StableMutableSecretStorage>() {}
+///
+/// // Rejected: the old allocation can be released by a safe mutable method.
+/// require_mutable_stability::<Reallocating>();
+/// ```
+pub trait StableMutableSecretStorage: StableSharedSecretStorage {}
 
 /// Sanitize a value before replacing it.
 ///
@@ -71,6 +215,9 @@ macro_rules! impl_secure_sanitize_scalar {
                     sanitize_plain_value(self);
                 }
             }
+
+            impl StableSharedSecretStorage for $ty {}
+            impl StableMutableSecretStorage for $ty {}
         )+
     };
 }
@@ -261,6 +408,59 @@ impl<T: SecureSanitize, const N: usize> SecureSanitize for [T; N] {
     }
 }
 
+impl<T: StableSharedSecretStorage> StableSharedSecretStorage for [T] {}
+impl<T: StableMutableSecretStorage> StableMutableSecretStorage for [T] {}
+
+impl<T: StableSharedSecretStorage, const N: usize> StableSharedSecretStorage for [T; N] {}
+impl<T: StableMutableSecretStorage, const N: usize> StableMutableSecretStorage for [T; N] {}
+
+impl SecureSanitize for () {
+    #[inline]
+    fn secure_sanitize(&mut self) {}
+}
+
+impl StableSharedSecretStorage for () {}
+impl StableMutableSecretStorage for () {}
+
+macro_rules! impl_tuple_storage_contracts {
+    ($(($($type:ident:$index:tt),+)),+ $(,)?) => {
+        $(
+            impl<$($type: SecureSanitize),+> SecureSanitize for ($($type,)+) {
+                #[inline]
+                fn secure_sanitize(&mut self) {
+                    $(
+                        self.$index.secure_sanitize();
+                    )+
+                    compiler_fence(Ordering::SeqCst);
+                }
+            }
+
+            impl<$($type: StableSharedSecretStorage),+> StableSharedSecretStorage
+                for ($($type,)+)
+            {}
+
+            impl<$($type: StableMutableSecretStorage),+> StableMutableSecretStorage
+                for ($($type,)+)
+            {}
+        )+
+    };
+}
+
+impl_tuple_storage_contracts!(
+    (A:0),
+    (A:0, B:1),
+    (A:0, B:1, C:2),
+    (A:0, B:1, C:2, D:3),
+    (A:0, B:1, C:2, D:3, E:4),
+    (A:0, B:1, C:2, D:3, E:4, F:5),
+    (A:0, B:1, C:2, D:3, E:4, F:5, G:6),
+    (A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7),
+    (A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8),
+    (A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9),
+    (A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10),
+    (A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11),
+);
+
 impl<T: SecureSanitize> SecureSanitize for Option<T> {
     #[inline]
     fn secure_sanitize(&mut self) {
@@ -287,6 +487,9 @@ impl<T> SecureSanitize for PhantomData<T> {
     #[inline]
     fn secure_sanitize(&mut self) {}
 }
+
+impl<T> StableSharedSecretStorage for PhantomData<T> {}
+impl<T> StableMutableSecretStorage for PhantomData<T> {}
 
 #[cfg(feature = "alloc")]
 impl<T: SecureSanitize + ?Sized> SecureSanitize for Box<T> {
@@ -1177,6 +1380,9 @@ impl<const N: usize> SecureSanitize for SecretBytes<N> {
     }
 }
 
+impl<const N: usize> StableSharedSecretStorage for SecretBytes<N> {}
+impl<const N: usize> StableMutableSecretStorage for SecretBytes<N> {}
+
 impl<const N: usize> fmt::Debug for SecretBytes<N> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -1450,6 +1656,18 @@ impl<const N: usize, const SHARES: usize> SecureSanitize for SplitSecretBytes<N,
     fn secure_sanitize(&mut self) {
         self.shares.secure_sanitize();
     }
+}
+
+#[cfg(feature = "split-secret")]
+impl<const N: usize, const SHARES: usize> StableSharedSecretStorage
+    for SplitSecretBytes<N, SHARES>
+{
+}
+
+#[cfg(feature = "split-secret")]
+impl<const N: usize, const SHARES: usize> StableMutableSecretStorage
+    for SplitSecretBytes<N, SHARES>
+{
 }
 
 #[cfg(feature = "split-secret")]
@@ -2133,6 +2351,12 @@ impl<const N: usize> SecureSanitize for ExpiringSecretBytes<N> {
         self.secure_clear();
     }
 }
+
+#[cfg(feature = "std")]
+impl<const N: usize> StableSharedSecretStorage for ExpiringSecretBytes<N> {}
+
+#[cfg(feature = "std")]
+impl<const N: usize> StableMutableSecretStorage for ExpiringSecretBytes<N> {}
 
 #[cfg(feature = "std")]
 impl<const N: usize> fmt::Debug for ExpiringSecretBytes<N> {

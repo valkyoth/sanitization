@@ -1073,6 +1073,9 @@ impl<const N: usize> crate::SecureSanitize for LockedSecretBytes<N> {
     }
 }
 
+impl<const N: usize> crate::StableSharedSecretStorage for LockedSecretBytes<N> {}
+impl<const N: usize> crate::StableMutableSecretStorage for LockedSecretBytes<N> {}
+
 impl<const N: usize> fmt::Debug for LockedSecretBytes<N> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -2599,6 +2602,13 @@ impl<const N: usize, const SLOTS: usize> crate::SecureSanitize for SecretPool<N,
     }
 }
 
+impl<const N: usize, const SLOTS: usize> crate::StableSharedSecretStorage for SecretPool<N, SLOTS> {}
+
+impl<const N: usize, const SLOTS: usize> crate::StableMutableSecretStorage
+    for SecretPool<N, SLOTS>
+{
+}
+
 impl<'pool, const N: usize, const SLOTS: usize> crate::SecureSanitize
     for SecretPoolSlot<'pool, N, SLOTS>
 {
@@ -2606,6 +2616,16 @@ impl<'pool, const N: usize, const SLOTS: usize> crate::SecureSanitize
     fn secure_sanitize(&mut self) {
         self.secure_clear();
     }
+}
+
+impl<'pool, const N: usize, const SLOTS: usize> crate::StableSharedSecretStorage
+    for SecretPoolSlot<'pool, N, SLOTS>
+{
+}
+
+impl<'pool, const N: usize, const SLOTS: usize> crate::StableMutableSecretStorage
+    for SecretPoolSlot<'pool, N, SLOTS>
+{
 }
 
 impl<const N: usize, const SLOTS: usize> fmt::Debug for SecretPool<N, SLOTS> {

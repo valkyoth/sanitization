@@ -3,6 +3,43 @@
 The crate root uses `#![deny(unsafe_code)]` and
 `#![deny(unsafe_op_in_unsafe_fn)]`.
 
+## Safe Security Contracts
+
+`SecureSanitize` and the storage-stability markers are safe traits, but their
+implementations carry security obligations.
+
+`SecureSanitize` means that the currently reachable owned secret value can be
+cleared. Implementations must be idempotent, avoid allocation and avoid
+panicking where reasonably possible, leave the value valid to sanitize and
+drop again, clear reachable secret-bearing capacity, and clear storage before
+releasing or replacing it. Implementations must document copies, shared or
+external storage, padding, allocator metadata, platform copies, or historical
+allocations they cannot reach.
+
+`StableSharedSecretStorage` asserts that safe operations supplied by a type and
+reachable through `&self` cannot release, transfer, replace, or defer release
+of secret-bearing storage without first clearing it.
+`StableMutableSecretStorage` extends the assertion to operations reachable
+through `&mut self`. These contracts include inherent and trait methods,
+interior mutation, returned guards and their destructors, callbacks initiated
+by methods, and deferred cleanup.
+
+These are normal traits, not unsafe traits. A false implementation breaks the
+documented security guarantee but is never a premise for Rust memory safety.
+Generic guarantees are therefore conditional on downstream implementations
+being correct. Manual implementations require review of the type's complete
+safe API and should carry a `STORAGE CONTRACT` comment.
+
+The marker contracts do not prevent a caller from deliberately copying,
+logging, replacing, or exporting a secret inside an exposure closure. They
+describe the marked type's own safe operations, not arbitrary caller code.
+
+The core crate intentionally does not certify `Vec<T>`, `String`, `Box<T>`,
+references, shared ownership, standard interior-mutability wrappers, or
+arbitrary third-party containers. CP-02 also does not add a derive for these
+markers: a derive can inspect fields but cannot prove the behavior of inherent
+or trait methods.
+
 Unsafe code is allowed only inside narrow, reviewable implementation modules:
 
 - `wipe_backend`, the default volatile clear backend;

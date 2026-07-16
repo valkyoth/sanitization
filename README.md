@@ -1312,6 +1312,8 @@ container shapes:
   `isize`.
 - `bool`, `char`, `f32`, and `f64`.
 - arrays and slices whose element type implements `SecureSanitize`.
+- tuples through arity 12 whose fields implement `SecureSanitize`; fields are
+  cleared from left to right, but representation padding is not cleared.
 - `Option<T>` and `Result<T, E>` when their contents implement
   `SecureSanitize`.
 - with `alloc`: `Box<T>`, `Vec<T>`, and `String`.
@@ -1339,6 +1341,60 @@ Opaque third-party numeric types such as `BigUint` cannot be implemented by
 this crate without taking a dependency on that type. Wrap them in a local
 newtype and implement `SecureSanitize` for the newtype, or convert the secret
 material into `SecretBytes<N>`/`SecretVec` at the boundary where possible.
+
+### Storage Stability Contracts
+
+`SecureSanitize` means that a type can clear its currently reachable owned
+secret value. It does not by itself promise that the type's other safe methods
+avoid releasing old storage.
+
+Version 2 development adds two explicit contracts:
+
+- `StableSharedSecretStorage`: safe operations supplied by the type and
+  reachable through `&self` do not release, transfer, replace, or defer release
+  of secret-bearing storage without clearing it first.
+- `StableMutableSecretStorage`: extends the same promise to operations supplied
+  by the type and reachable through `&mut self`.
+
+The contracts cover interior mutation, implemented trait methods, returned
+guards and their destructors, callbacks initiated by methods, and deferred
+cleanup. They remain normal traits because an incorrect implementation breaks a
+security promise but must not affect Rust memory safety.
+
+Built-in implementations are intentionally conservative: supported scalars,
+slices and arrays, tuples through arity 12, `SecretBytes`, fixed split-secret
+storage, fixed expiring bytes, and fixed locked/pool storage. Generic `Vec<T>`,
+`String`, `Box<T>`, references, shared owners, interior-mutability wrappers,
+and arbitrary third-party containers are not certified.
+
+Manual implementations require review of the complete safe API, not only the
+fields:
+
+```rust
+use sanitization::{
+    SecureSanitize, StableMutableSecretStorage, StableSharedSecretStorage,
+};
+
+struct FixedRecord {
+    key: [u8; 32],
+}
+
+impl SecureSanitize for FixedRecord {
+    fn secure_sanitize(&mut self) {
+        self.key.secure_sanitize();
+    }
+}
+
+// STORAGE CONTRACT: every secret byte is inline and all methods mutate it
+// in place without releasing or replacing storage.
+impl StableSharedSecretStorage for FixedRecord {}
+impl StableMutableSecretStorage for FixedRecord {}
+```
+
+These traits do not prevent deliberate copying, logging, replacement, or
+external calls inside a user-provided closure. The 2.0 exposure redesign uses
+the contracts to reject storage-unstable generic access; that restriction is a
+separate checkpoint.
 
 ## Read-Once Secrets
 
