@@ -18,7 +18,10 @@ It is not a claim that the work is complete.
 
 The project should maintain the 1.2.x line only for security fixes, correctness
 fixes, documentation corrections, and narrowly additive interoperability work.
-The redesign should be developed directly as 2.0.0 prereleases.
+The redesign should be developed through the reviewed commit checkpoints in
+[`IMPLEMENTATION_PLAN_2.0.0.md`](IMPLEMENTATION_PLAN_2.0.0.md). Intermediate
+work receives no alpha, beta, or release-candidate tags. Only the completed
+release is versioned and tagged as `v2.0.0`.
 
 The following known corrections are intentionally semver-breaking:
 
@@ -1326,239 +1329,53 @@ Version 2.0 will not claim or attempt:
 - threshold secret sharing unless separately designed and audited;
 - multi-pass RAM clearing as a stronger technical security guarantee.
 
-## Proposed 2.0.0 Checkpoints
+## Commit-Gated 2.0.0 Execution
 
-Prerelease tags are GitHub-only save points unless the project explicitly
-decides to publish a specific prerelease to crates.io. Every checkpoint
-requires:
+The complete implementation order is defined in
+[`IMPLEMENTATION_PLAN_2.0.0.md`](IMPLEMENTATION_PLAN_2.0.0.md).
 
-- dedicated release notes;
-- a committed PASS review report in `security/pentest` identifying
-  `Review-Type` as targeted internal review, targeted external review,
-  independent audit, pentest, or close-out;
-- a clean release-readiness gate;
-- a final report-only commit reviewing the preceding implementation commit;
-- clean CI before tagging.
+Development uses symbolic commit checkpoints `CP-00` through `CP-23`. These are
+commit-message and review-report identifiers, not versions or tags.
 
-Before alpha.1, update the release-readiness validator and release script to
-require and validate the `Review-Type` field without weakening the existing
-reviewed-commit and report-only-commit checks.
+For every checkpoint:
 
-Alpha reports are targeted checkpoint reviews, not claims of seven independent
-full pentests. Full independent review is required after the CT redesign and at
-the beta/RC boundary. A major security-sensitive change after a full review
-requires a scoped retest or a new prerelease.
+- start from the previous accepted report-only commit;
+- implement one bounded security concern;
+- stop at the implementation commit;
+- review the complete Git range from the previous accepted checkpoint;
+- apply checkpoint-scoped remediation commits when required;
+- retest the complete range;
+- commit a permanent PASS report alone;
+- wait for clean CI before starting later implementation.
 
-### `v2.0.0-alpha.1`: contracts and ownership
+Development reports live under:
 
-Scope:
+```text
+security/pentest/2.0-development/CP-XX.md
+```
 
-- behavior-preserving internal module split;
-- public API, codegen, and unsafe-inventory baseline;
-- normative `SecureSanitize` contract;
-- shared and mutable storage-stability contracts;
-- restricted `Secret<T>` mutation;
-- tuple implementations;
-- initial migration guide.
+The first checkpoint adds validation for report metadata, reviewed ranges,
+ancestry, and report-only acceptance commits. The detailed plan also contains a
+roadmap coverage matrix so every workstream has an implementation checkpoint or
+an explicit reviewed defer/reject decision.
 
-Exit gate:
+No alpha, beta, or release-candidate packages are planned. Workspace versions
+remain unchanged during implementation. The coordinated `2.0.0` version bump,
+package review, and release-script dry run happen only in `CP-23`.
 
-- before-and-after API and codegen comparisons show no unintended behavior
-  change from the module split;
-- compile-fail coverage proves unstable shared and mutable storage is rejected;
-- no default dependency or `no_std` regression;
-- alpha.1 targeted security review is PASS.
+The final release requires:
 
-### `v2.0.0-alpha.2`: exposure and fixed allocation
-
-Scope:
-
-- direct `SecretBytes` exposure;
-- explicit copy exposure;
-- `SecretBoxBytes` if retained for 2.0;
-- byte/text storage guidance;
-- direct-exposure codegen harnesses.
-
-Exit gate:
-
-- no full-size direct-exposure temporary appears in reviewed codegen;
-- any included fixed-allocation replacement clears old storage before release;
-- Miri and package matrices pass;
-- alpha.2 targeted security review is PASS.
-
-### `v2.0.0-alpha.3`: CT redesign
-
-Scope:
-
-- repaired `Choice`, `CtOrdering`, and masks;
-- `SecretIndex` and `SecretScalar`;
-- secret-bearing CT option/result types;
-- `strict-compare`;
-- CT compile, proof, codegen, and leakage checks.
-
-Exit gate:
-
-- no raw declassification bypass remains;
-- secret backing values are redacted and clear on drop;
-- portable and assembly evidence passes on reviewed targets;
-- alpha.3 targeted review is PASS;
-- a focused independent audit of the redesigned CT ownership,
-  declassification, and codegen model is complete before alpha.4.
-
-### `v2.0.0-alpha.4`: derive and aggregate hardening
-
-Scope:
-
-- strict enum derives;
-- mandatory skip reasons;
-- complete derive diagnostics;
-- corrected `sanitization-arrayvec`;
-- aggregate performance tests.
-
-Exit gate:
-
-- historical popped/truncated inline storage is covered or the unsupported
-  generic API is removed;
-- no live `T` is raw-zeroed before drop;
-- derive pass/fail suite and Miri pass;
-- alpha.4 targeted security review is PASS.
-
-### `v2.0.0-alpha.5`: wipe, cache, and naming
-
-Scope:
-
-- canonical wipe module;
-- removal of obsolete aliases;
-- internal backend architecture;
-- fence benchmarks and policy decision;
-- checked cache-flush capability handling if the feature remains;
-- register-scrub evidence refresh;
-- `ConsumeOnceSecret` if included.
-
-Exit gate:
-
-- every public wipe path reaches the reviewed backend;
-- any fence-policy change has target evidence and external review;
-- retained cache flush fails or falls back safely on unsupported CPUs;
-- concurrency models for retained concurrent types pass;
-- alpha.5 targeted security review is PASS.
-
-### `v2.0.0-alpha.6`: native protection
-
-Scope:
-
-- protection request/report model if included;
-- explicit fork policy and `MADV_WIPEONFORK` if included;
-- checked integrity APIs;
-- secure arena improvements if included;
-- `SealedSecretBytes<N>` if ready.
-
-Exit gate:
-
-- any included report never marks unsupported controls as established;
-- Linux fork child-process tests pass when the new fork policy is included;
-- native Linux, AArch64, macOS, and Windows tests cover changed paths;
-- optional sealed storage has external unsafe review or is deferred;
-- alpha.6 targeted security review is PASS.
-
-### `v2.0.0-alpha.7`: evidence expansion
-
-Scope:
-
-- LTO and optimization codegen matrix;
-- quarantine allocator;
-- fuzzing and fault injection;
-- sanitizers;
-- Loom;
-- full timing evidence;
-- performance baselines;
-- target evidence manifests.
-
-Exit gate:
-
-- all release claims map to current evidence;
-- no unexplained security-path performance regression remains;
-- no unresolved codegen or lifecycle finding remains;
-- alpha.7 targeted evidence review is PASS.
-
-### `v2.0.0-beta.1`: downstream migration
-
-This beta should be published to crates.io if practical.
-
-Scope:
-
-- feature-complete mandatory security model;
-- no new major concepts after this point;
-- migration of real cryptographic consumers;
-- review of generic bounds, derive diagnostics, error types, feature profiles,
-  and package ergonomics;
-- semver and public-API surface snapshots for comparison with later betas;
-- full external pentest or equivalent independent security assessment.
-
-Exit gate:
-
-- representative downstream projects compile and pass their security tests;
-- every removed 1.x API has a tested migration example;
-- the exact target evidence matrix is current;
-- beta.1 independent review is PASS;
-- feedback is classified as API blocker, security blocker, documentation issue,
-  or post-2.0 enhancement.
-
-Additional betas may be created for material API changes. Run public API and
-semver tooling against the previous beta before each new beta tag.
-
-### `v2.0.0-rc.1`: API freeze and migration review
-
-Scope:
-
-- complete public API;
-- complete migration guide;
-- complete README, rustdoc, safety, threat model, guarantees,
-  non-guarantees, targets, barriers, and evidence;
-- downstream migration builds;
-- release-script and packaging review;
-- beta feedback close-out and external retest scope.
-
-Exit gate:
-
-- no known API redesign remains pending;
-- all workspace crates use the same 2.0 release version;
-- every removed 1.x API has a documented replacement;
-- all packages build from their crates.io package contents;
-- full CI is green;
-- rc.1 regression review and required external retest are PASS.
-
-### `v2.0.0-rc.2`: pentest close-out
-
-Create only if rc.1 receives findings.
-
-Exit gate:
-
-- every finding is fixed, explicitly accepted as documented residual risk, or
-  removed from scope with rationale;
-- temporary root `PENTEST.md` is deleted;
-- permanent lessons are reflected in repository documentation;
-- final report commit changes only
-  `security/pentest/v2.0.0-rc.2.md`;
-- full CI is green.
-
-Additional RCs follow the same rule and must each have a clear scope and
-pentest close-out.
-
-### `v2.0.0`: stable release
-
-Exit gate:
-
-- latest RC has clean CI and current native evidence;
+- clean acceptance of every checkpoint;
+- an independent full-range close-out review at `CP-22`;
 - no open critical, high, or medium finding;
-- no unresolved low finding contradicts a documented guarantee;
-- all security-model and production-readiness release blockers are complete;
-- every additive feature is either complete with its own evidence or explicitly
-  deferred;
-- migration guide and release notes are complete;
-- `security/pentest/v2.0.0.md` is committed in the report-only release commit;
-- release script dry run covers every workspace crate in dependency order;
-- signed tag points to the report-only release commit.
+- no unresolved low finding that contradicts a guarantee;
+- all security-model and production-readiness blockers complete;
+- every additive feature complete or explicitly deferred;
+- current migration, target, codegen, formal, concurrency, timing, and
+  performance evidence;
+- a final `security/pentest/v2.0.0.md` report-only commit;
+- a clean release-readiness gate;
+- a signed `v2.0.0` tag pointing to that final report commit.
 
 ## Definition Of Done
 

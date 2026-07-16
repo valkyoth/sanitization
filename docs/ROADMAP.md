@@ -9,6 +9,11 @@ The detailed architecture and hardening plan for the next major release is in
 security boundaries that cannot be changed cleanly while retaining the full
 1.x API.
 
+The commit-by-commit execution order, verification stops, and pentest handoff
+process are defined in
+[`IMPLEMENTATION_PLAN_2.0.0.md`](IMPLEMENTATION_PLAN_2.0.0.md). Development
+uses reviewed commits rather than alpha, beta, or release-candidate tags.
+
 The goal is not to be a drop-in replacement for `zeroize`. The goal is to be a
 zero-dependency secret lifecycle crate for new projects: redacted containers,
 narrow exposure APIs, constant-time equality for crate-owned secrets, and one
