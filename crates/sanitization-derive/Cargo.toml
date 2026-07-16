@@ -16,10 +16,6 @@ include = ["Cargo.toml", "README.md", "src/**/*.rs"]
 [lib]
 proc-macro = true
 
-[features]
-default = []
-strict-enum-derive = []
-
 [dependencies]
 proc-macro2 = "1"
 quote = "1"

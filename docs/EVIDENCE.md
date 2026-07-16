@@ -72,8 +72,10 @@ scripts/verify-derive-failures.sh
 ```
 
 This builds temporary downstream crates and asserts that native `ct` enum
-derives, skipped `ConditionallySelectable` fields, and strict enum sanitization
-without inactive-variant acknowledgement remain compile failures.
+derives, skipped `ConditionallySelectable` fields, enum sanitization without
+inactive-variant acknowledgement, unreasoned skips, malformed or duplicate
+helper options, unions, and missing generic drop bounds remain compile
+failures.
 
 Run Miri separately when a nightly toolchain with Miri is installed:
 

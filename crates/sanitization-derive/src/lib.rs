@@ -2,18 +2,21 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use syn::{
-    parse_macro_input, parse_quote, Attribute, Data, DataEnum, DataStruct, DeriveInput, Error,
-    Fields, Generics, LitStr, Path, Result, WherePredicate,
+    parse_macro_input, parse_quote, spanned::Spanned, Attribute, Data, DataEnum, DataStruct,
+    DeriveInput, Error, Fields, Generics, LitStr, Path, Result, WherePredicate,
 };
 
 /// Derive `sanitization::SecureSanitize` for structs and enums.
 ///
-/// Every non-skipped field must implement `SecureSanitize`. Use
-/// `#[sanitization(skip)]` only for fields that are intentionally non-secret or
-/// cleared elsewhere.
+/// Every non-skipped field must implement `SecureSanitize`. Skipped fields
+/// require a non-empty audit reason:
+///
+/// ```ignore
+/// #[sanitization(skip, reason = "public algorithm identifier")]
+/// ```
 ///
 /// # Enums
 ///
@@ -23,8 +26,8 @@ use syn::{
 /// derive `SecureSanitizeOnDrop` when drop-before-assignment semantics are
 /// wanted, or prefer struct wrappers for high-assurance state machines.
 ///
-/// When the `strict-enum-derive` feature is enabled on this derive crate,
-/// enum derives require:
+/// Enum derives fail closed unless the inactive-variant storage limitation is
+/// explicitly acknowledged:
 ///
 /// ```ignore
 /// #[sanitization(enum_inactive_variant_bytes = "acknowledged")]
@@ -68,7 +71,8 @@ pub fn derive_secure_sanitize_on_drop(input: TokenStream) -> TokenStream {
 /// The generated implementation compares each non-skipped field through that
 /// field's own `ConstantTimeEq` implementation and combines the hidden
 /// `sanitization::ct::Choice` bits. It never compares raw struct bytes, so
-/// padding and representation details are not read.
+/// padding and representation details are not read. Every skipped field
+/// requires `#[sanitization(skip, reason = "...")]`.
 ///
 /// Enums and unions are rejected. For enums, inactive variant bytes cannot be
 /// reached safely and comparing only the active variant can hide residual
@@ -108,11 +112,14 @@ struct ContainerOptions {
 #[derive(Default)]
 struct FieldOptions {
     skip: bool,
+    skip_span: Option<Span>,
+    reason: Option<LitStr>,
     bound_override: Option<Vec<WherePredicate>>,
 }
 
 fn expand_secure_sanitize(input: &DeriveInput) -> Result<TokenStream2> {
     let options = parse_container_options(&input.attrs)?;
+    validate_container_option_scope(input, &options)?;
     let crate_path = crate_path(&options);
     let body = match &input.data {
         Data::Struct(data) => expand_struct_body(data, &crate_path)?,
@@ -142,10 +149,10 @@ fn expand_secure_sanitize(input: &DeriveInput) -> Result<TokenStream2> {
 }
 
 fn validate_enum_options(input: &DeriveInput, options: &ContainerOptions) -> Result<()> {
-    if cfg!(feature = "strict-enum-derive") && !options.enum_inactive_variant_bytes_acknowledged {
+    if !options.enum_inactive_variant_bytes_acknowledged {
         return Err(Error::new_spanned(
             input,
-            "SecureSanitize enum derives are rejected by the strict-enum-derive feature unless #[sanitization(enum_inactive_variant_bytes = \"acknowledged\")] is present; derived enum sanitization only clears the active variant",
+            "SecureSanitize enum derives require #[sanitization(enum_inactive_variant_bytes = \"acknowledged\")]; only the active variant is safely reachable, bytes from a previously active larger variant may remain, callers should sanitize before replacement with sanitization::secure_replace, and struct-based state machines are preferred for high-assurance secret state",
         ));
     }
 
@@ -154,6 +161,8 @@ fn validate_enum_options(input: &DeriveInput, options: &ContainerOptions) -> Res
 
 fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
     let options = parse_container_options(&input.attrs)?;
+    validate_container_option_scope(input, &options)?;
+    validate_field_options(&input.data)?;
     let crate_path = crate_path(&options);
 
     if matches!(input.data, Data::Union(_)) {
@@ -178,6 +187,7 @@ fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
 
 fn expand_constant_time_eq(input: &DeriveInput) -> Result<TokenStream2> {
     let options = parse_container_options(&input.attrs)?;
+    validate_container_option_scope(input, &options)?;
     let crate_path = crate_path(&options);
     let body = match &input.data {
         Data::Struct(data) => expand_ct_eq_struct_body(data, &crate_path)?,
@@ -217,6 +227,7 @@ fn expand_constant_time_eq(input: &DeriveInput) -> Result<TokenStream2> {
 
 fn expand_conditionally_selectable(input: &DeriveInput) -> Result<TokenStream2> {
     let options = parse_container_options(&input.attrs)?;
+    validate_container_option_scope(input, &options)?;
     let crate_path = crate_path(&options);
     let body = match &input.data {
         Data::Struct(data) => expand_ct_select_struct_body(data, &crate_path)?,
@@ -263,6 +274,24 @@ fn crate_path(options: &ContainerOptions) -> Path {
         .crate_path
         .clone()
         .unwrap_or_else(|| parse_quote!(::sanitization))
+}
+
+fn validate_container_option_scope(input: &DeriveInput, options: &ContainerOptions) -> Result<()> {
+    if !matches!(input.data, Data::Enum(_)) && options.enum_inactive_variant_bytes_acknowledged {
+        return Err(Error::new_spanned(
+            input,
+            "enum_inactive_variant_bytes acknowledgement is only valid on enums",
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_field_options(data: &Data) -> Result<()> {
+    for field in sanitized_fields(data)? {
+        parse_field_options(&field.attrs)?;
+    }
+    Ok(())
 }
 
 fn add_sanitize_bounds(
@@ -514,16 +543,25 @@ fn parse_container_options(attrs: &[Attribute]) -> Result<ContainerOptions> {
     {
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("crate") {
+                if options.crate_path.is_some() {
+                    return Err(meta.error("duplicate sanitization crate option"));
+                }
                 let value = meta.value()?;
                 let literal: LitStr = value.parse()?;
                 options.crate_path = Some(literal.parse()?);
                 Ok(())
             } else if meta.path.is_ident("bound") {
+                if options.bound_override.is_some() {
+                    return Err(meta.error("duplicate sanitization bound option"));
+                }
                 let value = meta.value()?;
                 let literal: LitStr = value.parse()?;
                 options.bound_override = Some(parse_bounds(&literal)?);
                 Ok(())
             } else if meta.path.is_ident("enum_inactive_variant_bytes") {
+                if options.enum_inactive_variant_bytes_acknowledged {
+                    return Err(meta.error("duplicate enum_inactive_variant_bytes acknowledgement"));
+                }
                 let value = meta.value()?;
                 let literal: LitStr = value.parse()?;
                 if literal.value() == "acknowledged" {
@@ -550,9 +588,27 @@ fn parse_field_options(attrs: &[Attribute]) -> Result<FieldOptions> {
     {
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("skip") {
+                if options.skip {
+                    return Err(meta.error("duplicate sanitization skip option"));
+                }
                 options.skip = true;
+                options.skip_span = Some(meta.path.span());
+                Ok(())
+            } else if meta.path.is_ident("reason") {
+                if options.reason.is_some() {
+                    return Err(meta.error("duplicate sanitization reason option"));
+                }
+                let value = meta.value()?;
+                let literal: LitStr = value.parse()?;
+                if literal.value().trim().is_empty() {
+                    return Err(meta.error("sanitization skip reason must not be empty"));
+                }
+                options.reason = Some(literal);
                 Ok(())
             } else if meta.path.is_ident("bound") {
+                if options.bound_override.is_some() {
+                    return Err(meta.error("duplicate sanitization bound option"));
+                }
                 let value = meta.value()?;
                 let literal: LitStr = value.parse()?;
                 options.bound_override = Some(parse_bounds(&literal)?);
@@ -561,6 +617,21 @@ fn parse_field_options(attrs: &[Attribute]) -> Result<FieldOptions> {
                 Err(meta.error("unsupported sanitization field attribute"))
             }
         })?;
+    }
+
+    if options.skip && options.reason.is_none() {
+        return Err(Error::new(
+            options.skip_span.unwrap_or_else(Span::call_site),
+            "#[sanitization(skip)] requires a non-empty reason, for example #[sanitization(skip, reason = \"public metadata\")]",
+        ));
+    }
+    if !options.skip {
+        if let Some(reason) = options.reason {
+            return Err(Error::new_spanned(
+                reason,
+                "sanitization reason is only valid together with skip",
+            ));
+        }
     }
 
     Ok(options)

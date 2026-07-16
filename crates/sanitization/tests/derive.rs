@@ -38,7 +38,7 @@ struct DerivedCtToken {
 #[derive(ConstantTimeEq)]
 struct DerivedCtPublicLabel {
     key: [u8; 4],
-    #[sanitization(skip)]
+    #[sanitization(skip, reason = "public label is intentionally excluded")]
     #[allow(dead_code)]
     label: u8,
 }
@@ -63,7 +63,7 @@ enum DerivedMaterial {
     Symmetric(SecretBytes<4>),
     Pair {
         private: SecretBytes<2>,
-        #[sanitization(skip)]
+        #[sanitization(skip, reason = "public label contains no secret data")]
         #[allow(dead_code)]
         public_label: NotSanitizable,
     },
@@ -79,13 +79,21 @@ struct TaggedSecret<T> {
 #[derive(SecureSanitize)]
 struct SkippedTaggedSecret<T> {
     key: SecretBytes<4>,
-    #[sanitization(skip)]
+    #[sanitization(skip, reason = "phantom marker owns no storage")]
     marker: PhantomData<T>,
 }
+
+#[derive(SecureSanitize)]
+struct UnitCredentials;
 
 #[derive(SecureSanitize, SecureSanitizeOnDrop)]
 struct DropSecret {
     key: DropProbe,
+}
+
+#[derive(SecureSanitize, SecureSanitizeOnDrop)]
+struct GenericDropSecret<T: SecureSanitize> {
+    inner: T,
 }
 
 #[derive(SecureSanitize)]
@@ -136,6 +144,12 @@ fn derive_secure_sanitize_supports_tuple_structs() {
 
     assert!(credentials.0.constant_time_eq(&[0, 0, 0, 0]));
     assert_eq!(credentials.1, [0, 0]);
+}
+
+#[test]
+fn derive_secure_sanitize_supports_unit_structs() {
+    let mut credentials = UnitCredentials;
+    credentials.secure_sanitize();
 }
 
 #[test]
@@ -197,6 +211,22 @@ fn derive_secure_sanitize_on_drop_compiles_and_runs() {
     {
         let secret = DropSecret { key: DropProbe(7) };
         assert_eq!(secret.key.0, 7);
+    }
+
+    assert!(DROP_PROBE_SANITIZED.load(Ordering::SeqCst));
+    assert!(DROP_PROBE_DROPPED_ZEROED.load(Ordering::SeqCst));
+}
+
+#[test]
+fn derive_secure_sanitize_on_drop_supports_struct_level_generic_bounds() {
+    DROP_PROBE_SANITIZED.store(false, Ordering::SeqCst);
+    DROP_PROBE_DROPPED_ZEROED.store(false, Ordering::SeqCst);
+
+    {
+        let secret = GenericDropSecret {
+            inner: DropProbe(11),
+        };
+        assert_eq!(secret.inner.0, 11);
     }
 
     assert!(DROP_PROBE_SANITIZED.load(Ordering::SeqCst));

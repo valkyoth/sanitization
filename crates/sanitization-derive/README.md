@@ -56,8 +56,9 @@ struct Tag {
 }
 ```
 
-`#[sanitization(skip)]` is supported for `ConstantTimeEq` when a field is public
-or intentionally ignored. It is rejected for `ConditionallySelectable` because
+`#[sanitization(skip, reason = "...")]` is supported for `SecureSanitize` and
+`ConstantTimeEq` when a field is public or intentionally ignored. The reason
+must be non-empty. Skips are rejected for `ConditionallySelectable` because
 constructing the selected output requires every field.
 
 ## Enum Derives
@@ -69,8 +70,8 @@ reach. Prefer struct wrappers for high-assurance state machines, or call
 `sanitization::secure_replace(&mut value, replacement)` so the active variant is
 sanitized before replacement.
 
-The optional `strict-enum-derive` feature rejects enum derives unless the enum
-explicitly acknowledges this limitation:
+Enum derives fail closed unless the enum explicitly acknowledges this
+limitation:
 
 ```rust
 use sanitization::SecureSanitize;
@@ -86,6 +87,9 @@ enum KeyMaterial {
 `ConstantTimeEq` and `ConditionallySelectable` reject enums. Use explicit struct
 wrappers or a hand-written implementation when active-variant semantics are
 intentional and reviewed.
+
+Duplicate, malformed, empty, and misplaced helper options are rejected.
+`reason` is valid only together with `skip`. Unions are rejected.
 
 ## Generic `SecureSanitizeOnDrop`
 

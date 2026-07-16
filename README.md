@@ -226,7 +226,6 @@ sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3",
 | `alloc` | no | Enables fixed-allocation `SecretBoxBytes`, managed-growth `SecretVec`, `BoundedSecretVec<MAX>`, `SecretString`, and `BoundedSecretString<MAX>`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
 | `derive` | no | Re-exports `sanitization-derive` proc macros for `#[derive(SecureSanitize)]`, `#[derive(SecureSanitizeOnDrop)]`, and conservative struct-only native `ct` derives for `ConstantTimeEq` and `ConditionallySelectable`. Pulls in proc-macro dependencies only when explicitly enabled. |
-| `strict-enum-derive` | no | Enables `derive` and rejects enum derives unless the inactive-variant byte risk is explicitly acknowledged. |
 | `serde` | no | Implements serde deserialization for secret loading and redacted serialization for secret-owning wrappers. |
 | `zeroize-interop` | no | Implements `zeroize::Zeroize` and `zeroize::ZeroizeOnDrop` for crate-owned secret containers. |
 | `subtle-interop` | no | Implements `subtle::ConstantTimeEq` for byte-oriented secret containers where the `subtle` trait can represent the comparison. |
@@ -1203,7 +1202,7 @@ enum KeyMaterial {
     Symmetric(SecretBytes<32>),
     Asymmetric {
         private: SecretBytes<64>,
-        #[sanitization(skip)]
+        #[sanitization(skip, reason = "public key contains no secret data")]
         public: [u8; 32],
     },
     Empty,
@@ -1212,8 +1211,10 @@ enum KeyMaterial {
 
 `#[derive(SecureSanitize)]` calls `secure_sanitize` on every non-skipped field.
 Every such field must implement `SecureSanitize`, so adding a new field without
-sanitization support becomes a compiler error. Use `#[sanitization(skip)]` only
-for fields that are intentionally non-secret or sanitized elsewhere.
+sanitization support becomes a compiler error. Every skipped field requires a
+non-empty audit reason, for example
+`#[sanitization(skip, reason = "public algorithm identifier")]`. Use a skip
+only for fields that are intentionally non-secret or sanitized elsewhere.
 
 For enums, the generated implementation can only sanitize the currently active
 variant. If code changes a secret-bearing enum to a non-secret variant and only
@@ -1221,8 +1222,8 @@ then calls `secure_sanitize`, the old inactive variant bytes are outside the
 derive's safe reach. Use `secure_replace(&mut value, replacement)` to sanitize
 before replacement, use `SecureSanitizeOnDrop` where assignment/drop semantics
 should clear the old active variant, or prefer struct wrappers for
-high-assurance state machines. Enable `strict-enum-derive` to make enum derives
-require `#[sanitization(enum_inactive_variant_bytes = "acknowledged")]`.
+high-assurance state machines. Enum derives fail closed unless
+`#[sanitization(enum_inactive_variant_bytes = "acknowledged")]` is present.
 
 The derive crate is a code generator only. It does not duplicate the wipe
 backend, comparison logic, selection logic, or secret containers; generated code
@@ -1249,17 +1250,19 @@ choices. `ConditionallySelectable` derives select every field through
 `sanitization::ct::ConditionallySelectable`. These derives do not compare raw
 struct bytes and do not read padding. They reject enums and unions; use explicit
 struct wrappers or hand-written reviewed code for active-variant semantics.
-`#[sanitization(skip)]` is accepted for `ConstantTimeEq` public fields but is
-rejected for `ConditionallySelectable`, because the selected output must
-construct every field.
+`#[sanitization(skip, reason = "...")]` is accepted for `ConstantTimeEq`
+public fields but is rejected for `ConditionallySelectable`, because the
+selected output must construct every field.
 
-Supported derive attributes are `#[sanitization(skip)]` on fields,
+Supported derive attributes are
+`#[sanitization(skip, reason = "why this field is public")]` on fields,
 `#[sanitization(bound = "...")]` on fields or containers for explicit generated
 `where` predicates, and
 `#[sanitization(crate = "::path::to::sanitization")]` on containers when the
 main crate is renamed in `Cargo.toml`. Enum containers also accept
-`#[sanitization(enum_inactive_variant_bytes = "acknowledged")]` for strict enum
-derive mode. The helper attribute intentionally avoids
+`#[sanitization(enum_inactive_variant_bytes = "acknowledged")]`, which is
+required for every `SecureSanitize` enum derive. Duplicate, malformed, empty,
+or misplaced helper options are rejected. The helper attribute intentionally avoids
 the name `sanitize`, which collides with Rust's experimental built-in sanitizer
 attribute on nightly/Miri. Unions are rejected; implement them manually only
 when the active field invariant is documented.

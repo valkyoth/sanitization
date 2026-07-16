@@ -15,7 +15,6 @@ cargo test --features alloc
 cargo test --features std
 cargo test --features memory-lock
 cargo test --features derive
-cargo test --features strict-enum-derive
 cargo test --features asm-compare
 cargo test --features strict-compare
 cargo test --features cache-flush

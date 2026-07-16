@@ -10,6 +10,12 @@
   that sanitize dummy and unselected secret values before declassification.
 - Added panic-unwind and ownership-transition tests for mapping, selection,
   consuming declassification, zero-sized values, and sanitizer failures.
+- Made `SecureSanitize` enum derives fail closed unless inactive-variant bytes
+  are explicitly acknowledged.
+- Required a non-empty reason for every skipped derive field and rejected
+  duplicate, malformed, empty, or misplaced helper options.
+- Expanded derive pass/fail coverage for unit and tuple structs, renamed crate
+  paths, generics, struct-level drop bounds, enums, unions, and diagnostics.
 
 ## 1.2.5
 
