@@ -163,7 +163,7 @@ canary before and after the secret bytes. `GuardedSecretVec` places one canary
 before the payload and one immediately after the initialized payload. Exposure,
 mutation, replacement, and comparison APIs verify both canaries before reading
 or modifying the secret; checked APIs return `CanaryCorruptedError`, while
-legacy APIs clear the mapping or slot and panic. This can detect overwrites
+infallible APIs clear the mapping or slot and panic. This can detect overwrites
 that stay inside the writable mapping but reach the canary words, including
 some overrun/underrun cases that do not reach a guard page. It does not detect
 corruption entirely inside the secret bytes and does not provide authenticity
@@ -269,6 +269,13 @@ constructors return a `DontFork` platform error on non-Linux targets instead of
 accepting this reduced guarantee. This feature is intended for deployments
 where accidental fork inheritance is an audit blocker.
 
-`SecretBytes::expose_secret_volatile` makes the volatile temporary-copy cleanup
-explicit at the call site. It clears on normal return and unwinding paths, but
-it is still not a solution for aborting processes.
+`SecretBytes::expose_secret` directly borrows the owned fixed-size storage and
+does not intentionally construct a full-size temporary array. This reduces
+stack remanence but does not prevent compiler spills, register copies, caller
+copies, or copies created by external code.
+
+`SecretBytes::expose_secret_copy` explicitly creates a full-size temporary
+stack array. It volatile-clears that copy on normal return and unwinding, but
+cannot clear it after process abort. The same direct-versus-copy distinction
+applies to fixed locked storage and pool slots. Split-secret plaintext cannot
+be borrowed directly because it does not exist contiguously at rest.

@@ -16,8 +16,23 @@ emit_codegen() {
 
 emit_codegen
 
+cargo clean --manifest-path tools/direct-exposure-codegen/Cargo.toml
+cargo rustc \
+    --manifest-path tools/direct-exposure-codegen/Cargo.toml \
+    --release \
+    -- \
+    --emit=llvm-ir
+
 ir_file="target/release/deps/sanitization-verify-codegen.ll"
 asm_file="target/release/deps/sanitization-verify-codegen.s"
+exposure_ir="$(
+    find tools/direct-exposure-codegen/target/release/deps \
+        -maxdepth 1 \
+        -type f \
+        -name 'direct_exposure_codegen-*.ll' \
+        -print \
+        -quit
+)"
 
 if [[ ! -f "${ir_file}" ]]; then
     echo "no sanitization LLVM IR file found" >&2
@@ -26,6 +41,47 @@ fi
 
 if [[ ! -f "${asm_file}" ]]; then
     echo "no sanitization assembly file found" >&2
+    exit 1
+fi
+
+if [[ -z "${exposure_ir}" || ! -f "${exposure_ir}" ]]; then
+    echo "no direct-exposure LLVM IR file found" >&2
+    exit 1
+fi
+
+direct_body="$(
+    awk '
+        /define .*cp04_direct_exposure/ { capture = 1 }
+        capture { print }
+        capture && /^}/ { exit }
+    ' "${exposure_ir}"
+)"
+
+copy_body="$(
+    awk '
+        /define .*cp04_copy_exposure/ { capture = 1 }
+        capture { print }
+        capture && /^}/ { exit }
+    ' "${exposure_ir}"
+)"
+
+if [[ -z "${direct_body}" ]]; then
+    echo "direct-exposure codegen probe missing from LLVM IR" >&2
+    exit 1
+fi
+
+if [[ -z "${copy_body}" ]]; then
+    echo "copy-exposure codegen probe missing from LLVM IR" >&2
+    exit 1
+fi
+
+if grep -Eq 'alloca \[4096 x i8\]|llvm\.memcpy' <<<"${direct_body}"; then
+    echo "direct fixed-secret exposure constructed a full-size temporary" >&2
+    exit 1
+fi
+
+if ! grep -Eq 'alloca \[4096 x i8\]|llvm\.memcpy' <<<"${copy_body}"; then
+    echo "copy-exposure probe did not retain its explicit full-size copy" >&2
     exit 1
 fi
 
@@ -103,3 +159,4 @@ fi
 
 echo "verified volatile wipe codegen in ${ir_file}"
 echo "verified native ct helper codegen in ${ir_file}"
+echo "verified direct fixed-secret exposure codegen in ${exposure_ir}"

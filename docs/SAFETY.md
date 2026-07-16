@@ -34,6 +34,14 @@ The marker contracts do not prevent a caller from deliberately copying,
 logging, replacing, or exporting a secret inside an exposure closure. They
 describe the marked type's own safe operations, not arbitrary caller code.
 
+Fixed-size `expose_secret` methods directly borrow their container storage and
+do not intentionally build a full-size stack array. This is a source and
+reviewed-codegen property, not a promise that the compiler, calling convention,
+closure, or downstream code will never spill or copy bytes. Explicit
+`expose_secret_copy` methods create temporary plaintext arrays that are
+volatile-cleared on normal return and unwinding but remain uncleared if the
+process aborts.
+
 ### Strict-Assurance Use
 
 The storage markers are public, safe attestations so downstream fixed-storage

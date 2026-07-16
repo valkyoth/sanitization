@@ -748,9 +748,19 @@ impl<const N: usize> LockedSecretBytes<N> {
     /// The closure can still copy bytes elsewhere. Keep usage limited to
     /// cryptographic or protocol boundaries that genuinely need raw bytes.
     #[inline]
-    pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+    pub fn expose_secret<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
         self.assert_canaries_intact();
         inspect(self.as_array())
+    }
+
+    /// Verify integrity, copy into temporary stack storage, and expose the copy.
+    ///
+    /// The temporary is volatile-cleared on normal return and unwinding. It
+    /// cannot be cleared if the process aborts.
+    #[inline]
+    pub fn expose_secret_copy<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+        self.assert_canaries_intact();
+        crate::owned::expose_array_copy(self.as_array(), inspect)
     }
 
     /// Verify canary integrity before exposing the locked secret bytes.
@@ -766,6 +776,17 @@ impl<const N: usize> LockedSecretBytes<N> {
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
         Ok(inspect(self.as_array()))
+    }
+
+    /// Verify canary integrity before exposing a temporary plaintext copy.
+    #[cfg(feature = "canary-check")]
+    #[inline]
+    pub fn expose_secret_copy_checked<R>(
+        &self,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> Result<R, CanaryCorruptedError> {
+        self.verify_integrity()?;
+        Ok(crate::owned::expose_array_copy(self.as_array(), inspect))
     }
 
     /// Verify canary integrity before copying secret bytes out.
@@ -2310,9 +2331,19 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     /// The closure can copy the secret elsewhere. Keep usage limited to
     /// protocol or cryptographic boundaries that genuinely need raw bytes.
     #[inline]
-    pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+    pub fn expose_secret<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
         self.assert_canaries_intact();
         inspect(self.as_array())
+    }
+
+    /// Verify integrity, copy into temporary stack storage, and expose the copy.
+    ///
+    /// The temporary is volatile-cleared on normal return and unwinding. It
+    /// cannot be cleared if the process aborts.
+    #[inline]
+    pub fn expose_secret_copy<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+        self.assert_canaries_intact();
+        crate::owned::expose_array_copy(self.as_array(), inspect)
     }
 
     /// Run a closure with mutable access to the slot bytes.
@@ -2331,6 +2362,17 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
         Ok(inspect(self.as_array()))
+    }
+
+    /// Verify canary integrity before exposing a temporary plaintext copy.
+    #[cfg(feature = "canary-check")]
+    #[inline]
+    pub fn expose_secret_copy_checked<R>(
+        &self,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> Result<R, CanaryCorruptedError> {
+        self.verify_integrity()?;
+        Ok(crate::owned::expose_array_copy(self.as_array(), inspect))
     }
 
     /// Verify canary integrity before comparing pooled slot bytes.

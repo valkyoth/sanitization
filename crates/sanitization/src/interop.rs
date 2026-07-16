@@ -204,7 +204,7 @@ mod subtle_interop {
     impl<const N: usize> ConstantTimeEq for LockedSecretBytes<N> {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
-            Choice::from(other.with_secret(|bytes| self.constant_time_eq(bytes)) as u8)
+            Choice::from(other.expose_secret(|bytes| self.constant_time_eq(bytes)) as u8)
         }
     }
 

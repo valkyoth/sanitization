@@ -1,0 +1,10 @@
+[package]
+name = "direct-exposure-codegen"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+sanitization = { path = "../../crates/sanitization" }

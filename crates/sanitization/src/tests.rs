@@ -871,10 +871,30 @@ fn assembly_comparison_matches_portable_path() {
 }
 
 #[test]
-fn volatile_exposure_returns_closure_result() {
-    let secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+fn fixed_secret_direct_exposure_borrows_owned_storage() {
+    let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+    let mut owned_address = 0usize;
+    secret.transform(|bytes| owned_address = bytes.as_ptr() as usize);
 
-    let sum = secret.expose_secret_volatile(|bytes| {
+    let sum = secret.expose_secret(|bytes| {
+        assert_eq!(bytes.as_ptr() as usize, owned_address);
+        bytes
+            .iter()
+            .copied()
+            .fold(0_u8, |total, byte| total.wrapping_add(byte))
+    });
+
+    assert_eq!(sum, 10);
+}
+
+#[test]
+fn fixed_secret_copy_exposure_uses_independent_storage() {
+    let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+    let mut owned_address = 0usize;
+    secret.transform(|bytes| owned_address = bytes.as_ptr() as usize);
+
+    let sum = secret.expose_secret_copy(|bytes| {
+        assert_ne!(bytes.as_ptr() as usize, owned_address);
         bytes
             .iter()
             .copied()
@@ -898,7 +918,7 @@ fn expiring_secret_allows_access_before_expiration() {
         Ok(5)
     );
     assert_eq!(
-        secret.try_expose_secret_volatile(|bytes| bytes[1].wrapping_add(bytes[2])),
+        secret.try_expose_secret_copy(|bytes| bytes[1].wrapping_add(bytes[2])),
         Ok(5)
     );
     assert_eq!(secret.try_constant_time_eq(&[1, 2, 3, 4]), Ok(true));
@@ -1294,6 +1314,10 @@ fn split_secret_reconstructs_with_all_shares() {
     assert!(split
         .reconstruct()
         .constant_time_eq_secret(&SecretBytes::from_array([9, 8, 7, 6])));
+    assert_eq!(
+        split.expose_secret_copy(|bytes| bytes.iter().copied().sum::<u8>()),
+        30
+    );
     assert!(std::format!("{split:?}").contains("redacted"));
 }
 
@@ -2113,6 +2137,9 @@ fn locked_secret_bytes_round_trip_and_clear() {
     assert_eq!(out, [1, 2, 3, 4]);
     assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
     assert!(!secret.constant_time_eq(&[1, 2, 3]));
+    let direct_address = secret.expose_secret(|bytes| bytes.as_ptr() as usize);
+    let copy_address = secret.expose_secret_copy(|bytes| bytes.as_ptr() as usize);
+    assert_ne!(direct_address, copy_address);
 
     secret.secure_clear();
     #[cfg(feature = "canary-check")]
@@ -2568,6 +2595,7 @@ fn locked_secret_canary_checked_apis_detect_corruption() {
 
     assert_eq!(secret.verify_integrity(), Ok(()));
     assert_eq!(secret.expose_secret_checked(|bytes| bytes[0]), Ok(1));
+    assert_eq!(secret.expose_secret_copy_checked(|bytes| bytes[3]), Ok(4));
     assert_eq!(secret.copy_to_slice_checked(&mut out), Ok(()));
     assert_eq!(out, [1, 2, 3, 4]);
     assert_eq!(secret.constant_time_eq_checked(&[1, 2, 3, 4]), Ok(true));
@@ -2604,7 +2632,7 @@ fn locked_secret_canary_legacy_exposure_fails_closed() {
     secret.corrupt_prefix_canary_for_test();
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = secret.with_secret(|bytes| bytes[0]);
+        let _ = secret.expose_secret(|bytes| bytes[0]);
     }));
 
     assert!(result.is_err());
@@ -2638,6 +2666,9 @@ fn secret_pool_allocates_reuses_and_clears_slots() {
     assert!(first.constant_time_eq(&[1, 2, 3, 4]));
     assert!(second.copy_to_slice(&mut out).is_ok());
     assert_eq!(out, [5, 6, 7, 8]);
+    let direct_address = second.expose_secret(|bytes| bytes.as_ptr() as usize);
+    let copy_address = second.expose_secret_copy(|bytes| bytes.as_ptr() as usize);
+    assert_ne!(direct_address, copy_address);
 
     first.with_secret_mut(|bytes| bytes[0] = 9);
     assert!(first.constant_time_eq(&[9, 2, 3, 4]));
@@ -2738,6 +2769,7 @@ fn secret_pool_slot_canaries_detect_corruption() {
 
     assert_eq!(slot.verify_integrity(), Ok(()));
     assert_eq!(slot.expose_secret_checked(|bytes| bytes[0]), Ok(1));
+    assert_eq!(slot.expose_secret_copy_checked(|bytes| bytes[3]), Ok(4));
     assert_eq!(slot.constant_time_eq_checked(&[1, 2, 3, 4]), Ok(true));
 
     slot.corrupt_prefix_canary_for_test();

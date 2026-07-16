@@ -966,14 +966,39 @@ impl<const N: usize> Drop for TemporaryBytes<'_, N> {
     }
 }
 
-struct VolatileTemporaryBytes<'a, const N: usize> {
-    bytes: &'a mut [u8; N],
+pub(crate) fn expose_array_copy<const N: usize, R>(
+    source: &[u8; N],
+    inspect: impl FnOnce(&[u8; N]) -> R,
+) -> R {
+    let mut temporary = [0; N];
+    temporary.copy_from_slice(source);
+    compiler_fence(Ordering::SeqCst);
+    let guard = TemporaryBytes {
+        bytes: &mut temporary,
+    };
+    let result = inspect(guard.bytes);
+    // Clear eagerly before returning. The guard repeats the clear on normal
+    // return and clears during unwinding as defense in depth.
+    sanitize_bytes(guard.bytes);
+    result
 }
 
-impl<const N: usize> Drop for VolatileTemporaryBytes<'_, N> {
-    #[inline]
-    fn drop(&mut self) {
-        crate::unsafe_wipe::volatile_sanitize_array(self.bytes);
+#[cfg(all(test, feature = "std"))]
+mod temporary_bytes_tests {
+    use super::TemporaryBytes;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    #[test]
+    fn temporary_bytes_clear_during_unwind() {
+        let mut bytes = [7_u8; 32];
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = TemporaryBytes { bytes: &mut bytes };
+            panic!("exercise temporary cleanup");
+        }));
+
+        assert!(result.is_err());
+        assert_eq!(bytes, [0; 32]);
     }
 }
 
@@ -989,9 +1014,10 @@ impl<const N: usize> Drop for VolatileTemporaryBytes<'_, N> {
 /// clearing operations require `&mut self` to prevent partially-cleared
 /// multi-byte observations through shared references.
 ///
-/// `SecretBytes<N>` stores `N` bytes inline. Closure exposure methods create an
-/// additional `N`-byte stack copy, so embedded targets and small thread stacks
-/// should choose `N` well below the available stack budget.
+/// `SecretBytes<N>` stores `N` bytes inline. [`SecretBytes::expose_secret`]
+/// borrows that storage directly and does not intentionally construct a
+/// full-size temporary array. [`SecretBytes::expose_secret_copy`] is the
+/// explicit copy-based alternative.
 ///
 /// The type deliberately does not implement `Clone`, `Copy`, `Deref`,
 /// `AsRef<[u8]>`, `PartialEq`, or secret-printing `Debug`.
@@ -1133,8 +1159,7 @@ impl<const N: usize> SecretBytes<N> {
         Ok(())
     }
 
-    /// Mutate the secret bytes in place without creating the additional
-    /// stack-copy used by [`SecretBytes::expose_secret`].
+    /// Mutate the secret bytes in place.
     ///
     /// The closure receives direct mutable access to the fixed-size storage
     /// owned by this container. It can still intentionally copy bytes
@@ -1239,65 +1264,39 @@ impl<const N: usize> SecretBytes<N> {
         Ok(())
     }
 
-    /// Call a closure with a temporary array copy, then clear that copy.
+    /// Call a closure with direct shared access to the owned fixed-size bytes.
     ///
-    /// This is the narrowest safe way to interoperate with APIs requiring
-    /// `&[u8]`. The closure must not retain or return references to the
-    /// temporary array; Rust's borrow checker enforces that part. The closure can
-    /// still intentionally copy bytes elsewhere, so use it only at true
-    /// cryptographic or protocol boundaries.
+    /// This method does not intentionally construct an additional `[u8; N]`
+    /// temporary. The closure can still cause compiler spills or deliberately
+    /// copy bytes elsewhere, so use it only at reviewed cryptographic or
+    /// protocol boundaries.
     ///
-    /// This method creates an additional `N`-byte stack copy. On embedded,
-    /// RTOS, or small-thread-stack targets, keep `N` well below the available
-    /// stack size or use heap-backed secret containers instead.
+    /// The returned value cannot borrow the secret:
     ///
-    /// If the closure aborts the process, for example under `panic = "abort"`,
-    /// Rust destructors do not run and the temporary stack copy cannot be
-    /// cleared. On the normal return path the temporary is cleared eagerly
-    /// before this method returns; on unwinding panic paths the RAII guard
-    /// clears it during unwinding.
+    /// ```compile_fail
+    /// use sanitization::SecretBytes;
+    ///
+    /// let secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+    /// let escaped = secret.expose_secret(|bytes| bytes);
+    /// let _ = escaped;
+    /// ```
     #[inline]
     pub fn expose_secret<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
-        let mut temporary = [0; N];
-        let mut index = 0;
-        while index < N {
-            temporary[index] = self.load(index);
-            index += 1;
-        }
-        compiler_fence(Ordering::SeqCst);
-        let guard = TemporaryBytes {
-            bytes: &mut temporary,
-        };
-        let result = inspect(guard.bytes);
-        // Eagerly clear before returning; the guard also clears on normal
-        // return and unwind paths as defense in depth.
-        sanitize_bytes_best_effort(guard.bytes);
-        result
+        inspect(&self.bytes)
     }
 
-    /// Call a closure with a temporary array copy, then volatile-clear that copy.
+    /// Call a closure with a temporary array copy, then volatile-clear it.
     ///
-    /// The temporary stack copy is cleared with volatile writes on normal return
-    /// and during unwinding. Like all destructor-based cleanup, it cannot run if
-    /// the process aborts, including `panic = "abort"`.
+    /// This explicitly creates an additional `N`-byte stack array. The copy is
+    /// cleared eagerly on normal return and by an RAII guard during unwinding.
+    /// It cannot be cleared if the process aborts, including under
+    /// `panic = "abort"`.
     ///
-    /// Like [`SecretBytes::expose_secret`], this method creates an additional
-    /// `N`-byte stack copy.
+    /// Prefer [`SecretBytes::expose_secret`] unless the callee must receive
+    /// storage that is independent from the secret container.
     #[inline]
-    pub fn expose_secret_volatile<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
-        let mut temporary = [0; N];
-        let mut index = 0;
-        while index < N {
-            temporary[index] = self.load(index);
-            index += 1;
-        }
-        compiler_fence(Ordering::SeqCst);
-        let guard = VolatileTemporaryBytes {
-            bytes: &mut temporary,
-        };
-        let result = inspect(guard.bytes);
-        crate::unsafe_wipe::volatile_sanitize_array(guard.bytes);
-        result
+    pub fn expose_secret_copy<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+        expose_array_copy(&self.bytes, inspect)
     }
 
     /// Compare against a slice without early exit for equal-length inputs.
@@ -1556,6 +1555,19 @@ impl<const N: usize, const SHARES: usize> SplitSecretBytes<N, SHARES> {
         }
         output.after_secret_write();
         output
+    }
+
+    /// Reconstruct into a temporary clear-on-drop value and expose that copy.
+    ///
+    /// Split storage has no contiguous plaintext representation to borrow
+    /// directly. This method is therefore explicitly copy-based: it creates a
+    /// temporary [`SecretBytes<N>`], reconstructs every byte into it, and
+    /// clears it on normal return or unwinding. The temporary cannot be cleared
+    /// if the process aborts.
+    #[inline]
+    pub fn expose_secret_copy<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+        let reconstructed = self.reconstruct();
+        reconstructed.expose_secret(inspect)
     }
 
     /// Borrow all shares.
@@ -2008,7 +2020,7 @@ impl<const N: usize, C: MonotonicClock> MonotonicExpiringSecretBytes<N, C> {
         self.inner.copy_to_slice(destination).map_err(Into::into)
     }
 
-    /// Run a closure with a temporary array copy if the secret has not expired.
+    /// Run a closure with direct shared access if the secret has not expired.
     #[inline]
     pub fn try_expose_secret<R>(
         &mut self,
@@ -2021,14 +2033,14 @@ impl<const N: usize, C: MonotonicClock> MonotonicExpiringSecretBytes<N, C> {
     /// Run a closure with a temporary array copy if the secret has not expired.
     ///
     /// This is the monotonic-clock variant of
-    /// [`SecretBytes::expose_secret_volatile`].
+    /// [`SecretBytes::expose_secret_copy`].
     #[inline]
-    pub fn try_expose_secret_volatile<R>(
+    pub fn try_expose_secret_copy<R>(
         &mut self,
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, SecretExpiredError> {
         self.enforce_live()?;
-        Ok(self.inner.expose_secret_volatile(inspect))
+        Ok(self.inner.expose_secret_copy(inspect))
     }
 
     /// Compare against a slice if the secret has not expired.
@@ -2293,7 +2305,7 @@ impl<const N: usize> ExpiringSecretBytes<N> {
         self.inner.copy_to_slice(destination).map_err(Into::into)
     }
 
-    /// Run a closure with a temporary array copy if the secret has not expired.
+    /// Run a closure with direct shared access if the secret has not expired.
     #[inline]
     pub fn try_expose_secret<R>(
         &mut self,
@@ -2305,14 +2317,14 @@ impl<const N: usize> ExpiringSecretBytes<N> {
 
     /// Run a closure with a temporary array copy if the secret has not expired.
     ///
-    /// This is the expiring variant of [`SecretBytes::expose_secret_volatile`].
+    /// This is the expiring variant of [`SecretBytes::expose_secret_copy`].
     #[inline]
-    pub fn try_expose_secret_volatile<R>(
+    pub fn try_expose_secret_copy<R>(
         &mut self,
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, SecretExpiredError> {
         self.enforce_live()?;
-        Ok(self.inner.expose_secret_volatile(inspect))
+        Ok(self.inner.expose_secret_copy(inspect))
     }
 
     /// Compare against a slice if the secret has not expired.

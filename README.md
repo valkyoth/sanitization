@@ -440,12 +440,13 @@ key.into_cleared();
 
 The type intentionally does not implement `Clone`, `Copy`, `Deref`,
 `AsRef<[u8]>`, or secret-printing `Debug`.
-`SecretBytes<N>` stores `N` bytes inline, and `expose_secret` creates an
-additional `N`-byte stack copy. On embedded targets or small thread stacks,
-choose `N` well below the available stack budget or use heap-backed containers.
+`SecretBytes<N>` stores `N` bytes inline, and `expose_secret` borrows that
+storage directly without intentionally creating an additional `N`-byte stack
+array. The explicitly named `expose_secret_copy` method creates and clears a
+temporary copy when independent storage is required.
 For key derivation, masking, or normalization logic that can operate inside the
 container, prefer `transform`, `try_transform`, `derive`, or `try_derive` so the
-operation does not need an extra `expose_secret` stack copy.
+operation remains inside clear-on-drop storage.
 
 ## Expiring Secrets
 
@@ -500,7 +501,7 @@ assert_eq!(generated.try_constant_time_eq(&[7; 32]), Ok(true));
 key.try_expose_secret(|bytes| {
     assert_eq!(bytes.len(), 32);
 }).unwrap();
-key.try_expose_secret_volatile(|bytes| {
+key.try_expose_secret_copy(|bytes| {
     assert_eq!(bytes[0], 7);
 }).unwrap();
 
@@ -520,8 +521,9 @@ on generator error.
 ## Copying Secrets Into External APIs
 
 Some cryptographic or protocol APIs require `&[u8]`. Use `expose_secret` for
-short-lived closure access. The temporary copy is cleared on the normal return
-path and during unwinding, but cannot be cleared if the process aborts.
+short-lived direct closure access. This avoids an intentional full-size
+temporary, but the closure, compiler, and called code may still create copies,
+register spills, or stack-frame material outside the container's reach.
 
 ```rust
 use sanitization::SecretBytes;
@@ -536,18 +538,34 @@ let first_byte = key.expose_secret(|bytes| {
 assert_eq!(first_byte, 7);
 ```
 
-`expose_secret_volatile` is an explicit alias for callers that want the
-volatile-clearing behavior visible at the call site. Like `expose_secret`, it
-cannot clear the temporary stack copy if the process aborts.
+Use `expose_secret_copy` only when the callee must receive independent storage.
+It creates an additional `N`-byte stack array and volatile-clears it on normal
+return and unwinding. It cannot clear that copy if the process aborts.
 
 ```rust
 use sanitization::SecretBytes;
 
 let key = SecretBytes::<32>::from_array([7; 32]);
-let first_byte = key.expose_secret_volatile(|bytes| bytes[0]);
+let first_byte = key.expose_secret_copy(|bytes| bytes[0]);
 
 assert_eq!(first_byte, 7);
 ```
+
+Fixed locked secrets and pool slots use the same naming:
+`expose_secret` borrows protected storage after integrity checks, while
+`expose_secret_copy` creates a guarded plaintext copy. Split-secret storage has
+no contiguous plaintext to borrow and therefore offers only reconstruction and
+explicit copy exposure.
+
+For 1.x-to-2.0 migration:
+
+| 1.x API | 2.0 API | Behavior |
+| --- | --- | --- |
+| `SecretBytes::expose_secret` | unchanged name | now borrows owned storage directly |
+| `SecretBytes::expose_secret_volatile` | `expose_secret_copy` | explicitly creates and clears a stack copy |
+| `ExpiringSecretBytes::try_expose_secret_volatile` | `try_expose_secret_copy` | expiration-checked copy exposure |
+| `LockedSecretBytes::with_secret` | `expose_secret` | direct protected-storage exposure |
+| `SecretPoolSlot::with_secret` | `expose_secret` | direct pooled-slot exposure |
 
 ## Updating and Clearing Fixed-Size Secrets
 
@@ -693,7 +711,7 @@ assert!(key.constant_time_eq(&[7; 32]));
 assert!(fallible_key.constant_time_eq(&[7; 32]));
 assert!(decoded_key.constant_time_eq(&[7; 32]));
 
-key.with_secret(|bytes| {
+key.expose_secret(|bytes| {
     assert_eq!(bytes.len(), 32);
 });
 
@@ -841,14 +859,14 @@ With `canary-check`, non-empty `LockedSecretBytes<N>` mappings,
 [ 8-byte canary ][ N-byte secret ][ 8-byte canary ]
 ```
 
-Existing exposure APIs such as `with_secret`, `copy_to_slice`, and
+Existing exposure APIs such as `expose_secret`, `copy_to_slice`, and
 `constant_time_eq` verify the canaries before reading secret bytes. If
 corruption is detected, the full mapping or slot is volatile-cleared and those
-legacy APIs panic with a fixed message. Use `expose_secret_checked`,
-`copy_to_slice_checked`, `constant_time_eq_checked`, or `verify_integrity` on
-`LockedSecretBytes<N>`, `expose_secret_checked`, `constant_time_eq_checked`, or
-`verify_integrity` on `LockedSecretVec` and pool slots, when callers need
-explicit error handling with `CanaryCorruptedError`.
+infallible APIs panic with a fixed message. Use `expose_secret_checked`,
+`expose_secret_copy_checked`, `copy_to_slice_checked`,
+`constant_time_eq_checked`, or `verify_integrity` on `LockedSecretBytes<N>`,
+and the applicable checked methods on `LockedSecretVec` and pool slots, when
+callers need explicit error handling with `CanaryCorruptedError`.
 
 Canaries are derived from the mapping or slot address and a fixed mask on
 native mapped backends, so they require no RNG or dependency. That deterministic
@@ -914,7 +932,7 @@ let second = pool.allocate_from_fn(|index| index as u8).unwrap();
 
 assert_eq!(pool.capacity_slots(), 64);
 assert!(first.constant_time_eq(&[7; 32]));
-assert_eq!(second.with_secret(|bytes| bytes[0]), 0);
+assert_eq!(second.expose_secret(|bytes| bytes[0]), 0);
 
 first.replace_from_slice(&[8; 32]).unwrap();
 first.secure_clear();
@@ -933,7 +951,7 @@ clears all WASM-owned slots on WASM.
 With `canary-check`, each non-empty pool slot has its own prefix and suffix
 canary. Slot exposure, copying, mutation, and comparison verify those canaries
 before accessing the payload. Checked slot APIs return `CanaryCorruptedError`;
-legacy APIs clear the slot and panic.
+infallible APIs clear the slot and panic.
 
 This feature is explicit because OS memory locking has platform limits. It can
 fail due to resource limits or policy. Linux `MADV_DONTDUMP` reduces ordinary

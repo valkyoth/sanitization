@@ -832,14 +832,14 @@ mod native_ct_memory_lock_impls {
     impl<const N: usize> ct::ConstantTimeEq for LockedSecretBytes<N> {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
-            self.with_secret(|left| other.with_secret(|right| ct::eq_fixed(left, right)))
+            self.expose_secret(|left| other.expose_secret(|right| ct::eq_fixed(left, right)))
         }
     }
 
     impl<const N: usize> ct::ConstantTimeEq<[u8]> for LockedSecretBytes<N> {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
-            self.with_secret(|left| ct::eq_public_len(left, other))
+            self.expose_secret(|left| ct::eq_public_len(left, other))
         }
     }
 
@@ -848,7 +848,7 @@ mod native_ct_memory_lock_impls {
     {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
-            self.with_secret(|left| other.with_secret(|right| ct::eq_fixed(left, right)))
+            self.expose_secret(|left| other.expose_secret(|right| ct::eq_fixed(left, right)))
         }
     }
 
@@ -857,7 +857,7 @@ mod native_ct_memory_lock_impls {
     {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
-            self.with_secret(|left| ct::eq_public_len(left, other))
+            self.expose_secret(|left| ct::eq_public_len(left, other))
         }
     }
 
