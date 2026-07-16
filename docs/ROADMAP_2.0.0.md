@@ -23,8 +23,9 @@ The redesign should be developed directly as 2.0.0 prereleases.
 The following known corrections are intentionally semver-breaking:
 
 - direct scoped borrowing becomes the normal fixed-secret exposure path;
-- unrestricted `Secret<T>::with_secret_mut` is removed;
-- stable mutation requires an explicit storage-stability contract;
+- unrestricted generic `Secret<T>` shared and mutable exposure is removed;
+- shared and mutable exposure require their corresponding explicit
+  storage-stability contracts;
 - `Choice` loses ordinary equality and raw extraction;
 - `CtOrdering` and `Mask<T>` lose declassification bypasses;
 - the misleading generic `ct::Secret<T>` marker is replaced;
@@ -69,8 +70,9 @@ The 2.0 architecture should distinguish four separate properties:
 
 1. **Sanitizable value:** the currently owned value can clear the storage it can
    reach.
-2. **Stable secret storage:** safe mutation does not release secret-bearing
-   historical storage without clearing it first.
+2. **Stable secret storage:** no safe operation exposed by the type releases,
+   replaces, or transfers secret-bearing historical storage without clearing
+   it first.
 3. **Protected native storage:** the platform established requested controls
    such as locking, dump exclusion, fork policy, guard pages, or canaries.
 4. **Data-oblivious operation:** the provided primitive avoids
@@ -78,6 +80,41 @@ The 2.0 architecture should distinguish four separate properties:
    documented compiler, target, feature, and release profile.
 
 These properties must not be collapsed into one trait or one marketing claim.
+
+## Workstream 0: Behavior-Preserving Module Split
+
+Before changing public behavior, split the current large implementation into
+auditable internal modules:
+
+- `wipe_backend`;
+- `owned`;
+- `ct`;
+- `mapped`;
+- `platform`;
+- `canary`;
+- `interop`.
+
+Platform code should be divided further by target family where that reduces
+cfg duplication without hiding ABI details.
+
+The split must be behavior-preserving:
+
+- no public API or feature change;
+- no intentional codegen change;
+- no unsafe invariant change;
+- no target support change;
+- no versioned release claim change.
+
+Capture before-and-after:
+
+- public API snapshots;
+- test and feature-matrix results;
+- LLVM IR and assembly for the current wipe and CT harnesses;
+- package file lists;
+- unsafe-block inventory.
+
+This may remain one published core crate. File and module separation is
+mandatory; a published-crate split is not.
 
 ## Workstream 1: Core Contracts
 
@@ -111,46 +148,82 @@ Add a downstream implementation checklist and negative examples for:
 
 Do not blanket-implement `SecureSanitize` for those categories.
 
-### 1.2 `StableSecretStorage`
+### 1.2 Shared and mutable storage stability
 
-Introduce:
+Use two contracts rather than treating `&T` as inherently read-only:
 
 ```rust
-pub trait StableSecretStorage: SecureSanitize {}
+pub trait StableSharedSecretStorage: SecureSanitize {}
+
+pub trait StableMutableSecretStorage: StableSharedSecretStorage {}
 ```
 
-The contract applies to the type's own safe mutation operations:
+`StableSharedSecretStorage` means:
 
-- they do not release secret-bearing storage without first clearing it;
-- they do not silently transfer a secret-bearing allocation to another owner;
-- they preserve a valid later sanitization and drop path;
-- they document any storage history they cannot reach.
+> No safe operation reachable through `&self` may release, transfer, replace,
+> or schedule later release of secret-bearing storage without clearing it
+> first.
 
-This should be a normal trait rather than an unsafe trait. A false
-implementation can violate secrecy but should not by itself permit undefined
-behavior. Implementations still require explicit review.
+`StableMutableSecretStorage` extends that guarantee to safe operations reachable
+through `&mut self`.
 
-Initial implementations:
+Both contracts explicitly cover:
+
+- inherent methods;
+- trait methods implemented by the type;
+- interior mutation through `Cell`, `RefCell`, mutexes, atomics, custom
+  allocators, or other `UnsafeCell`-based mechanisms;
+- destructors and guard values returned by safe methods;
+- storage release or replacement initiated through callbacks invoked by those
+  methods;
+- deferred cleanup work scheduled by a safe operation.
+
+The contracts also require that the type:
+
+- does not silently transfer a secret-bearing allocation to another owner;
+- preserves a valid later sanitization and drop path;
+- documents external, shared, deferred, and historical storage it cannot
+  reach.
+
+These remain normal traits rather than unsafe traits because false
+implementations violate a security promise but must not be relied on for Rust
+memory safety. The generic guarantees are conditional on downstream
+implementations being correct.
+
+The core crate should provide the traits primarily through audited built-in
+implementations. Manual implementations require an explicit contract comment
+and documentation example. Add compile-pass examples and negative rustdoc tests
+covering interior-mutable and reallocating types.
+
+An optional conservative derive may be added only if it is presented as an
+explicit assertion by the type author, not as proof. It must require every field
+to implement the corresponding stability trait and must reject syntactically
+obvious interior-mutability types. Because a derive cannot inspect arbitrary
+inherent or trait methods, manual review remains required.
+
+Initial built-in implementations:
 
 - integer, boolean, character, and floating-point scalars already supported by
   `SecureSanitize`;
-- fixed arrays whose element type is stable;
-- tuples whose fields are stable;
-- crate-owned fixed-size and fixed-allocation secret containers;
-- user-defined types with explicit manual implementations.
+- fixed arrays whose element type has the corresponding stability contract;
+- tuples whose fields have the corresponding stability contract;
+- crate-owned fixed-size and fixed-allocation secret containers.
 
-Do not implement it for:
+Do not implement either trait for:
 
 - `Vec<T>`;
 - `String`;
 - replaceable `Box<T>` ownership patterns;
 - references or shared ownership;
+- `Cell`, `RefCell`, mutex, or lock wrappers without a dedicated reviewed
+  implementation;
 - arbitrary third-party containers.
 
-The closure passed to a mutation API remains a caller-responsibility boundary.
-Rust cannot prevent deliberate copying, logging, or `mem::replace` inside
-caller code. This contract prevents hidden reallocation by the wrapped type; it
-does not make hostile closure code safe.
+The closure passed to an exposure API remains a caller-responsibility boundary.
+Rust cannot prevent deliberate copying, logging, `mem::replace`, or calls to
+external code inside the closure. The stability traits prevent hidden storage
+release by operations that the wrapped type exposes; they do not make hostile
+closure code safe.
 
 ### 1.3 Generic `Secret<T>` redesign
 
@@ -162,10 +235,16 @@ pub struct Secret<T: SecureSanitize> {
 }
 ```
 
-Read-only scoped access remains available:
+Shared scoped access requires shared stability because an `&T` may mutate
+through interior mutability:
 
 ```rust
-pub fn with_secret<R>(&self, inspect: impl FnOnce(&T) -> R) -> R;
+impl<T> Secret<T>
+where
+    T: SecureSanitize + StableSharedSecretStorage,
+{
+    pub fn with_secret<R>(&self, inspect: impl FnOnce(&T) -> R) -> R;
+}
 ```
 
 Mutable scoped access exists only when storage is stable:
@@ -173,7 +252,7 @@ Mutable scoped access exists only when storage is stable:
 ```rust
 impl<T> Secret<T>
 where
-    T: SecureSanitize + StableSecretStorage,
+    T: SecureSanitize + StableMutableSecretStorage,
 {
     pub fn with_secret_mut<R>(
         &mut self,
@@ -182,9 +261,10 @@ where
 }
 ```
 
-Remove the unrestricted 1.x mutable method. `Secret<Vec<_>>` and
+Remove unrestricted 1.x shared and mutable exposure. `Secret<Vec<_>>` and
 `Secret<String>` may still be owned and cleared, but cannot receive generic
-mutable exposure because growth may release uncleared historical allocations.
+exposure because shared interior mutation or mutable growth may release
+uncleared historical allocations.
 
 Route byte and UTF-8 users to:
 
@@ -196,8 +276,10 @@ Route byte and UTF-8 users to:
 
 Acceptance criteria:
 
+- compile-fail tests reject shared exposure for an interior-mutable
+  reallocating type;
 - compile-fail tests reject `Secret<Vec<_>>::with_secret_mut`;
-- stable user-defined structs can opt in explicitly;
+- shared-stable and mutable-stable user-defined structs can opt in explicitly;
 - no `Deref`, `DerefMut`, `AsRef`, `AsMut`, `Clone`, `Copy`, ordinary equality,
   or value-printing `Debug` is introduced.
 
@@ -296,8 +378,9 @@ storage.
 
 ### 3.1 Tuple implementations
 
-Implement `SecureSanitize` and `StableSecretStorage` for tuples up to a
-documented arity, preferably 12 or 16.
+Implement `SecureSanitize`, `StableSharedSecretStorage`, and
+`StableMutableSecretStorage` for tuples up to a documented arity, preferably
+12 or 16.
 
 Each field is sanitized in deterministic order. Document that field-wise
 cleanup does not clear padding.
@@ -325,16 +408,22 @@ Do not clear arbitrary Rust object representations.
 An experimental feature may introduce:
 
 ```rust
-pub unsafe trait ZeroValidPlainData {
-    // All-zero representation is valid and remains safe to drop.
-}
+pub unsafe trait ZeroValidPlainData: Copy { }
 ```
 
 Stabilization requirements:
 
-- exact validity, padding, provenance, and drop-safety contract;
+- `Copy`;
+- no `Drop`;
+- no references, raw pointers, function pointers, or provenance-bearing
+  fields;
+- no interior ownership, allocation handles, or interior mutability;
+- all-zero is a valid representation;
+- raw representation clearing cannot violate a later operation or destructor;
+- exact validity and padding contract;
 - no blanket implementations for references, `NonZero*`, shared ownership,
   enums, unions, `MaybeUninit`, trait objects, or unknown representations;
+- built-in implementations only for the first stable release;
 - Miri coverage for every built-in implementation;
 - external unsafe-code review;
 - demonstrated value beyond ordinary field-wise sanitization.
@@ -397,25 +486,40 @@ Add purpose-specific types:
 
 ```rust
 pub struct SecretIndex(usize);
-pub struct SecretScalar<T>(T);
+pub struct SecretScalar<T: SecureSanitize>(T);
 ```
 
 `SecretIndex`:
 
+- implements `SecureSanitize` and clears on drop;
+- does not implement `Copy`, `Clone`, ordinary equality, or value-printing
+  `Debug`;
 - has no normal index getter;
 - is accepted directly by full-scan lookup APIs;
-- can be converted to a public index only with a reason-bearing
-  declassification method.
+- can be converted to a public index only with a consuming reason-bearing
+  declassification method;
+- clears the wrapper's remaining storage during consuming declassification.
 
 `SecretScalar<T>`:
 
+- implements `SecureSanitize` and clears on drop;
 - does not implement `Copy`, `Clone`, ordinary equality, or value-printing
   `Debug`;
 - exposes reviewed CT operations based on trait bounds;
 - does not provide a generic `&T` getter that allows normal comparison or
   indexing;
 - permits explicit declassification only through a reason-bearing consuming
-  method when the use case requires a public value.
+  method when the use case requires a public value;
+- transfers responsibility for the returned value to the caller and clears any
+  wrapper-owned storage that remains after the move.
+
+Both types must document that Rust moves, compiler-generated temporaries,
+registers, and caller-created copies remain outside their clearing guarantee.
+
+Use an initialized ownership state such as `Option<T>` so consuming
+declassification can move the value out, leave the wrapper empty, and avoid a
+second cleanup in `Drop`. Do not introduce unsafe field extraction merely to
+work around the presence of a destructor.
 
 The type system cannot make arbitrary caller closures data-oblivious. Avoid
 generic exposure closures that would only recreate the original bypass.
@@ -427,21 +531,27 @@ Redesign `CtOption` and `CtResult` into two clearly separated categories:
 1. lightweight control containers for public or non-secret backing values;
 2. clear-on-drop secret-bearing containers.
 
-Secret-bearing forms:
+Classify backing values explicitly:
 
 ```rust
-pub struct SecretCtOption<T: SecureSanitize> { ... }
-pub struct SecretCtResult<T: SecureSanitize, E: SecureSanitize> { ... }
+pub struct PublicValue<T>(T);
+pub struct SecretValue<T: SecureSanitize>(T);
+
+pub struct SecretCtOption<V> { ... }
+pub struct SecretCtResult<V, E> { ... }
 ```
 
 Required behavior:
 
 - redacted `Debug`;
 - no `Copy`, `Clone`, ordinary equality, or raw backing getters;
-- every owned backing value is sanitized on drop;
-- absent `SecretCtOption` sanitizes its dummy value during declassification;
-- `SecretCtResult` sanitizes the unselected success or error backing value
-  before returning the selected value;
+- every `SecretValue<T>` backing value is sanitized on drop;
+- `PublicValue<T>` is treated as explicitly public metadata and does not require
+  `SecureSanitize`;
+- absent `SecretCtOption<SecretValue<T>>` sanitizes its dummy value during
+  declassification;
+- `SecretCtResult` sanitizes every unselected secret-classified success or error
+  backing value before returning the selected value;
 - mapping and conditional selection preserve clear-on-drop ownership;
 - panic-unwind and partial-construction paths clear initialized values;
 - no secret-dependent branch occurs before explicit declassification.
@@ -449,6 +559,19 @@ Required behavior:
 Use initialized ownership states such as `Option<T>` fields or another reviewed
 strategy so values can be moved out safely without introducing unnecessary
 unsafe extraction.
+
+Acceptance criteria:
+
+- a panic while sanitizing an unselected value unwinds without double-drop,
+  invalid ownership, or returning a partially declassified result;
+- a panic inside a mapping closure clears every still-owned secret backing
+  value;
+- conditional selection may create a third owned value while both inputs remain
+  live without aliasing or suppressing later cleanup;
+- zero-sized types and drop-bearing types behave correctly;
+- the returned selected value is not cleaned a second time by the wrapper it was
+  moved out of;
+- Miri and panic-probe tests cover each ownership transition.
 
 ### 4.6 CT feature naming
 
@@ -689,9 +812,32 @@ Do not make register scrubbing implicit on every drop.
 
 ## Workstream 9: Native Memory Protection
 
-### 9.1 `ProtectionReport`
+### 9.1 Protection request, policy, and result
 
-Add a structured report of controls actually established:
+Separate requested policy from achieved runtime protection:
+
+```rust
+pub enum Requirement {
+    Required,
+    Preferred,
+    NotRequested,
+}
+
+pub struct ProtectionRequest {
+    pub memory_lock: Requirement,
+    pub dump_exclusion: Requirement,
+    pub fork_policy: ForkProtectionRequest,
+    pub guard_pages: Requirement,
+    pub canary: CanaryProtectionRequest,
+    pub cache_policy: CacheProtectionRequest,
+}
+```
+
+`ProtectionRequest` is public policy. Cargo features and named profiles control
+which implementations are compiled; they do not prove that a runtime control
+was established.
+
+Add a structured report of actual outcomes:
 
 ```rust
 pub struct ProtectionReport {
@@ -709,7 +855,7 @@ States must distinguish:
 - established;
 - not requested;
 - unsupported;
-- failed with a structured error;
+- preferred but unavailable or failed;
 - compatibility-only, such as WASM.
 
 Reports for mapped storage should also include public operational metadata such
@@ -717,9 +863,23 @@ as requested bytes, mapped bytes, locked bytes, page granule, and whether a
 failure is consistent with a platform lock quota. This helps deployments detect
 `RLIMIT_MEMLOCK` or `VirtualLock` pressure without exposing secret contents.
 
-Constructors may return `(SecretType, ProtectionReport)` or retain the report
-inside container metadata. Existing success must not imply that every requested
-optional control was established unless the constructor is explicitly strict.
+Rules:
+
+- failure or unavailability of a `Required` control returns an error and rolls
+  back every established control;
+- failure or unavailability of a `Preferred` control may return the container
+  with a report describing the reduced result;
+- `NotRequested` controls are not attempted;
+- strict profile constructors translate their promised controls into
+  `Required`;
+- flexible constructors accept an explicit `ProtectionRequest`;
+- errors carry a partial report describing controls established before rollback
+  and the rollback outcome;
+- successful constructors return or retain the final `ProtectionReport`.
+
+The error type must distinguish failure to establish a control from failure to
+roll it back. A rollback failure is a separate high-severity platform condition
+and must not be hidden behind the original error.
 
 The report must not imply protection from privileged reads, hibernation,
 snapshots, DMA, firmware, or all crash-dump mechanisms.
@@ -735,6 +895,9 @@ pub enum ForkPolicy {
     WipeChild,
 }
 ```
+
+`ForkProtectionRequest` must combine the desired fork behavior with its
+`Requirement`.
 
 On Linux:
 
@@ -862,27 +1025,13 @@ profile-hardened-linux = [
 ```
 
 Profiles request controls. `ProtectionReport` states what was established.
-Known-incompatible target/profile combinations fail to compile rather than
-silently reducing guarantees. `wasm-compat` remains an explicitly reduced
-guarantee profile.
+Strict profiles convert their controls to `Required`; flexible profiles use
+`Preferred` where documented. Known-incompatible strict target/profile
+combinations fail to compile rather than silently reducing guarantees.
+`wasm-compat` remains an explicitly reduced-guarantee profile and reports
+compatibility-only outcomes.
 
-### 11.2 Internal module boundaries
-
-Split the current large implementation into auditable internal modules:
-
-- wipe backend and policies;
-- CT primitives;
-- owned containers;
-- mapped storage;
-- platform ABI backends;
-- canaries and random sources;
-- interop implementations.
-
-This may remain one published core crate if that preserves zero-dependency
-ergonomics. File/module separation is mandatory; a published-crate split is
-not.
-
-### 11.3 Companion crates
+### 11.2 Companion crates
 
 Retain the existing pattern:
 
@@ -939,7 +1088,24 @@ Build matrix:
 - embedded RISC-V when available;
 - WASM output inspection with Tier C claims only.
 
-### 12.2 Lifecycle failure testing
+### 12.2 Minimum stable target evidence matrix
+
+Define the minimum release matrix now rather than leaving "native evidence"
+open-ended:
+
+| Tier | Required targets | Minimum 2.0 evidence |
+|---|---|---|
+| Tier A | `x86_64-unknown-linux-gnu` | Full native functional tests, platform protection tests, release codegen matrix, Miri/Kani where applicable, sanitizer coverage, and full leakage evidence for claimed CT primitives. |
+| Tier B native | `aarch64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin` | Native functional tests for supported platform controls, release codegen for touched primitives, feature matrix, and target-specific non-guarantees. A CT primitive receives a timing claim only when native leakage evidence exists for that target. |
+| Tier B compile-only | supported BSD, Android, iOS, embedded ARM, and embedded RISC-V targets listed in `docs/TARGETS.md` | Cross-compilation, cfg/feature validation, package checks, and source/codegen review where available. No native runtime or timing claim. |
+| Tier C | WASM compatibility targets | Build and API compatibility evidence only, with explicit JIT, memory-lock, page-protection, and volatile-semantics limits. |
+| Experimental | every other target | No stable guarantee beyond what its documentation explicitly states. |
+
+The target table in `docs/TARGETS.md` must list every supported triple, tier,
+tested feature set, compiler version, runner type, and date of the latest
+evidence. A target must be downgraded when required evidence becomes stale.
+
+### 12.3 Lifecycle failure testing
 
 Add unpublished tooling for:
 
@@ -957,7 +1123,7 @@ Add unpublished tooling for:
 Test-only dependencies belong in unpublished tools or harnesses and must not
 become default runtime dependencies.
 
-### 12.3 Concurrency verification
+### 12.4 Concurrency verification
 
 Add Loom models for:
 
@@ -969,7 +1135,7 @@ Add Loom models for:
 Kani remains useful for bounded functional properties but is not evidence of
 real concurrent scheduling.
 
-### 12.4 Timing evidence
+### 12.5 Timing evidence
 
 Promote the leakage harness from smoke evidence to release evidence:
 
@@ -983,7 +1149,7 @@ Promote the leakage harness from smoke evidence to release evidence:
 - evidence regeneration after compiler, profile, backend, or CT changes;
 - no strong CT claim for browser or Node WASM JIT execution.
 
-### 12.5 Performance gates
+### 12.6 Performance gates
 
 Add baselines and regression thresholds for:
 
@@ -999,7 +1165,7 @@ Performance gates exist to catch accidental repeated fences and pathological
 regressions. They must not justify weakening a security boundary without
 separate review.
 
-### 12.6 Formal and unsafe-code evidence
+### 12.7 Formal and unsafe-code evidence
 
 Expand Kani proofs for:
 
@@ -1039,13 +1205,14 @@ Add:
 
 - `docs/MIGRATION_2.0.md`;
 - `docs/STORAGE_CONTRACTS.md`;
-- `docs/PROTECTION_REPORT.md`;
+- `docs/PROTECTION_REPORT.md` if the protection request/report model is
+  included;
 - target-specific evidence manifests for the release candidates.
 
 The README decision table must distinguish:
 
 - current-value sanitization;
-- stable mutable storage;
+- stable shared and stable mutable storage;
 - fixed-size and fixed-allocation storage;
 - managed-growth byte/text storage;
 - locked, guarded, pooled, and sealed storage;
@@ -1055,45 +1222,94 @@ The README decision table must distinguish:
 The migration guide must cover every removed 1.x API and provide a concrete 2.0
 replacement.
 
-## Mandatory 2.0 Stable Scope
+## 2.0 Stable Scope
 
-The following are release blockers:
+### Security-model release blockers
 
-1. `SecureSanitize` implementer contract.
-2. `StableSecretStorage`.
-3. Restricted generic `Secret<T>` mutation.
-4. Direct fixed-secret exposure and explicit copy exposure.
-5. `SecretBoxBytes`.
+These correct known misleading or incomplete boundaries and cannot be deferred:
+
+1. Behavior-preserving internal module split and unsafe-inventory baseline.
+2. Normative `SecureSanitize` implementer contract.
+3. `StableSharedSecretStorage` and `StableMutableSecretStorage`.
+4. Restricted generic `Secret<T>` shared and mutable exposure.
+5. Direct fixed-secret exposure and explicitly named copy exposure.
 6. CT declassification repair for `Choice`, `CtOrdering`, and masks.
-7. Replacement of generic `ct::Secret<T>`.
-8. Redacted clear-on-drop secret CT option/result types.
+7. Replacement of generic `ct::Secret<T>` with clear-on-drop,
+   purpose-specific secret owners.
+8. Redacted, ownership-correct secret CT option/result types with explicit
+   public/secret backing classification.
 9. Strict enum derive and mandatory skip reasons.
-10. Correct historical `ArrayVec` backing cleanup or removal of the unsafe
+10. Correct historical `ArrayVec` backing cleanup or removal of the unsupported
     generic guarantee.
 11. Accurate `strict-compare` naming.
 12. Canonical safe wipe naming and removal of obsolete aliases.
 13. Checked canary access as the normal API.
-14. Checked cache-flush capability handling.
-15. `ConsumeOnceSecret<T>` and concurrency review.
-16. Path-specific codegen, Miri, Kani, leakage, and native target evidence.
-17. Complete migration and security documentation.
-18. External pentest with no unresolved finding that contradicts a guarantee.
+14. Accurate documentation for generic aggregates, interior mutability, enum
+    transitions, WASM, abort behavior, and platform limits.
 
-## Conditional 2.0 Scope
+If the x86 cache-flush feature remains in 2.0, capability detection and checked
+failure handling are also release blockers. The alternative is to remove or
+defer that feature rather than ship the known hard-coded assumption.
 
-Include these only when their implementation and review finish before API
-freeze:
+### Production-readiness release blockers
 
+These establish that the corrected model is credible in production:
+
+1. Path-specific release codegen across the documented optimization profiles.
+2. Miri for platform-independent unsafe paths.
+3. Kani for selected functional and arithmetic invariants.
+4. Loom for retained concurrent types and unsafe `Send`/`Sync` claims.
+5. The exact minimum target evidence matrix.
+6. Current leakage evidence for every target and primitive receiving a timing
+   claim.
+7. Complete migration, safety, guarantees, non-guarantees, target, and evidence
+   documentation.
+8. Downstream migration builds using real cryptographic consumers.
+9. Independent review with no unresolved finding that contradicts a guarantee.
+10. Packaging, release-script, report-only commit, and signed-tag gates.
+
+### Additive features that may be deferred
+
+These are valuable but must not delay correction of known security boundaries:
+
+- `SecretBoxBytes`;
+- `ConsumeOnceSecret<T>` rename or redesign;
+- `ProtectionRequest` and `ProtectionReport`, provided existing constructors do
+  not make ambiguous claims;
+- expanded cache-flush APIs if the 1.x feature is removed from 2.0 until ready;
+- secure arena generation counters and variable-size allocation;
+- `SealedSecretBytes<N>`;
 - `ZeroValidPlainData`;
 - public target-provided erasure backends;
-- `SealedSecretBytes<N>`;
-- variable-size protected arenas;
 - expanded non-x86 cache maintenance;
 - additional register-state coverage;
-- native BSD and Android runtime runners beyond existing compile coverage.
+- native BSD, Android, and iOS runners beyond the minimum compile-only tier.
 
-These are valuable but must not delay the mandatory correction of known
-misleading boundaries.
+Any additive feature included before API freeze must satisfy its own tests,
+documentation, target evidence, and external review requirements.
+
+## 1.2.x Backport Policy
+
+Users should not wait for 2.0 to receive non-breaking corrections.
+
+Backport candidates:
+
+- correct the inaccurate `sanitization-arrayvec` spare-storage documentation;
+- implement complete historical inline-storage clearing in 1.2.x if it can be
+  done without breaking the public API and passes unsafe review;
+- keep `CtOption` and `CtResult` `Debug` implementations redacted so backing
+  values are not printed;
+- strengthen documentation around `ct::Secret<T>`, raw `Choice` extraction,
+  enum transitions, interior mutability, and `Secret<Vec<T>>`;
+- direct new examples toward dedicated byte/text containers and checked canary
+  APIs;
+- add non-breaking checked helpers and warnings where they do not create
+  downstream `deny(warnings)` failures;
+- deprecate misleading names only after checking the practical effect on
+  downstream builds.
+
+Do not backport API removals, changed generic bounds, or derive-default changes
+to 1.2.x.
 
 ## Explicit Non-Goals
 
@@ -1117,26 +1333,41 @@ decides to publish a specific prerelease to crates.io. Every checkpoint
 requires:
 
 - dedicated release notes;
-- a committed PASS report in `security/pentest`;
+- a committed PASS review report in `security/pentest` identifying
+  `Review-Type` as targeted internal review, targeted external review,
+  independent audit, pentest, or close-out;
 - a clean release-readiness gate;
 - a final report-only commit reviewing the preceding implementation commit;
 - clean CI before tagging.
+
+Before alpha.1, update the release-readiness validator and release script to
+require and validate the `Review-Type` field without weakening the existing
+reviewed-commit and report-only-commit checks.
+
+Alpha reports are targeted checkpoint reviews, not claims of seven independent
+full pentests. Full independent review is required after the CT redesign and at
+the beta/RC boundary. A major security-sensitive change after a full review
+requires a scoped retest or a new prerelease.
 
 ### `v2.0.0-alpha.1`: contracts and ownership
 
 Scope:
 
+- behavior-preserving internal module split;
+- public API, codegen, and unsafe-inventory baseline;
 - normative `SecureSanitize` contract;
-- `StableSecretStorage`;
+- shared and mutable storage-stability contracts;
 - restricted `Secret<T>` mutation;
 - tuple implementations;
 - initial migration guide.
 
 Exit gate:
 
-- compile-fail coverage proves unstable mutable storage is rejected;
+- before-and-after API and codegen comparisons show no unintended behavior
+  change from the module split;
+- compile-fail coverage proves unstable shared and mutable storage is rejected;
 - no default dependency or `no_std` regression;
-- alpha.1 pentest is PASS.
+- alpha.1 targeted security review is PASS.
 
 ### `v2.0.0-alpha.2`: exposure and fixed allocation
 
@@ -1144,16 +1375,16 @@ Scope:
 
 - direct `SecretBytes` exposure;
 - explicit copy exposure;
-- `SecretBoxBytes`;
+- `SecretBoxBytes` if retained for 2.0;
 - byte/text storage guidance;
 - direct-exposure codegen harnesses.
 
 Exit gate:
 
 - no full-size direct-exposure temporary appears in reviewed codegen;
-- fixed-allocation replacement clears old storage before release;
+- any included fixed-allocation replacement clears old storage before release;
 - Miri and package matrices pass;
-- alpha.2 pentest is PASS.
+- alpha.2 targeted security review is PASS.
 
 ### `v2.0.0-alpha.3`: CT redesign
 
@@ -1170,7 +1401,9 @@ Exit gate:
 - no raw declassification bypass remains;
 - secret backing values are redacted and clear on drop;
 - portable and assembly evidence passes on reviewed targets;
-- alpha.3 pentest is PASS.
+- alpha.3 targeted review is PASS;
+- a focused independent audit of the redesigned CT ownership,
+  declassification, and codegen model is complete before alpha.4.
 
 ### `v2.0.0-alpha.4`: derive and aggregate hardening
 
@@ -1188,7 +1421,7 @@ Exit gate:
   generic API is removed;
 - no live `T` is raw-zeroed before drop;
 - derive pass/fail suite and Miri pass;
-- alpha.4 pentest is PASS.
+- alpha.4 targeted security review is PASS.
 
 ### `v2.0.0-alpha.5`: wipe, cache, and naming
 
@@ -1198,35 +1431,35 @@ Scope:
 - removal of obsolete aliases;
 - internal backend architecture;
 - fence benchmarks and policy decision;
-- checked cache-flush capability handling;
+- checked cache-flush capability handling if the feature remains;
 - register-scrub evidence refresh;
-- `ConsumeOnceSecret`.
+- `ConsumeOnceSecret` if included.
 
 Exit gate:
 
 - every public wipe path reaches the reviewed backend;
 - any fence-policy change has target evidence and external review;
-- cache flush fails or falls back safely on unsupported CPUs;
-- concurrency models pass;
-- alpha.5 pentest is PASS.
+- retained cache flush fails or falls back safely on unsupported CPUs;
+- concurrency models for retained concurrent types pass;
+- alpha.5 targeted security review is PASS.
 
 ### `v2.0.0-alpha.6`: native protection
 
 Scope:
 
-- `ProtectionReport`;
-- explicit fork policy and `MADV_WIPEONFORK`;
+- protection request/report model if included;
+- explicit fork policy and `MADV_WIPEONFORK` if included;
 - checked integrity APIs;
-- secure arena improvements;
+- secure arena improvements if included;
 - `SealedSecretBytes<N>` if ready.
 
 Exit gate:
 
-- unsupported controls are never reported as established;
-- Linux fork child-process tests pass;
+- any included report never marks unsupported controls as established;
+- Linux fork child-process tests pass when the new fork policy is included;
 - native Linux, AArch64, macOS, and Windows tests cover changed paths;
 - optional sealed storage has external unsafe review or is deferred;
-- alpha.6 pentest is PASS.
+- alpha.6 targeted security review is PASS.
 
 ### `v2.0.0-alpha.7`: evidence expansion
 
@@ -1246,7 +1479,33 @@ Exit gate:
 - all release claims map to current evidence;
 - no unexplained security-path performance regression remains;
 - no unresolved codegen or lifecycle finding remains;
-- alpha.7 pentest is PASS.
+- alpha.7 targeted evidence review is PASS.
+
+### `v2.0.0-beta.1`: downstream migration
+
+This beta should be published to crates.io if practical.
+
+Scope:
+
+- feature-complete mandatory security model;
+- no new major concepts after this point;
+- migration of real cryptographic consumers;
+- review of generic bounds, derive diagnostics, error types, feature profiles,
+  and package ergonomics;
+- semver and public-API surface snapshots for comparison with later betas;
+- full external pentest or equivalent independent security assessment.
+
+Exit gate:
+
+- representative downstream projects compile and pass their security tests;
+- every removed 1.x API has a tested migration example;
+- the exact target evidence matrix is current;
+- beta.1 independent review is PASS;
+- feedback is classified as API blocker, security blocker, documentation issue,
+  or post-2.0 enhancement.
+
+Additional betas may be created for material API changes. Run public API and
+semver tooling against the previous beta before each new beta tag.
 
 ### `v2.0.0-rc.1`: API freeze and migration review
 
@@ -1258,7 +1517,7 @@ Scope:
   non-guarantees, targets, barriers, and evidence;
 - downstream migration builds;
 - release-script and packaging review;
-- external pentest handoff.
+- beta feedback close-out and external retest scope.
 
 Exit gate:
 
@@ -1267,7 +1526,7 @@ Exit gate:
 - every removed 1.x API has a documented replacement;
 - all packages build from their crates.io package contents;
 - full CI is green;
-- rc.1 pentest is PASS.
+- rc.1 regression review and required external retest are PASS.
 
 ### `v2.0.0-rc.2`: pentest close-out
 
@@ -1293,8 +1552,9 @@ Exit gate:
 - latest RC has clean CI and current native evidence;
 - no open critical, high, or medium finding;
 - no unresolved low finding contradicts a documented guarantee;
-- all mandatory stable-scope items are complete;
-- all conditional items are either complete or explicitly deferred;
+- all security-model and production-readiness release blockers are complete;
+- every additive feature is either complete with its own evidence or explicitly
+  deferred;
 - migration guide and release notes are complete;
 - `security/pentest/v2.0.0.md` is committed in the report-only release commit;
 - release script dry run covers every workspace crate in dependency order;
@@ -1307,8 +1567,8 @@ Version 2.0.0 is ready only when:
 - the public API reflects the four-property security model;
 - known misleading 1.x boundaries have been removed rather than aliased;
 - direct secret exposure avoids unnecessary copies;
-- mutable generic storage cannot silently reallocate through the safe wrapper
-  API;
+- shared or mutable generic exposure cannot reach a storage-releasing operation
+  unless the corresponding downstream stability contract is implemented;
 - secret-derived CT state cannot bypass explicit declassification;
 - derives fail closed by default;
 - historical inline storage is covered;
