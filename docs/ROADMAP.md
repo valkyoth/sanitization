@@ -4,6 +4,11 @@ This crate is stable in the `1.x` line. The roadmap tracks high-assurance
 features that fit the crate's core model: dependency-free-by-default secret
 ownership, explicit unsafe boundaries, and documented platform limits.
 
+The detailed architecture and hardening plan for the next major release is in
+[`ROADMAP_2.0.0.md`](ROADMAP_2.0.0.md). Version 2.0 is intended to correct
+security boundaries that cannot be changed cleanly while retaining the full
+1.x API.
+
 The goal is not to be a drop-in replacement for `zeroize`. The goal is to be a
 zero-dependency secret lifecycle crate for new projects: redacted containers,
 narrow exposure APIs, constant-time equality for crate-owned secrets, and one
