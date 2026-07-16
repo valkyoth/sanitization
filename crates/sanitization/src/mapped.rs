@@ -10,6 +10,13 @@ use crate::SecretString;
 #[allow(unused_imports)]
 use crate::{ct, SecureSanitize};
 
+#[path = "mapped/protection.rs"]
+mod protection;
+pub use protection::{
+    ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport, ProtectionRequest,
+    ProtectionState, Requirement, RollbackReport, RollbackState,
+};
+
 #[cfg(all(
     feature = "memory-lock",
     feature = "wasm-compat",
@@ -230,6 +237,16 @@ impl LockedSecretString {
         LockedSecretVec::with_capacity(capacity).map(|inner| Self { inner })
     }
 
+    /// Allocate text storage under an explicit runtime protection policy.
+    #[inline]
+    pub fn with_capacity_with_protection(
+        capacity: usize,
+        request: ProtectionRequest,
+    ) -> Result<Self, ProtectionError> {
+        LockedSecretVec::with_capacity_with_protection(capacity, request)
+            .map(|inner| Self { inner })
+    }
+
     /// Copy UTF-8 text directly into a locked platform mapping.
     #[inline]
     pub fn from_secret_str(text: &str) -> Result<Self, MemoryLockError> {
@@ -291,6 +308,13 @@ impl LockedSecretString {
         self.inner.locked_len()
     }
 
+    /// Actual runtime protections established for the underlying mapping.
+    #[must_use]
+    #[inline]
+    pub const fn protection_report(&self) -> &ProtectionReport {
+        self.inner.protection_report()
+    }
+
     /// Run a closure with read-only access to the locked secret text.
     #[inline]
     pub fn try_with_secret<R>(
@@ -340,10 +364,8 @@ impl LockedSecretString {
     #[cfg(feature = "alloc")]
     #[inline]
     pub fn replace_from_string(&mut self, text: String) -> Result<(), MemoryLockError> {
-        let mut replacement = Self::from_string(text)?;
-        self.clear_secret();
-        core::mem::swap(&mut self.inner, &mut replacement.inner);
-        Ok(())
+        let source = SecretString::from_string(text);
+        self.inner.replace_from_slice(source.inner.as_slice())
     }
 
     /// Clear the full locked mapping and reset the text length.
@@ -542,6 +564,16 @@ impl GuardedSecretString {
         GuardedSecretVec::with_capacity(capacity).map(|inner| Self { inner })
     }
 
+    /// Allocate guarded text under an explicit runtime protection policy.
+    #[inline]
+    pub fn with_capacity_with_protection(
+        capacity: usize,
+        request: ProtectionRequest,
+    ) -> Result<Self, ProtectionError> {
+        GuardedSecretVec::with_capacity_with_protection(capacity, request)
+            .map(|inner| Self { inner })
+    }
+
     /// Copy UTF-8 text directly into a guarded platform mapping.
     #[inline]
     pub fn from_secret_str(text: &str) -> Result<Self, GuardPageError> {
@@ -613,6 +645,13 @@ impl GuardedSecretString {
     #[inline]
     pub const fn is_memory_locked(&self) -> bool {
         self.inner.is_memory_locked()
+    }
+
+    /// Actual runtime protections established for the underlying mapping.
+    #[must_use]
+    #[inline]
+    pub const fn protection_report(&self) -> &ProtectionReport {
+        self.inner.protection_report()
     }
 
     /// Run a closure with read-only access to the guarded secret text.

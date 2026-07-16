@@ -2937,6 +2937,153 @@ fn cache_flush_sanitize_clears_alloc_types() {
     not(miri)
 ))]
 #[test]
+fn protection_request_profiles_are_explicit() {
+    let locked = ProtectionRequest::locked();
+    assert_eq!(locked.memory_lock, Requirement::Required);
+    assert_eq!(locked.dump_exclusion, Requirement::Preferred);
+    assert_eq!(
+        locked.fork_exclusion,
+        if cfg!(feature = "require-fork-exclusion") {
+            Requirement::Required
+        } else {
+            Requirement::Preferred
+        }
+    );
+    assert_eq!(locked.guard_pages, Requirement::NotRequested);
+
+    let guarded = ProtectionRequest::guarded();
+    assert_eq!(guarded.memory_lock, Requirement::NotRequested);
+    assert_eq!(guarded.guard_pages, Requirement::Required);
+
+    let locked_guarded = ProtectionRequest::locked_guarded();
+    assert_eq!(locked_guarded.memory_lock, Requirement::Required);
+    assert_eq!(locked_guarded.guard_pages, Requirement::Required);
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn explicit_protection_reports_achieved_native_state() {
+    let request = ProtectionRequest {
+        memory_lock: Requirement::Preferred,
+        dump_exclusion: Requirement::NotRequested,
+        fork_exclusion: Requirement::NotRequested,
+        guard_pages: Requirement::NotRequested,
+        canary: if cfg!(feature = "canary-check") {
+            Requirement::Required
+        } else {
+            Requirement::NotRequested
+        },
+        cache_policy: Requirement::NotRequested,
+    };
+    let secret = LockedSecretBytes::<32>::zeroed_with_protection(request).unwrap();
+    let report = secret.protection_report();
+
+    assert_eq!(report.mapping, ProtectionState::Established);
+    assert_eq!(report.requested_bytes, 32);
+    assert!(report.mapped_bytes >= 32);
+    assert_eq!(report.dump_exclusion, ProtectionState::NotRequested);
+    assert_eq!(report.fork_exclusion, ProtectionState::NotRequested);
+    assert!(matches!(
+        report.memory_lock,
+        ProtectionState::Established | ProtectionState::Failed { .. }
+    ));
+    assert_eq!(
+        report.locked_bytes == report.mapped_bytes,
+        report.memory_lock == ProtectionState::Established
+    );
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn required_unavailable_protection_fails_before_mapping() {
+    let request = ProtectionRequest {
+        memory_lock: Requirement::NotRequested,
+        dump_exclusion: Requirement::NotRequested,
+        fork_exclusion: Requirement::NotRequested,
+        guard_pages: Requirement::Required,
+        canary: Requirement::NotRequested,
+        cache_policy: Requirement::NotRequested,
+    };
+    let error = LockedSecretBytes::<32>::zeroed_with_protection(request).unwrap_err();
+
+    assert_eq!(error.failure.control, ProtectionControl::GuardPages);
+    assert_eq!(error.partial_report.mapped_bytes, 0);
+    assert_eq!(error.rollback, RollbackReport::not_needed());
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    not(feature = "memory-lock"),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn required_lock_failure_rolls_back_guarded_mapping() {
+    let request = ProtectionRequest {
+        memory_lock: Requirement::Required,
+        dump_exclusion: Requirement::NotRequested,
+        fork_exclusion: Requirement::NotRequested,
+        guard_pages: Requirement::Required,
+        canary: Requirement::NotRequested,
+        cache_policy: Requirement::NotRequested,
+    };
+    let error = GuardedSecretVec::with_capacity_with_protection(32, request).unwrap_err();
+
+    assert_eq!(error.failure.control, ProtectionControl::MemoryLock);
+    assert_eq!(
+        error.partial_report.guard_pages,
+        ProtectionState::Established
+    );
+    assert!(error.partial_report.mapped_bytes >= 32);
+    assert_eq!(error.rollback.unlock, RollbackState::NotNeeded);
+    assert_eq!(error.rollback.unmap, RollbackState::Completed);
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    not(feature = "memory-lock"),
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn preferred_unavailable_guarded_controls_are_reported() {
+    let request = ProtectionRequest {
+        memory_lock: Requirement::Preferred,
+        dump_exclusion: Requirement::Preferred,
+        fork_exclusion: Requirement::Preferred,
+        guard_pages: Requirement::Required,
+        canary: Requirement::NotRequested,
+        cache_policy: Requirement::NotRequested,
+    };
+    let secret = GuardedSecretVec::with_capacity_with_protection(32, request).unwrap();
+    let report = secret.protection_report();
+
+    assert_eq!(report.guard_pages, ProtectionState::Established);
+    assert_eq!(report.memory_lock, ProtectionState::Unsupported);
+    assert_eq!(report.dump_exclusion, ProtectionState::Unsupported);
+    assert_eq!(report.fork_exclusion, ProtectionState::Unsupported);
+    assert_eq!(report.locked_bytes, 0);
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
 fn locked_secret_bytes_round_trip_and_clear() {
     let mut secret = LockedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
     let mut out = [0; 4];

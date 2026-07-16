@@ -739,6 +739,60 @@ API-compatible volatile-only storage without host memory locking.
 | Windows | `VirtualAlloc`/`VirtualLock` | no crate-level dump/fork exclusion |
 | WASM `wasm32-*` | inline WASM-owned storage | API compatibility only; no host memory lock, dump exclusion, or page protection |
 
+### Runtime Protection Reports
+
+Compiled features make platform backends available; they do not prove that an
+OS control succeeded. Mapped constructors retain a `ProtectionReport` with the
+actual mapping, lock, dump-exclusion, fork-exclusion, guard-page, canary, and
+cache-policy outcomes.
+
+The existing constructors use named policies:
+
+- locked storage requires page locking and prefers dump/fork exclusion;
+- guarded storage requires guard pages;
+- locked guarded storage requires both guard pages and page locking;
+- `require-fork-exclusion` changes the named locked policies from preferred to
+  required fork exclusion.
+
+Use an explicit `ProtectionRequest` when deployment policy needs different
+required/preferred behavior:
+
+```rust
+use sanitization::{
+    LockedSecretBytes, ProtectionRequest, ProtectionState, Requirement,
+};
+
+let request = ProtectionRequest {
+    memory_lock: Requirement::Required,
+    dump_exclusion: Requirement::Preferred,
+    fork_exclusion: Requirement::Preferred,
+    guard_pages: Requirement::NotRequested,
+    canary: Requirement::NotRequested,
+    cache_policy: Requirement::NotRequested,
+};
+
+let mut key = LockedSecretBytes::<32>::zeroed_with_protection(request)?;
+key.copy_from_slice(&[7; 32]).unwrap();
+
+let report = key.protection_report();
+assert_eq!(report.memory_lock, ProtectionState::Established);
+assert_eq!(report.locked_bytes, report.mapped_bytes);
+
+# Ok::<(), sanitization::ProtectionError>(())
+```
+
+A failed `Required` control returns `ProtectionError`, including the partial
+report and explicit unlock/unmap rollback outcomes. A failed `Preferred`
+control may return a usable container only with `Failed`, `Unsupported`, or
+`CompatibilityOnly` recorded in its report. Reports contain public operational
+metadata such as requested, mapped, and locked byte counts and page granule;
+they never contain mapping addresses, canary values, or secret-derived data.
+
+The report does not claim protection from privileged reads, hibernation,
+hypervisor snapshots, DMA, firmware, or every platform-specific crash-dump
+path. On WASM, native controls report `CompatibilityOnly` or `Unsupported`;
+they are never reported as established.
+
 Enable `require-fork-exclusion` when inheriting locked mappings across `fork`
 must be a hard failure rather than a documented platform limitation:
 

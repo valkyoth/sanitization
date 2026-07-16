@@ -4,6 +4,11 @@ use core::{
     sync::atomic::{compiler_fence, Ordering},
 };
 
+use super::{
+    ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport, ProtectionRequest,
+    ProtectionState, Requirement, RollbackReport, RollbackState,
+};
+
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -350,6 +355,8 @@ pub struct GuardedSecretVec {
     data_capacity: usize,
     len: usize,
     locked: bool,
+    request: ProtectionRequest,
+    report: ProtectionReport,
     #[cfg(feature = "random-canary")]
     canary: [u8; CANARY_SIZE],
 }
@@ -364,7 +371,8 @@ impl GuardedSecretVec {
     /// Create an empty guarded secret buffer with at least `capacity` bytes
     /// of writable data space.
     pub fn with_capacity(capacity: usize) -> Result<Self, GuardPageError> {
-        Self::with_capacity_locked_state(capacity, false)
+        Self::with_capacity_with_protection(capacity, ProtectionRequest::guarded())
+            .map_err(protection_error_as_guard_page)
     }
 
     /// Create an empty guarded secret buffer and lock its writable data
@@ -378,72 +386,137 @@ impl GuardedSecretVec {
     /// pages are not locked because they never contain secret bytes.
     #[cfg(feature = "memory-lock")]
     pub fn locked_with_capacity(capacity: usize) -> Result<Self, GuardPageError> {
-        Self::with_capacity_locked_state(capacity, true)
+        Self::with_capacity_with_protection(capacity, ProtectionRequest::locked_guarded())
+            .map_err(protection_error_as_guard_page)
     }
 
-    fn with_capacity_locked_state(capacity: usize, locked: bool) -> Result<Self, GuardPageError> {
+    /// Create guarded storage under an explicit runtime protection policy.
+    ///
+    /// Guard pages are intrinsic to this type and are always required.
+    /// Preferred lock, dump, or fork controls may fail while construction
+    /// succeeds with an explicit reduced-protection report.
+    pub fn with_capacity_with_protection(
+        capacity: usize,
+        request: ProtectionRequest,
+    ) -> Result<Self, ProtectionError> {
         #[cfg(feature = "random-canary")]
-        let canary = random_canary_value().map_err(|error| GuardPageError {
-            operation: error.operation,
-            errno: error.errno,
+        let canary = random_canary_value().map_err(|error| {
+            guard_pre_mapping_error(request, capacity, ProtectionControl::Canary, error.errno)
         })?;
 
         let page_granule = platform_page_granule();
-        let data_capacity = guarded_payload_capacity(capacity)?;
-        let writable_len = guarded_writable_len(data_capacity)?;
+        let mut report = ProtectionReport::pending(request, capacity, page_granule);
+        report.canary = resolve_guard_canary(request.canary, &report)?;
+        report.cache_policy = resolve_guard_unavailable(
+            request.cache_policy,
+            ProtectionControl::CachePolicy,
+            &report,
+        )?;
+
+        let data_capacity = guarded_payload_capacity(capacity).map_err(|error| {
+            guard_pre_mapping_error(request, capacity, ProtectionControl::Mapping, error.errno)
+        })?;
+        let writable_len = guarded_writable_len(data_capacity).map_err(|error| {
+            guard_pre_mapping_error(request, capacity, ProtectionControl::Mapping, error.errno)
+        })?;
         let total_len = writable_len
             .checked_add(page_granule)
             .and_then(|value| value.checked_add(page_granule))
-            .ok_or(GuardPageError {
-                operation: GuardPageOperation::Length,
-                errno: 0,
+            .ok_or_else(|| {
+                guard_pre_mapping_error(request, capacity, ProtectionControl::Mapping, 0)
             })?;
 
-        let base = map_guarded(total_len)?;
+        let base = match map_guarded(total_len) {
+            Ok(base) => base,
+            Err(error) => {
+                report.mapping = ProtectionState::Failed { code: error.errno };
+                return Err(ProtectionError {
+                    failure: ProtectionFailure {
+                        control: ProtectionControl::Mapping,
+                        code: error.errno,
+                    },
+                    partial_report: report,
+                    rollback: RollbackReport::not_needed(),
+                });
+            }
+        };
+        report.mapping = ProtectionState::Established;
+        report.mapped_bytes = total_len;
         let data_addr = match (base.as_ptr() as usize).checked_add(page_granule) {
             Some(address) => address,
             None => {
-                return Err(unmap_after_guard_setup_error(
+                report.guard_pages = ProtectionState::Failed { code: 0 };
+                return Err(guard_required_error(
                     base,
                     total_len,
-                    GuardPageError {
-                        operation: GuardPageOperation::Length,
-                        errno: 0,
-                    },
+                    ProtectionControl::GuardPages,
+                    0,
+                    report,
                 ));
             }
         };
         let data = match NonNull::new(data_addr as *mut u8) {
             Some(data) => data,
             None => {
-                return Err(unmap_after_guard_setup_error(
+                report.guard_pages = ProtectionState::Failed { code: 0 };
+                return Err(guard_required_error(
                     base,
                     total_len,
-                    GuardPageError {
-                        operation: GuardPageOperation::Map,
-                        errno: 0,
-                    },
+                    ProtectionControl::GuardPages,
+                    0,
+                    report,
                 ));
             }
         };
 
         if let Err(error) = protect_data(data, writable_len) {
-            return Err(unmap_after_guard_setup_error(base, total_len, error));
+            report.guard_pages = ProtectionState::Failed { code: error.errno };
+            return Err(guard_required_error(
+                base,
+                total_len,
+                ProtectionControl::GuardPages,
+                error.errno,
+                report,
+            ));
         }
+        report.guard_pages = ProtectionState::Established;
 
-        #[cfg(feature = "memory-lock")]
+        report.dump_exclusion = apply_guard_control(
+            request.dump_exclusion,
+            dump_exclusion_supported(),
+            ProtectionControl::DumpExclusion,
+            &mut report,
+            base,
+            total_len,
+            data,
+            writable_len,
+            guard_mark_dontdump,
+        )?;
+        report.fork_exclusion = apply_guard_control(
+            request.fork_exclusion,
+            fork_exclusion_supported(),
+            ProtectionControl::ForkExclusion,
+            &mut report,
+            base,
+            total_len,
+            data,
+            writable_len,
+            guard_mark_dontfork,
+        )?;
+        report.memory_lock = apply_guard_control(
+            request.memory_lock,
+            cfg!(feature = "memory-lock"),
+            ProtectionControl::MemoryLock,
+            &mut report,
+            base,
+            total_len,
+            data,
+            writable_len,
+            guard_lock_mapping,
+        )?;
+        let locked = report.memory_lock == ProtectionState::Established;
         if locked {
-            if let Err(error) = mark_dontdump(data, writable_len) {
-                return Err(unmap_after_guard_setup_error(base, total_len, error));
-            }
-
-            if let Err(error) = mark_dontfork(data, writable_len) {
-                return Err(unmap_after_guard_setup_error(base, total_len, error));
-            }
-
-            if let Err(error) = lock_mapping(data, writable_len) {
-                return Err(unmap_after_guard_setup_error(base, total_len, error));
-            }
+            report.locked_bytes = writable_len;
         }
 
         let mut secret = Self {
@@ -454,6 +527,8 @@ impl GuardedSecretVec {
             data_capacity,
             len: 0,
             locked,
+            request,
+            report,
             #[cfg(feature = "random-canary")]
             canary,
         };
@@ -575,6 +650,20 @@ impl GuardedSecretVec {
         self.locked
     }
 
+    /// Actual runtime protections established for the current mapping.
+    #[must_use]
+    #[inline]
+    pub const fn protection_report(&self) -> &ProtectionReport {
+        &self.report
+    }
+
+    /// Runtime protection policy requested for the current mapping.
+    #[must_use]
+    #[inline]
+    pub const fn protection_request(&self) -> ProtectionRequest {
+        self.request
+    }
+
     /// Run a closure with read-only access to initialized secret bytes.
     #[inline]
     pub fn with_secret<R>(&self, inspect: impl FnOnce(&[u8]) -> R) -> R {
@@ -630,7 +719,8 @@ impl GuardedSecretVec {
         self.assert_canaries_intact();
 
         if bytes.len() > self.data_capacity {
-            let mut replacement = Self::with_capacity_locked_state(bytes.len(), self.locked)?;
+            let mut replacement = Self::with_capacity_with_protection(bytes.len(), self.request)
+                .map_err(protection_error_as_guard_page)?;
             replacement.as_mut_capacity_slice()[..bytes.len()].copy_from_slice(bytes);
             replacement.finish_initialization(bytes.len());
 
@@ -655,7 +745,8 @@ impl GuardedSecretVec {
         mut make_byte: impl FnMut(usize) -> u8,
     ) -> Result<(), GuardPageError> {
         self.assert_canaries_intact();
-        let mut replacement = Self::with_capacity_locked_state(len, self.locked)?;
+        let mut replacement = Self::with_capacity_with_protection(len, self.request)
+            .map_err(protection_error_as_guard_page)?;
         replacement.fill_from_fn(len, &mut make_byte);
 
         self.clear_secret();
@@ -674,7 +765,8 @@ impl GuardedSecretVec {
         mut make_byte: impl FnMut(usize) -> Result<u8, E>,
     ) -> Result<(), GuardedSecretVecGenerateError<E>> {
         self.assert_canaries_intact();
-        let mut replacement = Self::with_capacity_locked_state(len, self.locked)?;
+        let mut replacement = Self::with_capacity_with_protection(len, self.request)
+            .map_err(protection_error_as_guard_page)?;
         replacement
             .fill_from_try_fn(len, &mut make_byte)
             .map_err(GuardedSecretVecGenerateError::Generate)?;
@@ -761,7 +853,8 @@ impl GuardedSecretVec {
             .saturating_mul(2)
             .max(required)
             .max(page_granule);
-        let mut replacement = Self::with_capacity_locked_state(next_capacity, self.locked)?;
+        let mut replacement = Self::with_capacity_with_protection(next_capacity, self.request)
+            .map_err(protection_error_as_guard_page)?;
         replacement.as_mut_capacity_slice()[..self.len].copy_from_slice(self.as_slice());
         replacement.finish_initialization(self.len);
 
@@ -1003,6 +1096,222 @@ impl fmt::Debug for GuardedSecretVec {
             .field("contents", &"<redacted>")
             .finish()
     }
+}
+
+fn resolve_guard_unavailable(
+    requirement: Requirement,
+    control: ProtectionControl,
+    report: &ProtectionReport,
+) -> Result<ProtectionState, ProtectionError> {
+    match super::protection::unavailable_state(requirement) {
+        Ok(state) => Ok(state),
+        Err(()) => Err(ProtectionError {
+            failure: ProtectionFailure { control, code: 0 },
+            partial_report: *report,
+            rollback: RollbackReport::not_needed(),
+        }),
+    }
+}
+
+fn resolve_guard_canary(
+    requirement: Requirement,
+    report: &ProtectionReport,
+) -> Result<ProtectionState, ProtectionError> {
+    #[cfg(feature = "canary-check")]
+    {
+        let _ = requirement;
+        let _ = report;
+        Ok(ProtectionState::Established)
+    }
+    #[cfg(not(feature = "canary-check"))]
+    {
+        resolve_guard_unavailable(requirement, ProtectionControl::Canary, report)
+    }
+}
+
+fn guard_pre_mapping_error(
+    request: ProtectionRequest,
+    requested_bytes: usize,
+    control: ProtectionControl,
+    code: i32,
+) -> ProtectionError {
+    let mut report = ProtectionReport::pending(request, requested_bytes, platform_page_granule());
+    set_guard_failed_state(&mut report, control, code);
+    ProtectionError {
+        failure: ProtectionFailure { control, code },
+        partial_report: report,
+        rollback: RollbackReport::not_needed(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_guard_control(
+    requirement: Requirement,
+    supported: bool,
+    control: ProtectionControl,
+    report: &mut ProtectionReport,
+    base: NonNull<u8>,
+    total_len: usize,
+    data: NonNull<u8>,
+    writable_len: usize,
+    apply: fn(NonNull<u8>, usize) -> Result<(), GuardPageError>,
+) -> Result<ProtectionState, ProtectionError> {
+    if requirement == Requirement::NotRequested {
+        return Ok(ProtectionState::NotRequested);
+    }
+    if !supported {
+        if requirement == Requirement::Preferred {
+            return Ok(ProtectionState::Unsupported);
+        }
+        set_guard_failed_state(report, control, 0);
+        return Err(guard_required_error(base, total_len, control, 0, *report));
+    }
+
+    match apply(data, writable_len) {
+        Ok(()) => Ok(ProtectionState::Established),
+        Err(error) => {
+            if control == ProtectionControl::MemoryLock {
+                report.lock_quota_likely = lock_quota_likely(error.errno);
+            }
+            if requirement == Requirement::Preferred {
+                return Ok(ProtectionState::Failed { code: error.errno });
+            }
+            set_guard_failed_state(report, control, error.errno);
+            Err(guard_required_error(
+                base,
+                total_len,
+                control,
+                error.errno,
+                *report,
+            ))
+        }
+    }
+}
+
+fn guard_required_error(
+    base: NonNull<u8>,
+    total_len: usize,
+    control: ProtectionControl,
+    code: i32,
+    report: ProtectionReport,
+) -> ProtectionError {
+    ProtectionError {
+        failure: ProtectionFailure { control, code },
+        partial_report: report,
+        rollback: rollback_guarded_mapping(base, total_len),
+    }
+}
+
+fn rollback_guarded_mapping(base: NonNull<u8>, total_len: usize) -> RollbackReport {
+    // Locking is deliberately the final setup operation, so no later setup
+    // step can fail after a successful lock.
+    let unlock = RollbackState::NotNeeded;
+    let unmap = match unmap_guarded(base, total_len) {
+        Ok(()) => RollbackState::Completed,
+        Err(error) => RollbackState::Failed(ProtectionFailure {
+            control: ProtectionControl::Mapping,
+            code: error.errno,
+        }),
+    };
+    RollbackReport { unlock, unmap }
+}
+
+fn set_guard_failed_state(report: &mut ProtectionReport, control: ProtectionControl, code: i32) {
+    let state = ProtectionState::Failed { code };
+    match control {
+        ProtectionControl::Mapping => report.mapping = state,
+        ProtectionControl::MemoryLock => report.memory_lock = state,
+        ProtectionControl::DumpExclusion => report.dump_exclusion = state,
+        ProtectionControl::ForkExclusion => report.fork_exclusion = state,
+        ProtectionControl::GuardPages => report.guard_pages = state,
+        ProtectionControl::Canary => report.canary = state,
+        ProtectionControl::CachePolicy => report.cache_policy = state,
+    }
+}
+
+fn protection_error_as_guard_page(error: ProtectionError) -> GuardPageError {
+    if let RollbackState::Failed(failure) = error.rollback.unmap {
+        return GuardPageError {
+            operation: GuardPageOperation::Unmap,
+            errno: failure.code,
+        };
+    }
+    if let RollbackState::Failed(failure) = error.rollback.unlock {
+        return GuardPageError {
+            operation: GuardPageOperation::Unlock,
+            errno: failure.code,
+        };
+    }
+
+    GuardPageError {
+        operation: match error.failure.control {
+            ProtectionControl::Mapping => GuardPageOperation::Map,
+            ProtectionControl::MemoryLock => GuardPageOperation::Lock,
+            ProtectionControl::DumpExclusion => GuardPageOperation::DontDump,
+            ProtectionControl::ForkExclusion => GuardPageOperation::DontFork,
+            ProtectionControl::GuardPages => GuardPageOperation::Protect,
+            ProtectionControl::Canary => GuardPageOperation::Random,
+            ProtectionControl::CachePolicy => GuardPageOperation::Protect,
+        },
+        errno: error.failure.code,
+    }
+}
+
+#[inline]
+const fn lock_quota_likely(code: i32) -> bool {
+    matches!(code, 11 | 12 | 1453)
+}
+
+#[inline]
+const fn dump_exclusion_supported() -> bool {
+    cfg!(all(
+        feature = "memory-lock",
+        any(target_os = "linux", target_os = "freebsd")
+    ))
+}
+
+#[inline]
+const fn fork_exclusion_supported() -> bool {
+    cfg!(all(feature = "memory-lock", target_os = "linux"))
+}
+
+#[cfg(feature = "memory-lock")]
+fn guard_lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+    lock_mapping(ptr, len)
+}
+
+#[cfg(not(feature = "memory-lock"))]
+fn guard_lock_mapping(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
+    Err(GuardPageError {
+        operation: GuardPageOperation::Lock,
+        errno: 0,
+    })
+}
+
+#[cfg(feature = "memory-lock")]
+fn guard_mark_dontdump(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+    mark_dontdump(ptr, len)
+}
+
+#[cfg(not(feature = "memory-lock"))]
+fn guard_mark_dontdump(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
+    Err(GuardPageError {
+        operation: GuardPageOperation::DontDump,
+        errno: 0,
+    })
+}
+
+#[cfg(feature = "memory-lock")]
+fn guard_mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+    mark_dontfork(ptr, len)
+}
+
+#[cfg(not(feature = "memory-lock"))]
+fn guard_mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
+    Err(GuardPageError {
+        operation: GuardPageOperation::DontFork,
+        errno: 0,
+    })
 }
 
 #[cfg(feature = "random-canary")]
@@ -1489,21 +1798,6 @@ fn unmap_guarded(ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
         Err(windows_error(GuardPageOperation::Unmap))
     } else {
         Ok(())
-    }
-}
-
-#[inline]
-fn unmap_after_guard_setup_error(
-    ptr: NonNull<u8>,
-    len: usize,
-    setup_error: GuardPageError,
-) -> GuardPageError {
-    // A failed unmap can leave a live mapping behind, so it takes
-    // precedence over the setup error. Carrying both would require a
-    // breaking change to the public two-field error representation.
-    match unmap_guarded(ptr, len) {
-        Ok(()) => setup_error,
-        Err(unmap_error) => unmap_error,
     }
 }
 

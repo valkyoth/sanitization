@@ -4,6 +4,11 @@ use core::{
     sync::atomic::{compiler_fence, AtomicBool, Ordering},
 };
 
+use super::{
+    ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport, ProtectionRequest,
+    ProtectionState, Requirement, RollbackReport, RollbackState,
+};
+
 #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
 use core::sync::atomic::AtomicUsize;
 
@@ -428,6 +433,9 @@ impl<E> From<MemoryLockError> for LockedSecretBytesGenerateError<E> {
 pub struct LockedSecretBytes<const N: usize> {
     ptr: NonNull<u8>,
     map_len: usize,
+    locked: bool,
+    request: ProtectionRequest,
+    report: ProtectionReport,
     #[cfg(feature = "random-canary")]
     canary: [u8; CANARY_SIZE],
 }
@@ -441,41 +449,74 @@ impl<const N: usize> LockedSecretBytes<N> {
     /// Allocate locked zeroed storage for `N` bytes.
     #[inline]
     pub fn zeroed() -> Result<Self, MemoryLockError> {
+        Self::zeroed_with_protection(ProtectionRequest::locked())
+            .map_err(protection_error_as_memory_lock)
+    }
+
+    /// Allocate zeroed storage under an explicit runtime protection policy.
+    ///
+    /// Preferred controls may fail while construction succeeds. Call
+    /// [`LockedSecretBytes::protection_report`] before relying on them.
+    #[inline]
+    pub fn zeroed_with_protection(request: ProtectionRequest) -> Result<Self, ProtectionError> {
         if N == 0 {
+            let report = empty_native_report(request, N, false)?;
             return Ok(Self {
                 ptr: NonNull::dangling(),
                 map_len: 0,
+                locked: false,
+                request,
+                report,
                 #[cfg(feature = "random-canary")]
                 canary: [0; CANARY_SIZE],
             });
         }
 
         #[cfg(feature = "random-canary")]
-        let canary = random_canary_value()?;
+        let canary = random_canary_value().map_err(|error| {
+            pre_mapping_error(request, N, ProtectionControl::Canary, error.errno, false)
+        })?;
 
-        let map_len = rounded_mapping_len(Self::mapping_payload_len()?)?;
-        let ptr = map_private(map_len)?;
-
-        if let Err(error) = mark_dontdump(ptr, map_len) {
-            return Err(unmap_after_setup_error(ptr, map_len, error));
-        }
-
-        if let Err(error) = mark_dontfork(ptr, map_len) {
-            return Err(unmap_after_setup_error(ptr, map_len, error));
-        }
-
-        if let Err(error) = lock_mapping(ptr, map_len) {
-            return Err(unmap_after_setup_error(ptr, map_len, error));
-        }
+        let payload_len = Self::mapping_payload_len().map_err(|error| {
+            pre_mapping_error(request, N, ProtectionControl::Mapping, error.errno, false)
+        })?;
+        let map_len = rounded_mapping_len(payload_len).map_err(|error| {
+            pre_mapping_error(request, N, ProtectionControl::Mapping, error.errno, false)
+        })?;
+        let setup = setup_native_mapping(map_len, N, request, false)?;
 
         let mut secret = Self {
-            ptr,
+            ptr: setup.ptr,
             map_len,
+            locked: setup.locked,
+            request,
+            report: setup.report,
             #[cfg(feature = "random-canary")]
             canary,
         };
         secret.write_canaries();
         Ok(secret)
+    }
+
+    /// Actual runtime protections established for this allocation.
+    #[must_use]
+    #[inline]
+    pub const fn protection_report(&self) -> &ProtectionReport {
+        &self.report
+    }
+
+    /// Runtime protection policy requested for this allocation.
+    #[must_use]
+    #[inline]
+    pub const fn protection_request(&self) -> ProtectionRequest {
+        self.request
+    }
+
+    /// Returns true when the current mapping is locked against ordinary paging.
+    #[must_use]
+    #[inline]
+    pub const fn is_memory_locked(&self) -> bool {
+        self.locked
     }
 
     /// Allocate locked storage, copy an array into it, then clear the input
@@ -638,7 +679,16 @@ impl<const N: usize> LockedSecretBytes<N> {
     #[inline]
     pub fn replace_from_slice(&mut self, source: &[u8]) -> Result<(), LockedSecretBytesError> {
         self.assert_canaries_intact();
-        let mut replacement = Self::from_slice(source)?;
+        if source.len() != N {
+            return Err(crate::LengthError {
+                expected: N,
+                actual: source.len(),
+            }
+            .into());
+        }
+        let mut replacement = self.replacement_zeroed()?;
+        replacement.as_mut_slice().copy_from_slice(source);
+        compiler_fence(Ordering::SeqCst);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -652,9 +702,17 @@ impl<const N: usize> LockedSecretBytes<N> {
     /// the owned input array is still cleared and the old locked value
     /// remains unchanged.
     #[inline]
-    pub fn replace_from_array(&mut self, bytes: [u8; N]) -> Result<(), MemoryLockError> {
+    pub fn replace_from_array(&mut self, mut bytes: [u8; N]) -> Result<(), MemoryLockError> {
         self.assert_canaries_intact();
-        let mut replacement = Self::from_array(bytes)?;
+        let mut replacement = match self.replacement_zeroed() {
+            Ok(replacement) => replacement,
+            Err(error) => {
+                crate::wipe::bytes(&mut bytes);
+                return Err(error);
+            }
+        };
+        replacement.as_mut_slice().copy_from_slice(&bytes);
+        crate::wipe::bytes(&mut bytes);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -672,7 +730,14 @@ impl<const N: usize> LockedSecretBytes<N> {
         make_byte: impl FnMut(usize) -> u8,
     ) -> Result<(), MemoryLockError> {
         self.assert_canaries_intact();
-        let mut replacement = Self::from_fn(make_byte)?;
+        let mut replacement = self.replacement_zeroed()?;
+        let mut make_byte = make_byte;
+        let mut index = 0;
+        while index < N {
+            replacement.as_mut_slice()[index] = make_byte(index);
+            index += 1;
+        }
+        compiler_fence(Ordering::SeqCst);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -690,7 +755,20 @@ impl<const N: usize> LockedSecretBytes<N> {
         make_byte: impl FnMut(usize) -> Result<u8, E>,
     ) -> Result<(), LockedSecretBytesGenerateError<E>> {
         self.assert_canaries_intact();
-        let mut replacement = Self::try_from_fn(make_byte)?;
+        let mut replacement = self.replacement_zeroed()?;
+        let mut make_byte = make_byte;
+        let mut index = 0;
+        while index < N {
+            match make_byte(index) {
+                Ok(byte) => replacement.as_mut_slice()[index] = byte,
+                Err(error) => {
+                    replacement.secure_clear();
+                    return Err(LockedSecretBytesGenerateError::Generate(error));
+                }
+            }
+            index += 1;
+        }
+        compiler_fence(Ordering::SeqCst);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -708,7 +786,10 @@ impl<const N: usize> LockedSecretBytes<N> {
         fill: impl FnOnce(&mut [u8; N]),
     ) -> Result<(), MemoryLockError> {
         self.assert_canaries_intact();
-        let mut replacement = Self::from_fill(fill)?;
+        let mut replacement = self.replacement_zeroed()?;
+        compiler_fence(Ordering::SeqCst);
+        fill(replacement.as_mut_array());
+        compiler_fence(Ordering::SeqCst);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -725,10 +806,20 @@ impl<const N: usize> LockedSecretBytes<N> {
         fill: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
     ) -> Result<(), LockedSecretBytesGenerateError<E>> {
         self.assert_canaries_intact();
-        let mut replacement = Self::try_from_fill(fill)?;
+        let mut replacement = self.replacement_zeroed()?;
+        compiler_fence(Ordering::SeqCst);
+        if let Err(error) = fill(replacement.as_mut_array()) {
+            replacement.secure_clear();
+            return Err(LockedSecretBytesGenerateError::Generate(error));
+        }
+        compiler_fence(Ordering::SeqCst);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
+    }
+
+    fn replacement_zeroed(&self) -> Result<Self, MemoryLockError> {
+        Self::zeroed_with_protection(self.request).map_err(protection_error_as_memory_lock)
     }
 
     /// Fill a caller-provided destination with a copy of the secret bytes.
@@ -1088,7 +1179,9 @@ impl<const N: usize> Drop for LockedSecretBytes<N> {
         self.secure_clear();
 
         if self.map_len != 0 {
-            let _ = unlock_mapping(self.ptr, self.map_len);
+            if self.locked {
+                let _ = unlock_mapping(self.ptr, self.map_len);
+            }
             let _ = unmap_private(self.ptr, self.map_len);
         }
     }
@@ -1216,6 +1309,9 @@ pub struct LockedSecretVec {
     map_len: usize,
     data_capacity: usize,
     len: usize,
+    locked: bool,
+    request: ProtectionRequest,
+    report: ProtectionReport,
     #[cfg(feature = "random-canary")]
     canary: [u8; CANARY_SIZE],
 }
@@ -1228,40 +1324,69 @@ unsafe impl Send for LockedSecretVec {}
 impl LockedSecretVec {
     /// Allocate locked dynamic storage with at least `capacity` bytes.
     pub fn with_capacity(capacity: usize) -> Result<Self, MemoryLockError> {
+        Self::with_capacity_with_protection(capacity, ProtectionRequest::locked())
+            .map_err(protection_error_as_memory_lock)
+    }
+
+    /// Allocate dynamic storage under an explicit runtime protection policy.
+    pub fn with_capacity_with_protection(
+        capacity: usize,
+        request: ProtectionRequest,
+    ) -> Result<Self, ProtectionError> {
         if capacity == 0 {
+            let report = empty_native_report(request, capacity, false)?;
             return Ok(Self {
                 ptr: NonNull::dangling(),
                 map_len: 0,
                 data_capacity: 0,
                 len: 0,
+                locked: false,
+                request,
+                report,
                 #[cfg(feature = "random-canary")]
                 canary: [0; CANARY_SIZE],
             });
         }
 
         #[cfg(feature = "random-canary")]
-        let canary = random_canary_value()?;
+        let canary = random_canary_value().map_err(|error| {
+            pre_mapping_error(
+                request,
+                capacity,
+                ProtectionControl::Canary,
+                error.errno,
+                false,
+            )
+        })?;
 
-        let map_len = rounded_mapping_len(Self::mapping_payload_len(capacity)?)?;
-        let ptr = map_private(map_len)?;
-
-        if let Err(error) = mark_dontdump(ptr, map_len) {
-            return Err(unmap_after_setup_error(ptr, map_len, error));
-        }
-
-        if let Err(error) = mark_dontfork(ptr, map_len) {
-            return Err(unmap_after_setup_error(ptr, map_len, error));
-        }
-
-        if let Err(error) = lock_mapping(ptr, map_len) {
-            return Err(unmap_after_setup_error(ptr, map_len, error));
-        }
+        let payload_len = Self::mapping_payload_len(capacity).map_err(|error| {
+            pre_mapping_error(
+                request,
+                capacity,
+                ProtectionControl::Mapping,
+                error.errno,
+                false,
+            )
+        })?;
+        let map_len = rounded_mapping_len(payload_len).map_err(|error| {
+            pre_mapping_error(
+                request,
+                capacity,
+                ProtectionControl::Mapping,
+                error.errno,
+                false,
+            )
+        })?;
+        let setup = setup_native_mapping(map_len, capacity, request, false)?;
 
         let mut secret = Self {
-            ptr,
+            ptr: setup.ptr,
             map_len,
             data_capacity: capacity,
             len: 0,
+            locked: setup.locked,
+            request,
+            report: setup.report,
             #[cfg(feature = "random-canary")]
             canary,
         };
@@ -1414,7 +1539,28 @@ impl LockedSecretVec {
     #[must_use]
     #[inline]
     pub const fn locked_len(&self) -> usize {
-        self.map_len
+        self.report.locked_bytes
+    }
+
+    /// Actual runtime protections established for the current mapping.
+    #[must_use]
+    #[inline]
+    pub const fn protection_report(&self) -> &ProtectionReport {
+        &self.report
+    }
+
+    /// Runtime protection policy requested for the current mapping.
+    #[must_use]
+    #[inline]
+    pub const fn protection_request(&self) -> ProtectionRequest {
+        self.request
+    }
+
+    /// Returns true when the pool mapping is locked against ordinary paging.
+    #[must_use]
+    #[inline]
+    pub const fn is_memory_locked(&self) -> bool {
+        self.locked
     }
 
     /// Run a closure with read-only access to initialized secret bytes.
@@ -1465,7 +1611,7 @@ impl LockedSecretVec {
         self.assert_canaries_intact();
 
         if bytes.len() > self.data_capacity {
-            let mut replacement = Self::with_capacity(bytes.len())?;
+            let mut replacement = self.replacement_with_capacity(bytes.len())?;
             replacement.as_mut_capacity_slice()[..bytes.len()].copy_from_slice(bytes);
             replacement.finish_initialization(bytes.len());
             self.clear_secret();
@@ -1486,7 +1632,7 @@ impl LockedSecretVec {
         mut make_byte: impl FnMut(usize) -> u8,
     ) -> Result<(), MemoryLockError> {
         self.assert_canaries_intact();
-        let mut replacement = Self::with_capacity(len)?;
+        let mut replacement = self.replacement_with_capacity(len)?;
         replacement.fill_from_fn(len, &mut make_byte);
         self.clear_secret();
         core::mem::swap(self, &mut replacement);
@@ -1500,7 +1646,7 @@ impl LockedSecretVec {
         mut make_byte: impl FnMut(usize) -> Result<u8, E>,
     ) -> Result<(), LockedSecretVecGenerateError<E>> {
         self.assert_canaries_intact();
-        let mut replacement = Self::with_capacity(len)?;
+        let mut replacement = self.replacement_with_capacity(len)?;
         replacement
             .fill_from_try_fn(len, &mut make_byte)
             .map_err(LockedSecretVecGenerateError::Generate)?;
@@ -1521,7 +1667,10 @@ impl LockedSecretVec {
         fill: impl FnOnce(&mut [u8]),
     ) -> Result<(), MemoryLockError> {
         self.assert_canaries_intact();
-        let mut replacement = Self::from_exact_len(len, fill)?;
+        let mut replacement = self.replacement_with_capacity(len)?;
+        compiler_fence(Ordering::SeqCst);
+        fill(&mut replacement.as_mut_capacity_slice()[..len]);
+        replacement.finish_initialization(len);
         self.clear_secret();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -1538,7 +1687,13 @@ impl LockedSecretVec {
         fill: impl FnOnce(&mut [u8]) -> Result<(), E>,
     ) -> Result<(), LockedSecretVecGenerateError<E>> {
         self.assert_canaries_intact();
-        let mut replacement = Self::try_from_exact_len(len, fill)?;
+        let mut replacement = self.replacement_with_capacity(len)?;
+        compiler_fence(Ordering::SeqCst);
+        if let Err(error) = fill(&mut replacement.as_mut_capacity_slice()[..len]) {
+            replacement.clear_secret();
+            return Err(LockedSecretVecGenerateError::Generate(error));
+        }
+        replacement.finish_initialization(len);
         self.clear_secret();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -1570,7 +1725,28 @@ impl LockedSecretVec {
         fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
     ) -> Result<(), LockedSecretVecFillError<E>> {
         self.assert_canaries_intact();
-        let mut replacement = Self::try_from_capacity(capacity, fill)?;
+        let mut replacement = self.replacement_with_capacity(capacity)?;
+        compiler_fence(Ordering::SeqCst);
+        let len = match fill(replacement.as_mut_capacity_slice()) {
+            Ok(len) => len,
+            Err(error) => {
+                replacement.clear_secret();
+                return Err(LockedSecretVecFillError::Fill(error));
+            }
+        };
+        if len > capacity {
+            replacement.clear_secret();
+            return Err(crate::LengthError {
+                expected: capacity,
+                actual: len,
+            }
+            .into());
+        }
+        if len < capacity {
+            let spare = &mut replacement.as_mut_capacity_slice()[len..capacity];
+            crate::wipe_backend::erase(spare.as_mut_ptr(), spare.len());
+        }
+        replacement.finish_initialization(len);
         self.clear_secret();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -1634,12 +1810,17 @@ impl LockedSecretVec {
     fn grow_to(&mut self, required: usize) -> Result<(), MemoryLockError> {
         self.assert_canaries_intact();
         let next_capacity = self.data_capacity.saturating_mul(2).max(required).max(1);
-        let mut replacement = Self::with_capacity(next_capacity)?;
+        let mut replacement = self.replacement_with_capacity(next_capacity)?;
         replacement.as_mut_capacity_slice()[..self.len].copy_from_slice(self.as_slice());
         replacement.finish_initialization(self.len);
         self.clear_secret();
         core::mem::swap(self, &mut replacement);
         Ok(())
+    }
+
+    fn replacement_with_capacity(&self, capacity: usize) -> Result<Self, MemoryLockError> {
+        Self::with_capacity_with_protection(capacity, self.request)
+            .map_err(protection_error_as_memory_lock)
     }
 
     fn fill_from_fn(&mut self, len: usize, make_byte: &mut impl FnMut(usize) -> u8) {
@@ -1869,7 +2050,9 @@ impl Drop for LockedSecretVec {
     fn drop(&mut self) {
         self.clear_secret();
         if self.map_len != 0 {
-            let _ = unlock_mapping(self.ptr, self.map_len);
+            if self.locked {
+                let _ = unlock_mapping(self.ptr, self.map_len);
+            }
             let _ = unmap_private(self.ptr, self.map_len);
         }
     }
@@ -1910,6 +2093,9 @@ pub struct SecretPool<const N: usize, const SLOTS: usize> {
     base: NonNull<u8>,
     map_len: usize,
     slot_stride: usize,
+    locked: bool,
+    request: ProtectionRequest,
+    report: ProtectionReport,
     used: [AtomicBool; SLOTS],
     #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
     generations: [AtomicUsize; SLOTS],
@@ -1950,45 +2136,68 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     /// drop.
     #[inline]
     pub fn new() -> Result<Self, MemoryLockError> {
+        Self::new_with_protection(ProtectionRequest::locked())
+            .map_err(protection_error_as_memory_lock)
+    }
+
+    /// Create a pool under an explicit runtime protection policy.
+    #[inline]
+    pub fn new_with_protection(request: ProtectionRequest) -> Result<Self, ProtectionError> {
         let used = core::array::from_fn(|_| AtomicBool::new(false));
         #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
         let generations = core::array::from_fn(|_| AtomicUsize::new(0));
-        let slot_stride = Self::slot_stride()?;
-        let total_bytes = slot_stride.checked_mul(SLOTS).ok_or(MemoryLockError {
-            operation: MemoryLockOperation::Length,
-            errno: 0,
+        let slot_stride = Self::slot_stride().map_err(|error| {
+            pre_mapping_error(
+                request,
+                N.saturating_mul(SLOTS),
+                ProtectionControl::Mapping,
+                error.errno,
+                false,
+            )
+        })?;
+        let total_bytes = slot_stride.checked_mul(SLOTS).ok_or_else(|| {
+            pre_mapping_error(
+                request,
+                N.saturating_mul(SLOTS),
+                ProtectionControl::Mapping,
+                0,
+                false,
+            )
         })?;
 
         if total_bytes == 0 {
+            let report = empty_native_report(request, total_bytes, false)?;
             return Ok(Self {
                 base: NonNull::dangling(),
                 map_len: 0,
                 slot_stride,
+                locked: false,
+                request,
+                report,
                 used,
                 #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
                 generations,
             });
         }
 
-        let map_len = rounded_mapping_len(total_bytes)?;
-        let base = map_private(map_len)?;
-
-        if let Err(error) = mark_dontdump(base, map_len) {
-            return Err(unmap_after_setup_error(base, map_len, error));
-        }
-
-        if let Err(error) = mark_dontfork(base, map_len) {
-            return Err(unmap_after_setup_error(base, map_len, error));
-        }
-
-        if let Err(error) = lock_mapping(base, map_len) {
-            return Err(unmap_after_setup_error(base, map_len, error));
-        }
+        let map_len = rounded_mapping_len(total_bytes).map_err(|error| {
+            pre_mapping_error(
+                request,
+                total_bytes,
+                ProtectionControl::Mapping,
+                error.errno,
+                false,
+            )
+        })?;
+        let setup = setup_native_mapping(map_len, total_bytes, request, false)?;
 
         Ok(Self {
-            base,
+            base: setup.ptr,
             map_len,
             slot_stride,
+            locked: setup.locked,
+            request,
+            report: setup.report,
             used,
             #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
             generations,
@@ -2020,7 +2229,28 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     #[must_use]
     #[inline]
     pub const fn locked_len(&self) -> usize {
-        self.map_len
+        self.report.locked_bytes
+    }
+
+    /// Actual runtime protections established for the pool mapping.
+    #[must_use]
+    #[inline]
+    pub const fn protection_report(&self) -> &ProtectionReport {
+        &self.report
+    }
+
+    /// Runtime protection policy requested for the pool mapping.
+    #[must_use]
+    #[inline]
+    pub const fn protection_request(&self) -> ProtectionRequest {
+        self.request
+    }
+
+    /// Returns true when the pool mapping is locked against ordinary paging.
+    #[must_use]
+    #[inline]
+    pub const fn is_memory_locked(&self) -> bool {
+        self.locked
     }
 
     /// Count slots that are currently available.
@@ -2665,7 +2895,9 @@ impl<const N: usize, const SLOTS: usize> Drop for SecretPool<N, SLOTS> {
         self.secure_clear();
 
         if self.map_len != 0 {
-            let _ = unlock_mapping(self.base, self.map_len);
+            if self.locked {
+                let _ = unlock_mapping(self.base, self.map_len);
+            }
             let _ = unmap_private(self.base, self.map_len);
         }
     }
@@ -2733,6 +2965,294 @@ impl<'pool, const N: usize, const SLOTS: usize> fmt::Debug for SecretPoolSlot<'p
             .field("contents", &"<redacted>")
             .finish()
     }
+}
+
+struct NativeMappingSetup {
+    ptr: NonNull<u8>,
+    locked: bool,
+    report: ProtectionReport,
+}
+
+fn empty_native_report(
+    request: ProtectionRequest,
+    requested_bytes: usize,
+    guard_pages: bool,
+) -> Result<ProtectionReport, ProtectionError> {
+    let mut report = ProtectionReport::pending(request, requested_bytes, platform_page_granule());
+    report.mapping = ProtectionState::NotApplicable;
+    report.memory_lock = resolve_empty_control(request.memory_lock);
+    report.dump_exclusion = resolve_empty_control(request.dump_exclusion);
+    report.fork_exclusion = resolve_empty_control(request.fork_exclusion);
+    report.guard_pages = if guard_pages {
+        ProtectionState::NotApplicable
+    } else {
+        resolve_unavailable(request.guard_pages, ProtectionControl::GuardPages, &report)?
+    };
+    report.canary = resolve_empty_control(request.canary);
+    report.cache_policy = resolve_unavailable(
+        request.cache_policy,
+        ProtectionControl::CachePolicy,
+        &report,
+    )?;
+    Ok(report)
+}
+
+fn setup_native_mapping(
+    map_len: usize,
+    requested_bytes: usize,
+    request: ProtectionRequest,
+    guard_pages: bool,
+) -> Result<NativeMappingSetup, ProtectionError> {
+    let mut report = ProtectionReport::pending(request, requested_bytes, platform_page_granule());
+    report.guard_pages = if guard_pages {
+        ProtectionState::Established
+    } else {
+        resolve_unavailable(request.guard_pages, ProtectionControl::GuardPages, &report)?
+    };
+    report.canary = resolve_canary(request.canary, &report)?;
+    report.cache_policy = resolve_unavailable(
+        request.cache_policy,
+        ProtectionControl::CachePolicy,
+        &report,
+    )?;
+
+    let ptr = match map_private(map_len) {
+        Ok(ptr) => ptr,
+        Err(error) => {
+            report.mapping = ProtectionState::Failed { code: error.errno };
+            return Err(ProtectionError {
+                failure: ProtectionFailure {
+                    control: ProtectionControl::Mapping,
+                    code: error.errno,
+                },
+                partial_report: report,
+                rollback: RollbackReport::not_needed(),
+            });
+        }
+    };
+    report.mapping = ProtectionState::Established;
+    report.mapped_bytes = map_len;
+
+    report.dump_exclusion = apply_native_control(
+        request.dump_exclusion,
+        dump_exclusion_supported(),
+        ProtectionControl::DumpExclusion,
+        &mut report,
+        ptr,
+        map_len,
+        mark_dontdump,
+    )?;
+    report.fork_exclusion = apply_native_control(
+        request.fork_exclusion,
+        fork_exclusion_supported(),
+        ProtectionControl::ForkExclusion,
+        &mut report,
+        ptr,
+        map_len,
+        mark_dontfork,
+    )?;
+    report.memory_lock = apply_native_control(
+        request.memory_lock,
+        true,
+        ProtectionControl::MemoryLock,
+        &mut report,
+        ptr,
+        map_len,
+        lock_mapping,
+    )?;
+    let locked = report.memory_lock == ProtectionState::Established;
+    if locked {
+        report.locked_bytes = map_len;
+    }
+
+    Ok(NativeMappingSetup {
+        ptr,
+        locked,
+        report,
+    })
+}
+
+fn apply_native_control(
+    requirement: Requirement,
+    supported: bool,
+    control: ProtectionControl,
+    report: &mut ProtectionReport,
+    ptr: NonNull<u8>,
+    len: usize,
+    apply: fn(NonNull<u8>, usize) -> Result<(), MemoryLockError>,
+) -> Result<ProtectionState, ProtectionError> {
+    if requirement == Requirement::NotRequested {
+        return Ok(ProtectionState::NotRequested);
+    }
+    if !supported {
+        if requirement == Requirement::Preferred {
+            return Ok(ProtectionState::Unsupported);
+        }
+        set_failed_state(report, control, 0);
+        return Err(ProtectionError {
+            failure: ProtectionFailure { control, code: 0 },
+            partial_report: *report,
+            rollback: rollback_native_mapping(ptr, len, false),
+        });
+    }
+
+    match apply(ptr, len) {
+        Ok(()) => Ok(ProtectionState::Established),
+        Err(error) => {
+            if control == ProtectionControl::MemoryLock {
+                report.lock_quota_likely = lock_quota_likely(error.errno);
+            }
+            if requirement == Requirement::Preferred {
+                return Ok(ProtectionState::Failed { code: error.errno });
+            }
+
+            set_failed_state(report, control, error.errno);
+            Err(ProtectionError {
+                failure: ProtectionFailure {
+                    control,
+                    code: error.errno,
+                },
+                partial_report: *report,
+                rollback: rollback_native_mapping(ptr, len, false),
+            })
+        }
+    }
+}
+
+fn resolve_unavailable(
+    requirement: Requirement,
+    control: ProtectionControl,
+    report: &ProtectionReport,
+) -> Result<ProtectionState, ProtectionError> {
+    match super::protection::unavailable_state(requirement) {
+        Ok(state) => Ok(state),
+        Err(()) => Err(ProtectionError {
+            failure: ProtectionFailure { control, code: 0 },
+            partial_report: *report,
+            rollback: RollbackReport::not_needed(),
+        }),
+    }
+}
+
+fn resolve_canary(
+    requirement: Requirement,
+    report: &ProtectionReport,
+) -> Result<ProtectionState, ProtectionError> {
+    #[cfg(feature = "canary-check")]
+    {
+        let _ = requirement;
+        let _ = report;
+        Ok(ProtectionState::Established)
+    }
+    #[cfg(not(feature = "canary-check"))]
+    {
+        resolve_unavailable(requirement, ProtectionControl::Canary, report)
+    }
+}
+
+const fn resolve_empty_control(requirement: Requirement) -> ProtectionState {
+    match requirement {
+        Requirement::NotRequested => ProtectionState::NotRequested,
+        Requirement::Required | Requirement::Preferred => ProtectionState::NotApplicable,
+    }
+}
+
+fn pre_mapping_error(
+    request: ProtectionRequest,
+    requested_bytes: usize,
+    control: ProtectionControl,
+    code: i32,
+    guard_pages: bool,
+) -> ProtectionError {
+    let mut report = ProtectionReport::pending(request, requested_bytes, platform_page_granule());
+    if guard_pages {
+        report.guard_pages = ProtectionState::Failed { code };
+    }
+    set_failed_state(&mut report, control, code);
+    ProtectionError {
+        failure: ProtectionFailure { control, code },
+        partial_report: report,
+        rollback: RollbackReport::not_needed(),
+    }
+}
+
+fn set_failed_state(report: &mut ProtectionReport, control: ProtectionControl, code: i32) {
+    let state = ProtectionState::Failed { code };
+    match control {
+        ProtectionControl::Mapping => report.mapping = state,
+        ProtectionControl::MemoryLock => report.memory_lock = state,
+        ProtectionControl::DumpExclusion => report.dump_exclusion = state,
+        ProtectionControl::ForkExclusion => report.fork_exclusion = state,
+        ProtectionControl::GuardPages => report.guard_pages = state,
+        ProtectionControl::Canary => report.canary = state,
+        ProtectionControl::CachePolicy => report.cache_policy = state,
+    }
+}
+
+fn rollback_native_mapping(ptr: NonNull<u8>, len: usize, locked: bool) -> RollbackReport {
+    let unlock = if locked {
+        match unlock_mapping(ptr, len) {
+            Ok(()) => RollbackState::Completed,
+            Err(error) => RollbackState::Failed(ProtectionFailure {
+                control: ProtectionControl::MemoryLock,
+                code: error.errno,
+            }),
+        }
+    } else {
+        RollbackState::NotNeeded
+    };
+    let unmap = match unmap_private(ptr, len) {
+        Ok(()) => RollbackState::Completed,
+        Err(error) => RollbackState::Failed(ProtectionFailure {
+            control: ProtectionControl::Mapping,
+            code: error.errno,
+        }),
+    };
+    RollbackReport { unlock, unmap }
+}
+
+fn protection_error_as_memory_lock(error: ProtectionError) -> MemoryLockError {
+    if let RollbackState::Failed(failure) = error.rollback.unmap {
+        return MemoryLockError {
+            operation: MemoryLockOperation::Unmap,
+            errno: failure.code,
+        };
+    }
+    if let RollbackState::Failed(failure) = error.rollback.unlock {
+        return MemoryLockError {
+            operation: MemoryLockOperation::Unlock,
+            errno: failure.code,
+        };
+    }
+
+    MemoryLockError {
+        operation: match error.failure.control {
+            ProtectionControl::Mapping => MemoryLockOperation::Map,
+            ProtectionControl::MemoryLock => MemoryLockOperation::Lock,
+            ProtectionControl::DumpExclusion => MemoryLockOperation::DontDump,
+            ProtectionControl::ForkExclusion => MemoryLockOperation::DontFork,
+            ProtectionControl::GuardPages | ProtectionControl::CachePolicy => {
+                MemoryLockOperation::Map
+            }
+            ProtectionControl::Canary => MemoryLockOperation::Random,
+        },
+        errno: error.failure.code,
+    }
+}
+
+#[inline]
+const fn lock_quota_likely(code: i32) -> bool {
+    matches!(code, 11 | 12 | 1453)
+}
+
+#[inline]
+const fn dump_exclusion_supported() -> bool {
+    cfg!(any(target_os = "linux", target_os = "freebsd"))
+}
+
+#[inline]
+const fn fork_exclusion_supported() -> bool {
+    cfg!(target_os = "linux")
 }
 
 #[cfg(feature = "random-canary")]
@@ -3097,21 +3617,6 @@ fn unmap_private(ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
         Err(windows_error(MemoryLockOperation::Unmap))
     } else {
         Ok(())
-    }
-}
-
-#[inline]
-fn unmap_after_setup_error(
-    ptr: NonNull<u8>,
-    len: usize,
-    setup_error: MemoryLockError,
-) -> MemoryLockError {
-    // A failed unmap can leave a live mapping behind, so it takes
-    // precedence over the setup error. Carrying both would require a
-    // breaking change to the public two-field error representation.
-    match unmap_private(ptr, len) {
-        Ok(()) => setup_error,
-        Err(unmap_error) => unmap_error,
     }
 }
 

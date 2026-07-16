@@ -142,6 +142,21 @@ container. Leaking a slot with `core::mem::forget` also leaks that slot's
 allocation state and skips its drop-time clearing, just as leaking any
 secret-owning value skips its destructor.
 
+Feature selection indicates compiled capability, not achieved runtime
+protection. `ProtectionRequest` classifies each control as required, preferred,
+or not requested. Mapped containers retain a `ProtectionReport` describing the
+actual result. Required failures roll back the mapping and return a
+`ProtectionError` containing the partial pre-rollback state and separate
+unlock/unmap outcomes. Preferred failures may return reduced-protection storage
+only when the report marks the control failed, unsupported, or
+compatibility-only. Reports expose operational sizes and platform error codes,
+but never secret bytes, canary values, or mapping addresses.
+
+Neither a successful report nor a named feature profile claims protection from
+privileged process inspection, hibernation, VM or hypervisor snapshots, DMA,
+firmware, or every crash-dump mechanism. Deployment policy must evaluate those
+channels separately.
+
 `LockedSecretString` is a UTF-8-safe wrapper over `LockedSecretVec`; it does not
 add a second mapping or allocation. Moving an ordinary `String` into locked
 text requires copying into the platform mapping, after which the source string

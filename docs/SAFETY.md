@@ -203,6 +203,10 @@ no host memory lock only when `wasm-compat` is explicitly enabled.
 
 Operations:
 
+- `ProtectionRequest` separates required, preferred, and unrequested controls.
+  `ProtectionReport` records achieved state and non-secret mapping metadata.
+  A required setup failure returns `ProtectionError` with the partial report
+  and explicit rollback outcomes.
 - Linux: `mmap` creates a private anonymous read/write mapping,
   `madvise(MADV_DONTDUMP)` asks the kernel to exclude that mapping from
   ordinary Linux core dumps, `madvise(MADV_DONTFORK)` asks the kernel to
@@ -223,6 +227,14 @@ Operations:
 
 Invariant:
 
+- A report marks a control `Established` only after the corresponding platform
+  operation succeeds. Unsupported or failed preferred controls remain visible
+  in the retained report.
+- A required failure cannot return a live container. The backend attempts
+  rollback and records unlock and unmap independently, so a cleanup failure is
+  not hidden behind the original setup failure.
+- Protection diagnostics contain no secret-derived data, mapping addresses, or
+  canary material.
 - The module is compiled only for supported OS targets with the `memory-lock`
   feature enabled, or for `wasm32` with both `memory-lock` and `wasm-compat`.
   Linux support is limited to `x86_64` and `aarch64` raw syscall ABIs.

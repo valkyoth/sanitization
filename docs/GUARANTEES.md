@@ -64,6 +64,13 @@ platform's memory-locking facility. On Linux-family targets, supported
 constructors also request `MADV_DONTDUMP`, and when available they request
 `MADV_DONTFORK` unless the platform-specific backend documents otherwise.
 
+Cargo features describe compiled capability. Runtime success is represented by
+`ProtectionReport`, retained by mapped byte and text containers. Explicit
+`ProtectionRequest` values make each control required, preferred, or not
+requested. A required failure returns a structured `ProtectionError` and no
+container; a preferred failure can succeed only with a reduced state recorded
+in the report.
+
 The stronger native storage types guarantee:
 
 - locked mappings are cleared before unlock/unmap on drop;
@@ -75,6 +82,8 @@ The stronger native storage types guarantee:
   region on supported native targets.
 - `GuardedSecretString` delegates its storage lifecycle to
   `GuardedSecretVec` while restricting safe exposure to valid UTF-8.
+- protection reports contain only public operational metadata and never
+  addresses, canary values, or secret-derived contents.
 
 When `require-fork-exclusion` is enabled, native locked constructors fail
 closed on platforms where fork-inheritance exclusion is unavailable.

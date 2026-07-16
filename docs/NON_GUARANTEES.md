@@ -91,6 +91,12 @@ Memory locking reduces swap/pagefile exposure for the crate's owned locked
 storage when the OS accepts the lock. It does not make RAM unreadable to the OS
 or to privileged attackers.
 
+A compiled feature or successful mapping allocation does not prove that every
+requested control was established. Callers must inspect `ProtectionReport`.
+Even a report showing established locking, dump exclusion, fork exclusion, and
+guard pages does not cover hibernation, privileged reads, hypervisor snapshots,
+DMA, firmware, or every platform-specific crash-dump mechanism.
+
 ## Rust Move And Stack History
 
 Rust moves may copy bytes. The crate tries to reduce avoidable copies by using

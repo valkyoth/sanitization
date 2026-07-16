@@ -4,6 +4,11 @@ use core::{
     sync::atomic::{compiler_fence, AtomicBool, Ordering},
 };
 
+use super::{
+    ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport, ProtectionRequest,
+    ProtectionState, Requirement, RollbackReport,
+};
+
 #[cfg(feature = "canary-check")]
 const CANARY_SIZE: usize = 8;
 #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
@@ -235,6 +240,8 @@ impl<const N: usize> WasmLockedStorage<N> {
 /// memory or prevent host-runtime copies, swapping, snapshots, or dumps.
 pub struct LockedSecretBytes<const N: usize> {
     storage: UnsafeCell<WasmLockedStorage<N>>,
+    request: ProtectionRequest,
+    report: ProtectionReport,
     #[cfg(feature = "random-canary")]
     canary: [u8; CANARY_SIZE],
 }
@@ -248,13 +255,51 @@ impl<const N: usize> LockedSecretBytes<N> {
     /// Allocate zeroed WASM storage for `N` bytes.
     #[inline]
     pub fn zeroed() -> Result<Self, MemoryLockError> {
+        Self::zeroed_with_protection(ProtectionRequest::wasm_compatibility())
+            .map_err(protection_error_as_memory_lock)
+    }
+
+    /// Allocate WASM compatibility storage under an explicit policy.
+    ///
+    /// Required native controls fail because a WASM module cannot establish
+    /// host page locking, dump exclusion, or fork policy.
+    #[inline]
+    pub fn zeroed_with_protection(request: ProtectionRequest) -> Result<Self, ProtectionError> {
+        let report = wasm_protection_report(request, N)?;
         let mut secret = Self {
             storage: UnsafeCell::new(WasmLockedStorage::zeroed()),
+            request,
+            report,
             #[cfg(feature = "random-canary")]
-            canary: random_canary_value()?,
+            canary: random_canary_value().map_err(|error| {
+                let mut partial_report = report;
+                partial_report.canary = ProtectionState::Failed { code: error.errno };
+                ProtectionError {
+                    failure: ProtectionFailure {
+                        control: ProtectionControl::Canary,
+                        code: error.errno,
+                    },
+                    partial_report,
+                    rollback: RollbackReport::not_needed(),
+                }
+            })?,
         };
         secret.write_canaries();
         Ok(secret)
+    }
+
+    /// Actual compatibility protections for this WASM-owned storage.
+    #[must_use]
+    #[inline]
+    pub const fn protection_report(&self) -> &ProtectionReport {
+        &self.report
+    }
+
+    /// Runtime protection policy requested for this storage.
+    #[must_use]
+    #[inline]
+    pub const fn protection_request(&self) -> ProtectionRequest {
+        self.request
     }
 
     /// Returns false on WASM because no host memory lock is applied.
@@ -393,7 +438,16 @@ impl<const N: usize> LockedSecretBytes<N> {
     #[inline]
     pub fn replace_from_slice(&mut self, source: &[u8]) -> Result<(), LockedSecretBytesError> {
         self.assert_canaries_intact();
-        let mut replacement = Self::from_slice(source)?;
+        if source.len() != N {
+            return Err(crate::LengthError {
+                expected: N,
+                actual: source.len(),
+            }
+            .into());
+        }
+        let mut replacement = self.replacement_zeroed()?;
+        replacement.as_mut_slice().copy_from_slice(source);
+        compiler_fence(Ordering::SeqCst);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -401,9 +455,17 @@ impl<const N: usize> LockedSecretBytes<N> {
 
     /// Replace all secret bytes from an owned array, then clear the input.
     #[inline]
-    pub fn replace_from_array(&mut self, bytes: [u8; N]) -> Result<(), MemoryLockError> {
+    pub fn replace_from_array(&mut self, mut bytes: [u8; N]) -> Result<(), MemoryLockError> {
         self.assert_canaries_intact();
-        let mut replacement = Self::from_array(bytes)?;
+        let mut replacement = match self.replacement_zeroed() {
+            Ok(replacement) => replacement,
+            Err(error) => {
+                crate::wipe::bytes(&mut bytes);
+                return Err(error);
+            }
+        };
+        replacement.as_mut_slice().copy_from_slice(&bytes);
+        crate::wipe::bytes(&mut bytes);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -416,7 +478,14 @@ impl<const N: usize> LockedSecretBytes<N> {
         make_byte: impl FnMut(usize) -> u8,
     ) -> Result<(), MemoryLockError> {
         self.assert_canaries_intact();
-        let mut replacement = Self::from_fn(make_byte)?;
+        let mut replacement = self.replacement_zeroed()?;
+        let mut make_byte = make_byte;
+        let mut index = 0;
+        while index < N {
+            replacement.as_mut_slice()[index] = make_byte(index);
+            index += 1;
+        }
+        compiler_fence(Ordering::SeqCst);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -429,7 +498,20 @@ impl<const N: usize> LockedSecretBytes<N> {
         make_byte: impl FnMut(usize) -> Result<u8, E>,
     ) -> Result<(), LockedSecretBytesGenerateError<E>> {
         self.assert_canaries_intact();
-        let mut replacement = Self::try_from_fn(make_byte)?;
+        let mut replacement = self.replacement_zeroed()?;
+        let mut make_byte = make_byte;
+        let mut index = 0;
+        while index < N {
+            match make_byte(index) {
+                Ok(byte) => replacement.as_mut_slice()[index] = byte,
+                Err(error) => {
+                    replacement.secure_clear();
+                    return Err(LockedSecretBytesGenerateError::Generate(error));
+                }
+            }
+            index += 1;
+        }
+        compiler_fence(Ordering::SeqCst);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -442,7 +524,10 @@ impl<const N: usize> LockedSecretBytes<N> {
         fill: impl FnOnce(&mut [u8; N]),
     ) -> Result<(), MemoryLockError> {
         self.assert_canaries_intact();
-        let mut replacement = Self::from_fill(fill)?;
+        let mut replacement = self.replacement_zeroed()?;
+        compiler_fence(Ordering::SeqCst);
+        fill(replacement.as_mut_array());
+        compiler_fence(Ordering::SeqCst);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -455,10 +540,20 @@ impl<const N: usize> LockedSecretBytes<N> {
         fill: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
     ) -> Result<(), LockedSecretBytesGenerateError<E>> {
         self.assert_canaries_intact();
-        let mut replacement = Self::try_from_fill(fill)?;
+        let mut replacement = self.replacement_zeroed()?;
+        compiler_fence(Ordering::SeqCst);
+        if let Err(error) = fill(replacement.as_mut_array()) {
+            replacement.secure_clear();
+            return Err(LockedSecretBytesGenerateError::Generate(error));
+        }
+        compiler_fence(Ordering::SeqCst);
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
+    }
+
+    fn replacement_zeroed(&self) -> Result<Self, MemoryLockError> {
+        Self::zeroed_with_protection(self.request).map_err(protection_error_as_memory_lock)
     }
 
     /// Fill a caller-provided destination with a copy of the secret bytes.
@@ -758,6 +853,8 @@ impl<const N: usize> WasmPoolSlotStorage<N> {
 pub struct SecretPool<const N: usize, const SLOTS: usize> {
     slots: [UnsafeCell<WasmPoolSlotStorage<N>>; SLOTS],
     used: [AtomicBool; SLOTS],
+    request: ProtectionRequest,
+    report: ProtectionReport,
 }
 
 /// A live fixed-size secret slot allocated from a [`SecretPool`].
@@ -780,9 +877,27 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     /// Create a WASM volatile-only pool with `SLOTS` slots of `N` bytes.
     #[inline]
     pub fn new() -> Result<Self, MemoryLockError> {
+        Self::new_with_protection(ProtectionRequest::wasm_compatibility())
+            .map_err(protection_error_as_memory_lock)
+    }
+
+    /// Create a WASM compatibility pool under an explicit policy.
+    #[inline]
+    pub fn new_with_protection(request: ProtectionRequest) -> Result<Self, ProtectionError> {
+        let requested_bytes = N.checked_mul(SLOTS).ok_or_else(|| ProtectionError {
+            failure: ProtectionFailure {
+                control: ProtectionControl::Mapping,
+                code: 0,
+            },
+            partial_report: ProtectionReport::pending(request, usize::MAX, 0),
+            rollback: RollbackReport::not_needed(),
+        })?;
+        let report = wasm_protection_report(request, requested_bytes)?;
         Ok(Self {
             slots: core::array::from_fn(|_| UnsafeCell::new(WasmPoolSlotStorage::zeroed())),
             used: core::array::from_fn(|_| AtomicBool::new(false)),
+            request,
+            report,
         })
     }
 
@@ -812,6 +927,20 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     #[inline]
     pub const fn locked_len(&self) -> usize {
         0
+    }
+
+    /// Actual compatibility protections for the pool storage.
+    #[must_use]
+    #[inline]
+    pub const fn protection_report(&self) -> &ProtectionReport {
+        &self.report
+    }
+
+    /// Runtime protection policy requested for the pool storage.
+    #[must_use]
+    #[inline]
+    pub const fn protection_request(&self) -> ProtectionRequest {
+        self.request
     }
 
     /// Count slots that are currently available.
@@ -1361,6 +1490,112 @@ impl<'pool, const N: usize, const SLOTS: usize> fmt::Debug for SecretPoolSlot<'p
             .field("slot_index", &self.slot_index)
             .field("contents", &"<redacted>")
             .finish()
+    }
+}
+
+fn wasm_protection_report(
+    request: ProtectionRequest,
+    requested_bytes: usize,
+) -> Result<ProtectionReport, ProtectionError> {
+    let mut report = ProtectionReport::pending(request, requested_bytes, 0);
+    report.mapping = ProtectionState::CompatibilityOnly;
+    report.memory_lock =
+        wasm_compatibility_state(request.memory_lock, ProtectionControl::MemoryLock, &report)?;
+    report.dump_exclusion = wasm_compatibility_state(
+        request.dump_exclusion,
+        ProtectionControl::DumpExclusion,
+        &report,
+    )?;
+    report.fork_exclusion = wasm_compatibility_state(
+        request.fork_exclusion,
+        ProtectionControl::ForkExclusion,
+        &report,
+    )?;
+    report.guard_pages =
+        wasm_unavailable_state(request.guard_pages, ProtectionControl::GuardPages, &report)?;
+    report.cache_policy = wasm_unavailable_state(
+        request.cache_policy,
+        ProtectionControl::CachePolicy,
+        &report,
+    )?;
+    report.canary = wasm_canary_state(request.canary, &report)?;
+    Ok(report)
+}
+
+fn wasm_compatibility_state(
+    requirement: Requirement,
+    control: ProtectionControl,
+    report: &ProtectionReport,
+) -> Result<ProtectionState, ProtectionError> {
+    match requirement {
+        Requirement::NotRequested => Ok(ProtectionState::NotRequested),
+        Requirement::Preferred => Ok(ProtectionState::CompatibilityOnly),
+        Requirement::Required => Err(wasm_required_error(control, *report)),
+    }
+}
+
+fn wasm_unavailable_state(
+    requirement: Requirement,
+    control: ProtectionControl,
+    report: &ProtectionReport,
+) -> Result<ProtectionState, ProtectionError> {
+    match requirement {
+        Requirement::NotRequested => Ok(ProtectionState::NotRequested),
+        Requirement::Preferred => Ok(ProtectionState::Unsupported),
+        Requirement::Required => Err(wasm_required_error(control, *report)),
+    }
+}
+
+fn wasm_canary_state(
+    requirement: Requirement,
+    report: &ProtectionReport,
+) -> Result<ProtectionState, ProtectionError> {
+    #[cfg(feature = "canary-check")]
+    {
+        let _ = requirement;
+        let _ = report;
+        Ok(ProtectionState::Established)
+    }
+    #[cfg(not(feature = "canary-check"))]
+    {
+        wasm_unavailable_state(requirement, ProtectionControl::Canary, report)
+    }
+}
+
+fn wasm_required_error(
+    control: ProtectionControl,
+    mut report: ProtectionReport,
+) -> ProtectionError {
+    let failed = ProtectionState::Failed { code: 0 };
+    match control {
+        ProtectionControl::Mapping => report.mapping = failed,
+        ProtectionControl::MemoryLock => report.memory_lock = failed,
+        ProtectionControl::DumpExclusion => report.dump_exclusion = failed,
+        ProtectionControl::ForkExclusion => report.fork_exclusion = failed,
+        ProtectionControl::GuardPages => report.guard_pages = failed,
+        ProtectionControl::Canary => report.canary = failed,
+        ProtectionControl::CachePolicy => report.cache_policy = failed,
+    }
+    ProtectionError {
+        failure: ProtectionFailure { control, code: 0 },
+        partial_report: report,
+        rollback: RollbackReport::not_needed(),
+    }
+}
+
+fn protection_error_as_memory_lock(error: ProtectionError) -> MemoryLockError {
+    MemoryLockError {
+        operation: match error.failure.control {
+            ProtectionControl::Mapping => MemoryLockOperation::Map,
+            ProtectionControl::MemoryLock => MemoryLockOperation::Lock,
+            ProtectionControl::DumpExclusion => MemoryLockOperation::DontDump,
+            ProtectionControl::ForkExclusion => MemoryLockOperation::DontFork,
+            ProtectionControl::GuardPages | ProtectionControl::CachePolicy => {
+                MemoryLockOperation::Map
+            }
+            ProtectionControl::Canary => MemoryLockOperation::Random,
+        },
+        errno: error.failure.code,
     }
 }
 
