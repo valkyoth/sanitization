@@ -81,6 +81,12 @@ Run Miri separately when a nightly toolchain with Miri is installed:
 scripts/verify-miri.sh
 ```
 
+Miri verifies supported Rust memory-safety paths. It does not execute the native
+OS mapping, locking, protection, dump/fork-policy, or guard-page syscalls, which
+are compiled out under `cfg(miri)`. Native Linux tests cover the new locked and
+guarded UTF-8 wrappers; other supported platforms require their own native
+evidence.
+
 Run Kani proofs directly when `cargo-kani` is installed:
 
 ```bash
@@ -149,7 +155,10 @@ Current proof scope:
 
 These proofs are functional correctness checks over bounded inputs. They do not
 prove hardware timing, compiler backend behavior, or absence of every
-microarchitectural leak.
+microarchitectural leak. Kani currently treats these harnesses as sequential
+and does not model real concurrent scheduling, atomic interleavings under
+contention, or concurrent kernel behavior. This release adds no new
+concurrency primitives or unsafe trait implementations.
 
 ## Release Codegen Checks
 

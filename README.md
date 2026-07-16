@@ -273,6 +273,12 @@ The declassification step is explicit on purpose. Reviewers can search for
 `declassify(` to find every place where a secret-derived value becomes a normal
 public branch or decision.
 
+UTF-8 validation, serde limit checks, and variable-length mismatch handling are
+outside this data-oblivious claim. They may return as soon as invalid input or
+public metadata is known. Use text and variable-length APIs only when UTF-8
+validity and byte length are public; use fixed-size byte APIs when those
+properties must not influence control flow.
+
 Optional and fallible secret-derived states can stay in the `ct` domain until a
 public boundary:
 
@@ -1263,8 +1269,9 @@ Building a generic JSON tree first can leave another plaintext `String` in that
 tree. If a `serde_json::Value::String` already exists, move its owned `String`
 into `SecretString::from_string`; this transfers the allocation without a
 second heap copy. The original JSON input and parser scratch buffers may still
-contain plaintext, and some deserializers allocate input before the visitor is
-called, so transport and parser input limits remain required.
+contain plaintext. Serde byte limits are enforced only after the deserializer
+invokes this crate's visitor; a parser may already have allocated or copied the
+input. Transport-level and parser-level limits therefore remain required.
 
 ## Generic Secret Wrapper
 
@@ -1762,6 +1769,12 @@ unsafe-boundary check separately:
 scripts/verify-miri.sh
 ```
 
+Miri covers supported Rust memory-safety paths, but it cannot execute the native
+OS mapping, memory-locking, protection, or guard-page syscalls used by the
+hardened native containers. Those paths require tests on each supported native
+OS; Miri results must not be cited as evidence that `mlock`, `mmap`,
+`mprotect`, `VirtualLock`, or equivalent platform behavior was exercised.
+
 To run the bounded formal harnesses directly:
 
 ```bash
@@ -1771,7 +1784,12 @@ scripts/verify-kani.sh
 These harnesses prove selected fixed-size properties for the volatile clearing
 path, secret clearing visibility, native `ct` equality, ordering, selection,
 optional/result combinators, memory helper semantics, and capacity arithmetic.
-They are not a replacement for external review.
+Kani currently models these harnesses sequentially and does not model real
+concurrent execution. It therefore does not verify thread interleavings,
+atomic-ordering behavior under contention, or concurrent OS interactions.
+This release adds no new concurrency primitives or unsafe trait
+implementations. Kani and Miri remain targeted evidence, not replacements for
+native testing or external review.
 
 To capture local release-evidence metadata for an alpha, RC, or pentest handoff:
 

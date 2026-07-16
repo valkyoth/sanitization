@@ -14,6 +14,8 @@
   interoperability to the new text types.
 - Documented direct JSON-to-secret ingestion and the remaining parser/input
   copy limitations.
+- Clarified serde visitor boundaries, validation timing, and the native syscall
+  and concurrency limits of Miri/Kani evidence.
 
 ## 1.2.4
 

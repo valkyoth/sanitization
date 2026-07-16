@@ -21,5 +21,8 @@
   interoperability to the new text containers.
 - Updated README guidance for direct secret-aware JSON ingestion, including the
   remaining limits around parser input and scratch-buffer copies.
+- Clarified that UTF-8 validation and length rejection are not data-oblivious,
+  that serde limits begin at visitor control, and that Miri/Kani do not provide
+  native syscall or real-concurrency coverage.
 - Updated all workspace crates and crates.io-facing version references for the
   `1.2.5` patch release.

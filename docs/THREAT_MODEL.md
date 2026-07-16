@@ -77,6 +77,14 @@ Rust applications.
 - Preventing a deserializer or transport from allocating its own input before
   the 1 MiB `SecretVec`/`SecretString` ceilings or a caller-selected bounded
   byte/text container receives visitor control.
+- Hiding UTF-8 validity, invalid-byte position, serde acceptance/rejection, or
+  variable secret length. Validation and length mismatch behavior treats those
+  values as public metadata and is not claimed to be data-oblivious.
+- Using Miri as evidence for native memory-lock, mapping, page-protection,
+  dump/fork-policy, or guard-page syscalls. Those paths require native platform
+  tests.
+- Using Kani as proof of real concurrent execution or atomic interleavings.
+  Kani's configured harnesses provide bounded sequential functional evidence.
 - Soundly scrubbing old stack frames, prior Rust move copies, all CPU
   registers, unrelated CPU cache lines, allocator metadata, or third-party
   library copies. The `register-scrub` feature is only an explicit best-effort

@@ -43,6 +43,9 @@
 //! - `zeroize`, `subtle`, and `serde` integration are available only through
 //!   explicit `zeroize-interop`, `subtle-interop`, and `serde` features. They
 //!   are off by default.
+//! - UTF-8 validation, serde size-limit rejection, and public-length mismatch
+//!   handling are not data-oblivious operations. Callers must treat validity
+//!   and length as public metadata when using text or variable-length APIs.
 //! - Fixed-size lifetime enforcement is available only through the `std`
 //!   feature and [`ExpiringSecretBytes`].
 //! - Guard-page allocation is available only through the explicit

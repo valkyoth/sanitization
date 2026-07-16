@@ -22,6 +22,13 @@ primitives try to avoid secret-dependent control flow and secret-dependent
 memory access under documented target, feature, compiler, and release-profile
 conditions.
 
+UTF-8 validation, serde size-limit rejection, and variable-length mismatch
+handling are not included in that claim. UTF-8 validators may stop at the first
+invalid byte, and length checks may return immediately. Text validity and
+variable lengths must therefore be public metadata. Protocols that need to hide
+those properties should use a fixed-size representation and perform any
+necessary validation outside the secret-dependent path.
+
 ## Arbitrary Caller Code
 
 The crate cannot make arbitrary closures or third-party cryptographic
@@ -50,6 +57,15 @@ behavior.
 `core::hint::black_box` is a useful optimizer barrier but is not a
 cryptographic guarantee. The crate treats it as one component of a broader
 barrier and evidence strategy, not as proof by itself.
+
+Miri cannot execute or validate the native OS facilities behind memory locking,
+private mappings, page protection, dump/fork policy, or guard pages. Native
+tests are required to exercise those platform paths.
+
+Kani performs bounded functional verification and treats configured harnesses
+sequentially. It does not model real thread scheduling, concurrent atomic
+interleavings, or concurrent kernel behavior. A passing Kani run is not a proof
+of concurrency correctness.
 
 WASM has special limits. Rust/LLVM preserves volatile writes while emitting
 WASM, but the WASM specification has no volatile-memory instruction. Browser
@@ -95,8 +111,8 @@ it creates.
 `SecretVec` and `SecretString` use 1 MiB default serde ceilings.
 Use `BoundedSecretVec<MAX>` or `BoundedSecretString<MAX>` at untrusted dynamic
 boundaries that require a protocol-specific limit, while retaining transport
-and parser limits because a deserializer may allocate before calling either
-visitor.
+and parser limits. The crate's limit takes effect only when the deserializer
+calls its visitor; a parser may already have allocated or copied the input.
 
 Moving an owned `String` into `SecretString` transfers that allocation without
 copying, but it cannot clear JSON input buffers, parser scratch allocations, or
