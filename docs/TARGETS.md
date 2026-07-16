@@ -38,6 +38,18 @@ Tier names are evidence labels, not security certifications.
 | `cache-flush` | Checked x86_64 eviction; other architectures return unsupported after wipe | Checked x86_64 eviction; other architectures return unsupported after wipe | Checked x86_64 eviction | Structured unsupported result |
 | `register-scrub` | x86_64/AArch64 reported best effort | x86_64/AArch64 reported best effort | x86_64/AArch64 reported best effort | Structured unsupported result |
 
+## Named Profile Availability
+
+| Profile | Linux x86_64/AArch64 | macOS/iOS x86_64/AArch64 | Windows x86_64/AArch64 | Android x86_64/AArch64 | BSD x86_64/AArch64 | WASM |
+| --- | --- | --- | --- | --- | --- | --- |
+| `profile-hardened-native` | Yes | Yes | Yes | Yes | Yes where the native backend compiles | Forbidden |
+| `profile-guarded-native` | Yes | Yes | Yes | Yes | Yes where guard pages compile | Forbidden |
+| `profile-hardened-linux` | Yes | Forbidden | Forbidden | Forbidden | Forbidden | Forbidden |
+
+Profiles describe compiled capability. The matching `ProtectionRequest`
+describes required/preferred policy, and each runtime `ProtectionReport`
+records achieved controls. See `docs/FEATURE_PROFILES.md`.
+
 ## Release-Candidate Requirements
 
 A stable `1.2.0` candidate should attach or cite:

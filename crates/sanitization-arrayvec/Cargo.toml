@@ -17,9 +17,16 @@ include = [
     "README.md",
 ]
 
+[package.metadata.sanitization]
+role = "companion"
+clearing-owner = "sanitization"
+
 [dependencies]
 arrayvec = { version = "0.7", default-features = false }
-sanitization = { version = "1.2.5", path = "../sanitization" }
+sanitization = { version = "1.2.5", path = "../sanitization", default-features = false }
+
+[package.metadata.docs.rs]
+all-features = true
 
 [lib]
 path = "src/lib.rs"

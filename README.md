@@ -242,7 +242,34 @@ sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3",
 | `multi-pass-clear` | no | Enables explicit three-pass volatile overwrite helpers for policy or audit compatibility. |
 | `hardware-secrets` | no | Enables dependency-free traits for external hardware-backed secret provider crates. |
 | `split-secret` | no | Enables `SplitSecretBytes<N, SHARES>` N-of-N XOR split storage. |
+| `profile-hardened-native` | no | Bundles native memory locking, OS-random strict canaries, and strict assembly-backed equality. The matching request requires memory lock and canaries while treating dump/fork exclusion as preferred. |
+| `profile-guarded-native` | no | Extends `profile-hardened-native` with required guard pages. |
+| `profile-hardened-linux` | no | Extends `profile-hardened-native` with required Linux fork exclusion and is rejected on non-Linux targets. |
+
 Default builds are dependency-free and `no_std`.
+
+### Named hardening profiles
+
+Named profiles compile reviewed capability bundles; they do not claim that the
+operating system established every requested control. Use the matching
+`ProtectionRequest` constructor and inspect the container's
+`ProtectionReport`:
+
+```toml
+sanitization = { version = "2", features = ["profile-hardened-native"] }
+```
+
+```rust
+use sanitization::ProtectionRequest;
+
+let request = ProtectionRequest::profile_hardened_native();
+```
+
+`profile-guarded-native` additionally requires guard pages.
+`profile-hardened-linux` additionally requires Linux fork exclusion. Native
+profiles fail to compile on WASM rather than silently becoming compatibility
+profiles. See [Feature Profiles And Crate Boundaries](docs/FEATURE_PROFILES.md)
+for the exact request policy and companion-crate architecture.
 
 ## Data-Oblivious Primitives
 

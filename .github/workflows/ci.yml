@@ -78,7 +78,12 @@ jobs:
         run: cargo test --all-targets
 
       - name: Test all features
+        if: runner.os == 'Linux'
         run: cargo test --all-targets --all-features
+
+      - name: Test portable native features
+        if: runner.os != 'Linux'
+        run: cargo test --all-targets --features "alloc,std,derive,serde,subtle-interop,zeroize-interop,memory-lock,wasm-compat,canary-check,random-canary,asm-compare,strict-compare,cache-flush,register-scrub,guard-pages,page-seal,strict-canary-check,multi-pass-clear,hardware-secrets,split-secret,profile-hardened-native,profile-guarded-native"
 
       - name: Check no_std library build
         run: cargo check --no-default-features --lib
@@ -128,19 +133,19 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             features: memory-lock,guard-pages,multi-pass-clear
           - target: x86_64-apple-darwin
-            features: all
+            features: alloc,std,derive,serde,subtle-interop,zeroize-interop,memory-lock,wasm-compat,canary-check,random-canary,asm-compare,strict-compare,cache-flush,register-scrub,guard-pages,page-seal,strict-canary-check,multi-pass-clear,hardware-secrets,split-secret,profile-hardened-native,profile-guarded-native
           - target: aarch64-apple-darwin
-            features: all
+            features: alloc,std,derive,serde,subtle-interop,zeroize-interop,memory-lock,wasm-compat,canary-check,random-canary,asm-compare,strict-compare,cache-flush,register-scrub,guard-pages,page-seal,strict-canary-check,multi-pass-clear,hardware-secrets,split-secret,profile-hardened-native,profile-guarded-native
           - target: aarch64-apple-ios
-            features: all
+            features: alloc,std,derive,serde,subtle-interop,zeroize-interop,memory-lock,wasm-compat,canary-check,random-canary,asm-compare,strict-compare,cache-flush,register-scrub,guard-pages,page-seal,strict-canary-check,multi-pass-clear,hardware-secrets,split-secret,profile-hardened-native,profile-guarded-native
           - target: x86_64-apple-ios
-            features: all
+            features: alloc,std,derive,serde,subtle-interop,zeroize-interop,memory-lock,wasm-compat,canary-check,random-canary,asm-compare,strict-compare,cache-flush,register-scrub,guard-pages,page-seal,strict-canary-check,multi-pass-clear,hardware-secrets,split-secret,profile-hardened-native,profile-guarded-native
           - target: x86_64-pc-windows-gnu
-            features: all
+            features: alloc,std,derive,serde,subtle-interop,zeroize-interop,memory-lock,wasm-compat,canary-check,random-canary,asm-compare,strict-compare,cache-flush,register-scrub,guard-pages,page-seal,strict-canary-check,multi-pass-clear,hardware-secrets,split-secret,profile-hardened-native,profile-guarded-native
           - target: aarch64-linux-android
-            features: all
+            features: alloc,std,derive,serde,subtle-interop,zeroize-interop,memory-lock,wasm-compat,canary-check,random-canary,asm-compare,strict-compare,cache-flush,register-scrub,guard-pages,page-seal,strict-canary-check,multi-pass-clear,hardware-secrets,split-secret,profile-hardened-native,profile-guarded-native
           - target: x86_64-linux-android
-            features: all
+            features: alloc,std,derive,serde,subtle-interop,zeroize-interop,memory-lock,wasm-compat,canary-check,random-canary,asm-compare,strict-compare,cache-flush,register-scrub,guard-pages,page-seal,strict-canary-check,multi-pass-clear,hardware-secrets,split-secret,profile-hardened-native,profile-guarded-native
           - target: x86_64-unknown-freebsd
             features: memory-lock,guard-pages,multi-pass-clear
 

@@ -3,6 +3,7 @@ set -euo pipefail
 
 cargo fmt --check
 scripts/verify-action-pins.sh
+scripts/verify-feature-profiles.py
 scripts/test-latest-rust.py
 if command -v cargo-audit >/dev/null 2>&1; then
     cargo audit --deny warnings
@@ -21,6 +22,9 @@ cargo test --features strict-compare
 cargo test --features cache-flush
 cargo test --features guard-pages
 cargo test --features multi-pass-clear
+cargo test --features profile-hardened-native
+cargo test --features profile-guarded-native
+cargo test --features profile-hardened-linux
 cargo test --all-features
 cargo test --workspace --all-features
 cargo check --examples
@@ -68,15 +72,17 @@ check_installed_target() {
     fi
 }
 
+PORTABLE_NATIVE_FEATURES="alloc,std,derive,serde,subtle-interop,zeroize-interop,memory-lock,wasm-compat,canary-check,random-canary,asm-compare,strict-compare,cache-flush,register-scrub,guard-pages,page-seal,strict-canary-check,multi-pass-clear,hardware-secrets,split-secret,profile-hardened-native,profile-guarded-native"
+
 check_installed_target x86_64-unknown-linux-gnu --all-features --lib
 check_installed_target aarch64-unknown-linux-gnu --features memory-lock,guard-pages,multi-pass-clear --lib
-check_installed_target x86_64-apple-darwin --all-features --lib
-check_installed_target aarch64-apple-darwin --all-features --lib
-check_installed_target aarch64-apple-ios --all-features --lib
-check_installed_target x86_64-apple-ios --all-features --lib
-check_installed_target x86_64-pc-windows-gnu --all-features --lib
-check_installed_target aarch64-linux-android --all-features --lib
-check_installed_target x86_64-linux-android --all-features --lib
+check_installed_target x86_64-apple-darwin --features "$PORTABLE_NATIVE_FEATURES" --lib
+check_installed_target aarch64-apple-darwin --features "$PORTABLE_NATIVE_FEATURES" --lib
+check_installed_target aarch64-apple-ios --features "$PORTABLE_NATIVE_FEATURES" --lib
+check_installed_target x86_64-apple-ios --features "$PORTABLE_NATIVE_FEATURES" --lib
+check_installed_target x86_64-pc-windows-gnu --features "$PORTABLE_NATIVE_FEATURES" --lib
+check_installed_target aarch64-linux-android --features "$PORTABLE_NATIVE_FEATURES" --lib
+check_installed_target x86_64-linux-android --features "$PORTABLE_NATIVE_FEATURES" --lib
 check_installed_target x86_64-unknown-freebsd --features memory-lock,guard-pages,multi-pass-clear --lib
 check_installed_target wasm32-unknown-unknown --no-default-features --lib
 check_installed_target wasm32-unknown-unknown --features alloc,memory-lock,wasm-compat,random-canary,multi-pass-clear --lib
@@ -98,6 +104,11 @@ if target_installed wasm32-unknown-unknown; then
 
     if cargo check --target wasm32-unknown-unknown --features guard-pages --lib >/tmp/sanitization-wasm-guard-pages.log 2>&1; then
         printf 'wasm32 guard-pages unexpectedly compiled\n'
+        exit 1
+    fi
+
+    if cargo check --target wasm32-unknown-unknown --features profile-hardened-native --lib >/tmp/sanitization-wasm-native-profile.log 2>&1; then
+        printf 'wasm32 native hardening profile unexpectedly compiled\n'
         exit 1
     fi
 fi

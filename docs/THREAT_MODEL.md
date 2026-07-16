@@ -157,6 +157,14 @@ only when the report marks the control failed, unsupported, or
 compatibility-only. Reports expose operational sizes and platform error codes,
 but never secret bytes, canary values, or mapping addresses.
 
+The named native profiles preserve this separation. They bundle reviewed
+features and expose matching `ProtectionRequest` constructors; they do not turn
+Cargo feature resolution into proof of runtime protection.
+`profile-hardened-native` requires locking and random canaries while preferring
+dump/fork exclusion, `profile-guarded-native` additionally requires guard
+pages, and `profile-hardened-linux` requires Linux fork exclusion. Native
+profiles are rejected on WASM.
+
 Neither a successful report nor a named feature profile claims protection from
 privileged process inspection, hibernation, VM or hypervisor snapshots, DMA,
 firmware, or every crash-dump mechanism. Deployment policy must evaluate those

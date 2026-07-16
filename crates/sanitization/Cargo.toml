@@ -18,6 +18,11 @@ include = [
     "examples/**/*.rs",
 ]
 
+[package.metadata.sanitization]
+role = "core"
+clearing-owner = "sanitization"
+default-runtime-dependencies = 0
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(miri)'] }
 
@@ -50,6 +55,20 @@ strict-canary-check = ["random-canary"]
 multi-pass-clear = []
 hardware-secrets = []
 split-secret = []
+profile-hardened-native = [
+    "memory-lock",
+    "random-canary",
+    "strict-canary-check",
+    "strict-compare",
+]
+profile-guarded-native = [
+    "profile-hardened-native",
+    "guard-pages",
+]
+profile-hardened-linux = [
+    "profile-hardened-native",
+    "require-fork-exclusion",
+]
 
 [package.metadata.docs.rs]
 all-features = true

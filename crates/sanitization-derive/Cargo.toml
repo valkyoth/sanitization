@@ -13,6 +13,13 @@ keywords = ["zeroize", "secrets", "security", "derive"]
 categories = ["cryptography", "no-std", "memory-management"]
 include = ["Cargo.toml", "README.md", "src/**/*.rs"]
 
+[package.metadata.sanitization]
+role = "proc-macro"
+generated-runtime-crate = "sanitization"
+
+[package.metadata.docs.rs]
+all-features = true
+
 [lib]
 proc-macro = true
 

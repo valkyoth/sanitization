@@ -77,6 +77,12 @@ requested. A required failure returns a structured `ProtectionError` and no
 container; a preferred failure can succeed only with a reduced state recorded
 in the report.
 
+Named profiles have an exact policy mapping documented in
+`docs/FEATURE_PROFILES.md`. Their guarantee is limited to compiling the listed
+capabilities and exposing the matching request policy. Runtime establishment
+is guaranteed only when the report records `Established`; required failures
+return an error instead of a reduced container.
+
 The stronger native storage types guarantee:
 
 - locked mappings are cleared before unlock/unmap on drop;

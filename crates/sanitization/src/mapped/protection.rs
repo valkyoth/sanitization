@@ -259,6 +259,48 @@ impl ProtectionRequest {
         }
     }
 
+    /// Policy represented by the `profile-hardened-native` feature.
+    ///
+    /// Memory locking and random integrity canaries are required. Dump and
+    /// fork exclusion remain preferred because the named profile spans native
+    /// operating systems with different process-policy controls.
+    #[cfg(feature = "profile-hardened-native")]
+    #[must_use]
+    pub const fn profile_hardened_native() -> Self {
+        Self {
+            memory_lock: Requirement::Required,
+            dump_exclusion: Requirement::Preferred,
+            fork: ForkProtectionRequest::exclude(Requirement::Preferred),
+            guard_pages: Requirement::NotRequested,
+            canary: Requirement::Required,
+            cache_policy: Requirement::NotRequested,
+        }
+    }
+
+    /// Policy represented by the `profile-guarded-native` feature.
+    #[cfg(feature = "profile-guarded-native")]
+    #[must_use]
+    pub const fn profile_guarded_native() -> Self {
+        Self {
+            guard_pages: Requirement::Required,
+            ..Self::profile_hardened_native()
+        }
+    }
+
+    /// Policy represented by the Linux-specific hardened profile.
+    ///
+    /// Linux fork exclusion is required by this profile. Dump exclusion
+    /// remains preferred because runtime kernel or sandbox policy can reject
+    /// the request and callers must inspect the resulting report.
+    #[cfg(feature = "profile-hardened-linux")]
+    #[must_use]
+    pub const fn profile_hardened_linux() -> Self {
+        Self {
+            fork: ForkProtectionRequest::exclude(Requirement::Required),
+            ..Self::profile_hardened_native()
+        }
+    }
+
     /// Explicit reduced-guarantee policy for WASM compatibility storage.
     #[must_use]
     pub const fn wasm_compatibility() -> Self {

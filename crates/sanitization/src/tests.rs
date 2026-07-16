@@ -3061,6 +3061,38 @@ fn protection_request_profiles_are_explicit() {
     assert_eq!(locked_guarded.guard_pages, Requirement::Required);
 }
 
+#[cfg(feature = "profile-hardened-native")]
+#[test]
+fn hardened_native_profile_maps_to_explicit_policy() {
+    let request = ProtectionRequest::profile_hardened_native();
+    assert_eq!(request.memory_lock, Requirement::Required);
+    assert_eq!(request.dump_exclusion, Requirement::Preferred);
+    assert_eq!(request.fork.policy, ForkPolicy::Exclude);
+    assert_eq!(request.fork.requirement, Requirement::Preferred);
+    assert_eq!(request.guard_pages, Requirement::NotRequested);
+    assert_eq!(request.canary, Requirement::Required);
+    assert_eq!(request.cache_policy, Requirement::NotRequested);
+}
+
+#[cfg(feature = "profile-guarded-native")]
+#[test]
+fn guarded_native_profile_requires_guard_pages() {
+    let request = ProtectionRequest::profile_guarded_native();
+    assert_eq!(request.memory_lock, Requirement::Required);
+    assert_eq!(request.guard_pages, Requirement::Required);
+    assert_eq!(request.canary, Requirement::Required);
+}
+
+#[cfg(feature = "profile-hardened-linux")]
+#[test]
+fn hardened_linux_profile_requires_fork_exclusion() {
+    let request = ProtectionRequest::profile_hardened_linux();
+    assert_eq!(request.memory_lock, Requirement::Required);
+    assert_eq!(request.fork.policy, ForkPolicy::Exclude);
+    assert_eq!(request.fork.requirement, Requirement::Required);
+    assert_eq!(request.canary, Requirement::Required);
+}
+
 #[cfg(all(
     feature = "memory-lock",
     target_os = "linux",

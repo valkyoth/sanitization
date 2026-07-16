@@ -41,6 +41,9 @@
 //!   through `strict-compare`. This feature does not strengthen ordering,
 //!   selection, lookup, or caller code. Other fail-closed profiles include
 //!   `strict-canary-check` and `require-fork-exclusion`.
+//! - Named native profiles bundle reviewed capabilities without claiming that
+//!   runtime protections succeeded. Use [`ProtectionRequest`] to inspect the
+//!   policy and [`ProtectionReport`] to inspect achieved controls.
 //! - Checked x86_64 cache-line eviction is available through the explicit
 //!   `cache-flush` feature. Other architectures and Miri return a structured
 //!   unsupported result after sanitizing helpers have still cleared memory.
@@ -62,6 +65,45 @@
 //!   volatile-only compatibility types on WASM only when `wasm-compat` is also
 //!   enabled, so callers explicitly acknowledge the reduced guarantees.
 //!   `guard-pages` is rejected at compile time on WASM.
+
+#[cfg(all(
+    any(
+        feature = "profile-hardened-native",
+        feature = "profile-guarded-native",
+        feature = "profile-hardened-linux"
+    ),
+    target_arch = "wasm32"
+))]
+compile_error!(
+    "sanitization: native hardening profiles are unavailable on wasm32; use wasm-compat and inspect ProtectionReport for the explicit reduced-guarantee compatibility backend"
+);
+
+#[cfg(all(feature = "profile-hardened-linux", not(target_os = "linux")))]
+compile_error!(
+    "sanitization: profile-hardened-linux requires a Linux target because its fork-exclusion policy is Linux-specific"
+);
+
+#[cfg(all(
+    any(
+        feature = "profile-hardened-native",
+        feature = "profile-guarded-native"
+    ),
+    not(target_arch = "wasm32"),
+    not(any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    ))
+))]
+compile_error!(
+    "sanitization: native hardening profiles require a reviewed native memory-lock backend"
+);
 
 #[cfg(all(
     feature = "memory-lock",
