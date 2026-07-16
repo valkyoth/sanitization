@@ -89,6 +89,11 @@ The normal CI checks fetch complete Git history and validate every
 report-changing commit from the fixed `CP-00` base through the tested branch
 tip. Batched pushes therefore do not skip an earlier acceptance commit.
 
+Checkpoint history must remain linear from the fixed `CP-00` base through the
+current development tip. Merge commits are rejected; integrate parallel work
+by rebasing or cherry-picking it into the checkpoint branch. Pull-request CI
+checks the contributor branch head rather than GitHub's synthetic merge ref.
+
 ## Version And Tag Policy
 
 - Do not create alpha, beta, RC, or checkpoint tags.

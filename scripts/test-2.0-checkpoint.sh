@@ -263,6 +263,27 @@ repo="$(make_fixture automatic-deleted-only-report)"
         scripts/validate-current-2.0-checkpoint.sh
 )
 
+repo="$(make_fixture automatic-merge-history)"
+(
+    cd "$repo"
+    accept_cp00
+    git branch side-branch
+
+    git checkout -q side-branch
+    printf 'side implementation\n' >side.txt
+    git add side.txt
+    git commit -q -m "side implementation"
+
+    git checkout -q master
+    printf 'main implementation\n' >main.txt
+    git add main.txt
+    git commit -q -m "main implementation"
+    git merge -q --no-ff side-branch -m "merge side branch"
+
+    assert_fails_with "checkpoint history must be linear" \
+        scripts/validate-current-2.0-checkpoint.sh
+)
+
 repo="$(make_fixture automatic-shallow-history)"
 (
     cd "$repo"

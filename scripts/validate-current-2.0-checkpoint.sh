@@ -24,6 +24,13 @@ fi
 git merge-base --is-ancestor "$CP00_BASE" HEAD \
     || fail "CP-00 base is not an ancestor of HEAD"
 
+merge_commit="$(
+    git rev-list --merges "${CP00_BASE}..HEAD" |
+        sed -n '1p'
+)"
+[ -z "$merge_commit" ] \
+    || fail "checkpoint history must be linear; merge commit ${merge_commit} is not permitted"
+
 found_report_commit=false
 for commit in $(
     git rev-list --reverse --first-parent "${CP00_BASE}..HEAD"

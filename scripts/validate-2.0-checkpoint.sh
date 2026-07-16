@@ -53,6 +53,13 @@ git cat-file -e "${target_commit}^{commit}" 2>/dev/null \
     || fail "target commit ${target_commit} was not found"
 target_commit="$(git rev-parse "${target_commit}^{commit}")"
 
+merge_commit="$(
+    git rev-list --merges "${CP00_BASE}..${target_commit}" |
+        sed -n '1p'
+)"
+[ -z "$merge_commit" ] \
+    || fail "checkpoint history must be linear; merge commit ${merge_commit} is not permitted"
+
 if ! git show "${target_commit}:${PLAN}" 2>/dev/null |
     grep -Fq "### \`${checkpoint}\`:"; then
     fail "checkpoint ${checkpoint} is not defined in ${PLAN}"
