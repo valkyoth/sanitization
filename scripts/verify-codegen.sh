@@ -29,7 +29,7 @@ if [[ ! -f "${asm_file}" ]]; then
     exit 1
 fi
 
-if ! grep -q 'sanitization::wipe::volatile_wipe' "${ir_file}"; then
+if ! grep -q 'sanitization::wipe_backend::volatile_wipe' "${ir_file}"; then
     echo "volatile wipe function missing from LLVM IR" >&2
     exit 1
 fi

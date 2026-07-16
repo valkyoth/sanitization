@@ -3,23 +3,26 @@
 The crate root uses `#![deny(unsafe_code)]` and
 `#![deny(unsafe_op_in_unsafe_fn)]`.
 
-Unsafe code is allowed only inside narrow `src/lib.rs` modules:
+Unsafe code is allowed only inside narrow, reviewable implementation modules:
 
-- `wipe`, the default volatile clear backend;
-- `memory_lock`, available with the `memory-lock` feature on supported native
+- `wipe_backend`, the default volatile clear backend;
+- `canary`, the optional operating-system CSPRNG adapter;
+- `mapped::memory_lock`, available with the `memory-lock` feature on supported native
   Linux, Android, macOS, iOS, Windows, and BSD targets, and as a volatile-only
   compatibility backend on WASM only when `wasm-compat` is also enabled.
-- `compare_asm`, available only with the `asm-compare` feature on x86_64 and
+- `platform::compare_asm`, available only with the `asm-compare` feature on x86_64 and
   AArch64 outside Miri.
-- `cache_flush`, available only with the `cache-flush` feature on x86_64
+- `platform::cache_flush`, available only with the `cache-flush` feature on x86_64
   outside Miri.
-- `register_scrub`, available with the `register-scrub` feature. It emits
+- `platform::register_scrub`, available with the `register-scrub` feature. It emits
   architecture-specific register-zeroing instructions on x86_64 and AArch64
   outside Miri, and is a fenced no-op elsewhere. x86_64 uses runtime AVX OS
   support detection before emitting AVX instructions.
-- `guard_pages`, available only with the `guard-pages` feature on supported
+- `mapped::guard_pages`, available only with the `guard-pages` feature on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets outside Miri. The
   feature is rejected at compile time on WASM.
+- `owned::read_once`, which uses `UnsafeCell` behind an atomic one-consumer
+  state machine.
 
 Public APIs, including `unsafe_wipe`, are safe wrappers around those internal
 backends.
@@ -28,7 +31,7 @@ backends.
 
 ### `ptr::write_volatile`
 
-Location: `wipe::volatile_wipe`, `wipe::volatile_fill`
+Location: `wipe_backend::volatile_wipe`, `wipe_backend::volatile_fill`
 
 Purpose: force one byte store per address so clearing ordinary mutable buffers
 is not optimized away as dead memory writes. With `multi-pass-clear`,
@@ -59,7 +62,7 @@ Invariant:
 Location: `unsafe_wipe::volatile_sanitize_string`
 
 Purpose: obtain a raw pointer to the `String` allocation so its full capacity
-can be passed to `wipe::volatile_wipe` before calling `clear()`.
+can be passed to `wipe_backend::volatile_wipe` before calling `clear()`.
 
 Invariant:
 
@@ -73,7 +76,7 @@ Invariant:
 
 ### Platform memory-lock mappings and mapped-memory references
 
-Location: `memory_lock`
+Location: `mapped::memory_lock`
 
 Purpose: provide dependency-free platform memory locking for
 `LockedSecretBytes<N>`, native `LockedSecretVec`, and pooled
@@ -200,7 +203,7 @@ Invariant:
 
 ### SIMD/vector register scrub instructions
 
-Location: `register_scrub`
+Location: `platform::register_scrub`
 
 Purpose: provide an explicit best-effort register clearing boundary after
 cryptographic code that may leave secret material in SIMD/vector registers.
@@ -231,7 +234,7 @@ Invariant:
 
 ### x86_64/AArch64 inline assembly comparison
 
-Location: `compare_asm`
+Location: `platform::compare_asm`
 
 Purpose: provide an optional compiler boundary for equal-length byte comparison
 on x86_64 and AArch64.
@@ -259,7 +262,7 @@ Invariant:
 
 ### x86_64 cache-line flush instructions
 
-Location: `cache_flush`
+Location: `platform::cache_flush`
 
 Purpose: provide explicit volatile-clear plus cache-line eviction helpers for
 call sites that need x86_64 cache hardening.
@@ -290,7 +293,7 @@ Invariant:
 
 ### Platform guard-page mappings
 
-Location: `guard_pages`
+Location: `mapped::guard_pages`
 
 Purpose: provide dynamic byte storage between inaccessible pages without using
 the Rust global allocator for secret bytes.

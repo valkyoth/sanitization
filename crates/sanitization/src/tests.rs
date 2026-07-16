@@ -1,0 +1,3008 @@
+#[cfg(all(feature = "alloc", feature = "serde"))]
+use alloc::vec::Vec;
+
+use crate::*;
+
+struct TestClock<'a>(&'a core::cell::Cell<u64>);
+
+impl MonotonicClock for TestClock<'_> {
+    #[inline]
+    fn now(&self) -> u64 {
+        self.0.get()
+    }
+}
+
+#[test]
+fn ct_choice_normalizes_and_declassifies_explicitly() {
+    let false_choice = ct::Choice::from_u8(0);
+    let true_choice = ct::Choice::from_u8(7);
+
+    assert_eq!(false_choice.unwrap_u8(), 0);
+    assert_eq!(true_choice.unwrap_u8(), 1);
+    assert_eq!((true_choice & false_choice).unwrap_u8(), 0);
+    assert_eq!((true_choice | false_choice).unwrap_u8(), 1);
+    assert_eq!((true_choice ^ ct::Choice::TRUE).unwrap_u8(), 0);
+    assert_eq!((!false_choice).unwrap_u8(), 1);
+    assert!(true_choice.declassify("test assertion"));
+    assert!(!false_choice.declassify("test assertion"));
+}
+
+#[test]
+fn ct_primitives_compare_and_select() {
+    use ct::{ConditionallyAssignable, ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd};
+
+    assert_eq!(7u8.ct_eq(&7).unwrap_u8(), 1);
+    assert_eq!(7u8.ct_eq(&8).unwrap_u8(), 0);
+    assert_eq!((-3i32).ct_eq(&-3).unwrap_u8(), 1);
+    assert_eq!((-3i32).ct_ne(&4).unwrap_u8(), 1);
+    assert_eq!(3u8.ct_cmp(&9).is_less().unwrap_u8(), 1);
+    assert_eq!(9u16.ct_cmp(&3).is_greater().unwrap_u8(), 1);
+    assert_eq!(5usize.ct_cmp(&5).is_equal().unwrap_u8(), 1);
+    assert_eq!((-9i32).ct_lt(&-3).unwrap_u8(), 1);
+    assert_eq!(3i32.ct_gt(&-9).unwrap_u8(), 1);
+    assert_eq!(
+        3u8.ct_cmp(&9).declassify("test exposes primitive ordering"),
+        core::cmp::Ordering::Less
+    );
+
+    let selected = u32::conditional_select(&11, &22, ct::Choice::TRUE);
+    assert_eq!(selected, 22);
+
+    let mut assigned = 11u32;
+    assigned.conditional_assign(&22, ct::Choice::FALSE);
+    assert_eq!(assigned, 11);
+    assigned.conditional_assign(&22, ct::Choice::TRUE);
+    assert_eq!(assigned, 22);
+}
+
+#[test]
+fn ct_ordering_constructor_normalizes_invalid_states() {
+    assert_eq!(
+        ct::CtOrdering::new(ct::Choice::TRUE, ct::Choice::TRUE, ct::Choice::FALSE),
+        ct::CtOrdering::LESS
+    );
+    assert_eq!(
+        ct::CtOrdering::new(ct::Choice::FALSE, ct::Choice::TRUE, ct::Choice::TRUE),
+        ct::CtOrdering::GREATER
+    );
+    assert_eq!(
+        ct::CtOrdering::new(ct::Choice::FALSE, ct::Choice::FALSE, ct::Choice::FALSE),
+        ct::CtOrdering::EQUAL
+    );
+}
+
+#[test]
+fn ct_arrays_and_public_len_slices_compare() {
+    use ct::{ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd};
+
+    let left = [1u8, 2, 3, 4];
+    let same = [1u8, 2, 3, 4];
+    let different = [1u8, 2, 3, 9];
+
+    assert_eq!(ct::eq_fixed(&left, &same).unwrap_u8(), 1);
+    assert_eq!(left.ct_eq(&different).unwrap_u8(), 0);
+    assert_eq!(ct::cmp_fixed(&left, &different).is_less().unwrap_u8(), 1);
+    assert_eq!(different.ct_cmp(&left).is_greater().unwrap_u8(), 1);
+    assert_eq!(same.ct_cmp(&left).is_equal().unwrap_u8(), 1);
+    assert_eq!(ct::eq_public_len(&left, &[1, 2, 3]).unwrap_u8(), 0);
+
+    let selected = <[u8; 4]>::conditional_select(&left, &different, ct::Choice::TRUE);
+    assert_eq!(selected, different);
+}
+
+#[test]
+fn ct_oblivious_lookup_scans_public_table() {
+    let table = [10u8, 20, 30, 40];
+
+    let selected = ct::oblivious_lookup(&table, ct::Secret::new(2usize), &99);
+    assert_eq!(selected, 30);
+
+    let fallback = ct::oblivious_lookup(&table, ct::Secret::new(7usize), &99);
+    assert_eq!(fallback, 99);
+
+    let secret_selected = ct::oblivious_lookup_secret(&table, ct::Secret::new(1usize), &99);
+    assert_eq!(*secret_selected.expose_secret(), 20);
+}
+
+#[test]
+fn ct_conditional_copy_swap_and_select_slice() {
+    let mut destination = [1u8, 2, 3, 4];
+    let source = [9u8, 8, 7, 6];
+
+    ct::conditional_copy(&mut destination, &source, ct::Choice::FALSE).unwrap();
+    assert_eq!(destination, [1, 2, 3, 4]);
+
+    ct::conditional_copy(&mut destination, &source, ct::Choice::TRUE).unwrap();
+    assert_eq!(destination, source);
+
+    let mut left = [1u8, 2, 3];
+    let mut right = [7u8, 8, 9];
+    ct::conditional_swap(&mut left, &mut right, ct::Choice::FALSE).unwrap();
+    assert_eq!(left, [1, 2, 3]);
+    assert_eq!(right, [7, 8, 9]);
+
+    ct::conditional_swap(&mut left, &mut right, ct::Choice::TRUE).unwrap();
+    assert_eq!(left, [7, 8, 9]);
+    assert_eq!(right, [1, 2, 3]);
+
+    let mut selected = [0u8; 3];
+    ct::select_slice(&mut selected, &left, &right, ct::Choice::FALSE).unwrap();
+    assert_eq!(selected, left);
+    ct::select_slice(&mut selected, &left, &right, ct::Choice::TRUE).unwrap();
+    assert_eq!(selected, right);
+}
+
+#[test]
+fn ct_memory_helpers_report_public_length_errors() {
+    let mut destination = [0u8; 4];
+    assert_eq!(
+        ct::conditional_copy(&mut destination, &[1, 2], ct::Choice::TRUE),
+        Err(LengthError {
+            expected: 4,
+            actual: 2,
+        })
+    );
+
+    let mut left = [1u8, 2, 3];
+    let mut right = [4u8, 5];
+    assert_eq!(
+        ct::conditional_swap(&mut left, &mut right, ct::Choice::TRUE),
+        Err(LengthError {
+            expected: 3,
+            actual: 2,
+        })
+    );
+
+    assert_eq!(
+        ct::select_slice(&mut destination, &[1, 2, 3], &[4, 5], ct::Choice::TRUE),
+        Err(LengthError {
+            expected: 3,
+            actual: 2,
+        })
+    );
+}
+
+#[test]
+fn ct_secret_containers_expose_native_traits() {
+    use ct::{ConditionallySelectable, ConstantTimeEq};
+
+    let left = SecretBytes::from_array([1u8, 2, 3, 4]);
+    let same = SecretBytes::from_array([1u8, 2, 3, 4]);
+    let different = SecretBytes::from_array([9u8, 8, 7, 6]);
+
+    assert_eq!(left.ct_eq(&same).unwrap_u8(), 1);
+    assert_eq!(left.ct_eq(&different).unwrap_u8(), 0);
+    assert_eq!(left.ct_eq([1u8, 2, 3, 4].as_slice()).unwrap_u8(), 1);
+
+    let selected = SecretBytes::conditional_select(&left, &different, ct::Choice::TRUE);
+    assert!(selected.constant_time_eq(&[9, 8, 7, 6]));
+
+    #[cfg(feature = "alloc")]
+    {
+        let vec_left = SecretVec::from_slice(b"token");
+        let vec_same = SecretVec::from_slice(b"token");
+        let vec_different = SecretVec::from_slice(b"other");
+        assert_eq!(vec_left.ct_eq(&vec_same).unwrap_u8(), 1);
+        assert_eq!(vec_left.ct_eq(&vec_different).unwrap_u8(), 0);
+        assert_eq!(vec_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+
+        let string_left = SecretString::from_secret_str("token");
+        let string_same = SecretString::from_secret_str("token");
+        let string_different = SecretString::from_secret_str("other");
+        assert_eq!(string_left.ct_eq(&string_same).unwrap_u8(), 1);
+        assert_eq!(string_left.ct_eq(&string_different).unwrap_u8(), 0);
+        assert_eq!(string_left.ct_eq("token").unwrap_u8(), 1);
+
+        let bounded_left = BoundedSecretString::<8>::from_secret_str("token").unwrap();
+        let bounded_same = BoundedSecretString::<8>::from_secret_str("token").unwrap();
+        let bounded_different = BoundedSecretString::<8>::from_secret_str("other").unwrap();
+        assert_eq!(bounded_left.ct_eq(&bounded_same).unwrap_u8(), 1);
+        assert_eq!(bounded_left.ct_eq(&bounded_different).unwrap_u8(), 0);
+        assert_eq!(bounded_left.ct_eq("token").unwrap_u8(), 1);
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        not(miri),
+        any(
+            all(
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ),
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+            all(target_arch = "wasm32", feature = "wasm-compat"),
+        )
+    ))]
+    {
+        let (locked_left, locked_same, locked_different) = match (
+            LockedSecretBytes::from_array([1u8, 2, 3, 4]),
+            LockedSecretBytes::from_array([1u8, 2, 3, 4]),
+            LockedSecretBytes::from_array([9u8, 8, 7, 6]),
+        ) {
+            (Ok(left), Ok(same), Ok(different)) => (left, same, different),
+            _ => return,
+        };
+        assert_eq!(locked_left.ct_eq(&locked_same).unwrap_u8(), 1);
+        assert_eq!(locked_left.ct_eq(&locked_different).unwrap_u8(), 0);
+        assert_eq!(locked_left.ct_eq([1u8, 2, 3, 4].as_slice()).unwrap_u8(), 1);
+
+        let pool = match SecretPool::<4, 2>::new() {
+            Ok(pool) => pool,
+            Err(_) => return,
+        };
+        let pooled_left = pool.allocate_from_array([1u8, 2, 3, 4]).unwrap();
+        let pooled_same = pool.allocate_from_array([1u8, 2, 3, 4]).unwrap();
+        assert_eq!(pooled_left.ct_eq(&pooled_same).unwrap_u8(), 1);
+        assert_eq!(pooled_left.ct_eq([1u8, 2, 3, 4].as_slice()).unwrap_u8(), 1);
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        not(target_arch = "wasm32"),
+        not(miri),
+        any(
+            all(
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ),
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+        )
+    ))]
+    {
+        let (locked_vec_left, locked_vec_same, locked_vec_different) = match (
+            LockedSecretVec::from_slice(b"token"),
+            LockedSecretVec::from_slice(b"token"),
+            LockedSecretVec::from_slice(b"other"),
+        ) {
+            (Ok(left), Ok(same), Ok(different)) => (left, same, different),
+            _ => return,
+        };
+        assert_eq!(locked_vec_left.ct_eq(&locked_vec_same).unwrap_u8(), 1);
+        assert_eq!(locked_vec_left.ct_eq(&locked_vec_different).unwrap_u8(), 0);
+        assert_eq!(locked_vec_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+
+        let (locked_text_left, locked_text_same, locked_text_different) = match (
+            LockedSecretString::from_secret_str("token"),
+            LockedSecretString::from_secret_str("token"),
+            LockedSecretString::from_secret_str("other"),
+        ) {
+            (Ok(left), Ok(same), Ok(different)) => (left, same, different),
+            _ => return,
+        };
+        assert_eq!(locked_text_left.ct_eq(&locked_text_same).unwrap_u8(), 1);
+        assert_eq!(
+            locked_text_left.ct_eq(&locked_text_different).unwrap_u8(),
+            0
+        );
+        assert_eq!(locked_text_left.ct_eq("token").unwrap_u8(), 1);
+    }
+
+    #[cfg(all(
+        feature = "guard-pages",
+        not(miri),
+        any(
+            all(
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ),
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+        )
+    ))]
+    {
+        let (guarded_left, guarded_same, guarded_different) = match (
+            GuardedSecretVec::from_slice(b"token"),
+            GuardedSecretVec::from_slice(b"token"),
+            GuardedSecretVec::from_slice(b"other"),
+        ) {
+            (Ok(left), Ok(same), Ok(different)) => (left, same, different),
+            _ => return,
+        };
+        assert_eq!(guarded_left.ct_eq(&guarded_same).unwrap_u8(), 1);
+        assert_eq!(guarded_left.ct_eq(&guarded_different).unwrap_u8(), 0);
+        assert_eq!(guarded_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+
+        let (guarded_text_left, guarded_text_same, guarded_text_different) = match (
+            GuardedSecretString::from_secret_str("token"),
+            GuardedSecretString::from_secret_str("token"),
+            GuardedSecretString::from_secret_str("other"),
+        ) {
+            (Ok(left), Ok(same), Ok(different)) => (left, same, different),
+            _ => return,
+        };
+        assert_eq!(guarded_text_left.ct_eq(&guarded_text_same).unwrap_u8(), 1);
+        assert_eq!(
+            guarded_text_left.ct_eq(&guarded_text_different).unwrap_u8(),
+            0
+        );
+        assert_eq!(guarded_text_left.ct_eq("token").unwrap_u8(), 1);
+    }
+}
+
+#[test]
+fn ct_option_keeps_presence_as_choice() {
+    use ct::ConditionallySelectable;
+
+    let present = ct::CtOption::some(9u8);
+    let absent = ct::CtOption::none(3u8);
+
+    assert_eq!(present.is_some().unwrap_u8(), 1);
+    assert_eq!(absent.is_none().unwrap_u8(), 1);
+    assert_eq!(present.unwrap_or(&1), 9);
+    assert_eq!(absent.unwrap_or(&1), 1);
+    assert_eq!(present.map(|value| value.wrapping_add(1)).unwrap_or(&0), 10);
+    assert_eq!(
+        absent
+            .map(|value| value.wrapping_add(1))
+            .declassify("test exposes mapped optional absence"),
+        None
+    );
+    assert_eq!(present.and(ct::CtOption::some(4u8)).unwrap_or(&0), 4);
+    assert_eq!(present.and(ct::CtOption::none(4u8)).unwrap_or(&0), 0);
+    assert_eq!(present.or(ct::CtOption::some(4u8)).unwrap_or(&0), 9);
+    assert_eq!(absent.or(ct::CtOption::some(4u8)).unwrap_or(&0), 4);
+    let selected =
+        ct::CtOption::conditional_select(&present, &ct::CtOption::some(11), ct::Choice::TRUE);
+    assert_eq!(selected.unwrap_or(&0), 11);
+    assert_eq!(present.declassify("test exposes optional success"), Some(9));
+    assert_eq!(absent.declassify("test exposes optional absence"), None);
+}
+
+#[test]
+fn ct_result_keeps_success_as_choice() {
+    use ct::ConditionallySelectable;
+
+    let ok = ct::CtResult::new(7u8, 99u8, ct::Choice::TRUE);
+    let err = ct::CtResult::new(7u8, 99u8, ct::Choice::FALSE);
+
+    assert_eq!(ok.is_ok().unwrap_u8(), 1);
+    assert_eq!(ok.is_err().unwrap_u8(), 0);
+    assert_eq!(err.is_ok().unwrap_u8(), 0);
+    assert_eq!(err.is_err().unwrap_u8(), 1);
+    assert_eq!(ok.unwrap_or(&1), 7);
+    assert_eq!(err.unwrap_or(&1), 1);
+    assert_eq!(ok.map(|value| value.wrapping_add(1)).unwrap_or(&0), 8);
+    assert_eq!(
+        err.map(|value| value.wrapping_add(1))
+            .declassify("test exposes mapped result error"),
+        Err(99)
+    );
+    assert_eq!(
+        ok.map_err(|error| error.wrapping_add(1))
+            .declassify("test exposes mapped result success"),
+        Ok(7)
+    );
+    assert_eq!(
+        err.map_err(|error| error.wrapping_add(1))
+            .declassify("test exposes mapped result error"),
+        Err(100)
+    );
+    let selected = ct::CtResult::conditional_select(
+        &ok,
+        &ct::CtResult::new(42u8, 1u8, ct::Choice::TRUE),
+        ct::Choice::TRUE,
+    );
+    assert_eq!(selected.unwrap_or(&0), 42);
+    assert_eq!(ok.declassify("test exposes result success"), Ok(7));
+    assert_eq!(err.declassify("test exposes result error"), Err(99));
+}
+
+#[test]
+fn length_error_formats_clearly() {
+    let error = LengthError {
+        expected: 4,
+        actual: 2,
+    };
+
+    assert_eq!(
+        std::format!("{error}"),
+        "length mismatch: expected 4 bytes, got 2 bytes"
+    );
+}
+
+#[cfg(feature = "zeroize-interop")]
+#[test]
+fn zeroize_interop_clears_secret_bytes() {
+    use zeroize::Zeroize;
+
+    let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+    secret.zeroize();
+
+    assert_eq!(secret.expose_secret(|bytes| *bytes), [0; 4]);
+}
+
+#[cfg(feature = "subtle-interop")]
+#[test]
+fn subtle_interop_compares_secret_bytes() {
+    use subtle::ConstantTimeEq;
+
+    let left = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+    let same = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+    let different = SecretBytes::<4>::from_array([1, 2, 3, 0]);
+
+    assert_eq!(left.ct_eq(&same).unwrap_u8(), 1);
+    assert_eq!(left.ct_eq(&different).unwrap_u8(), 0);
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn serde_interop_loads_fixed_secret_bytes_and_redacts_output() {
+    let secret: SecretBytes<4> = serde_json::from_str("[1,2,3,4]").unwrap();
+
+    assert_eq!(secret.expose_secret(|bytes| *bytes), [1, 2, 3, 4]);
+    assert_eq!(serde_json::to_string(&secret).unwrap(), "\"<redacted>\"");
+}
+
+#[cfg(all(feature = "serde", feature = "alloc"))]
+#[test]
+fn serde_interop_loads_alloc_secrets_and_redacts_output() {
+    let bytes: SecretVec = serde_json::from_str("[1,2,3,4]").unwrap();
+    let text: SecretString = serde_json::from_str("\"token\"").unwrap();
+    let bounded_text: BoundedSecretString<5> = serde_json::from_str("\"token\"").unwrap();
+
+    assert_eq!(bytes.with_secret(|secret| secret.len()), 4);
+    assert_eq!(text.try_with_secret(str::len), Ok(5));
+    assert_eq!(bounded_text.try_with_secret(str::len), Ok(5));
+    assert_eq!(serde_json::to_string(&bytes).unwrap(), "\"<redacted>\"");
+    assert_eq!(serde_json::to_string(&text).unwrap(), "\"<redacted>\"");
+    assert_eq!(
+        serde_json::to_string(&bounded_text).unwrap(),
+        "\"<redacted>\""
+    );
+    assert!(serde_json::from_str::<BoundedSecretString<4>>("\"token\"").is_err());
+}
+
+#[cfg(all(feature = "serde", feature = "alloc"))]
+#[test]
+fn bounded_secret_vec_rejects_oversized_serde_sequences() {
+    let accepted: BoundedSecretVec<4> = serde_json::from_str("[1,2,3,4]").unwrap();
+    let rejected = serde_json::from_str::<BoundedSecretVec<4>>("[1,2,3,4,5]");
+
+    assert_eq!(accepted.with_secret(|bytes| bytes.len()), 4);
+    assert!(rejected.is_err());
+    assert_eq!(serde_json::to_string(&accepted).unwrap(), "\"<redacted>\"");
+}
+
+#[cfg(all(feature = "serde", feature = "alloc"))]
+#[test]
+fn bounded_secret_vec_rejects_oversized_serde_byte_inputs() {
+    use serde::{
+        de::value::{BytesDeserializer, Error as ValueError},
+        Deserialize,
+    };
+
+    struct OwnedBytesDeserializer(Vec<u8>);
+
+    impl<'de> serde::Deserializer<'de> for OwnedBytesDeserializer {
+        type Error = ValueError;
+
+        fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: serde::de::Visitor<'de>,
+        {
+            visitor.visit_byte_buf(self.0)
+        }
+
+        fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: serde::de::Visitor<'de>,
+        {
+            visitor.visit_byte_buf(self.0)
+        }
+
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char str string
+            byte_buf option unit unit_struct newtype_struct seq tuple
+            tuple_struct map struct enum identifier ignored_any
+        }
+    }
+
+    let borrowed = BytesDeserializer::<ValueError>::new(&[1, 2, 3, 4, 5]);
+    let owned = OwnedBytesDeserializer(std::vec![1, 2, 3, 4, 5]);
+
+    assert!(BoundedSecretVec::<4>::deserialize(borrowed).is_err());
+    assert!(BoundedSecretVec::<4>::deserialize(owned).is_err());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn bounded_secret_vec_enforces_limits_during_mutation() {
+    let mut secret = BoundedSecretVec::<4>::from_slice(&[1, 2]).unwrap();
+
+    assert_eq!(secret.extend_from_slice(&[3, 4]), Ok(()));
+    assert_eq!(
+        secret.extend_from_slice(&[5]),
+        Err(SecretVecLimitError {
+            maximum: 4,
+            actual: 5,
+        })
+    );
+    secret.with_secret(|bytes| assert_eq!(bytes, &[1, 2, 3, 4]));
+
+    let unbounded: SecretVec = secret.into();
+    unbounded.with_secret(|bytes| assert_eq!(bytes, &[1, 2, 3, 4]));
+}
+
+#[cfg(all(feature = "serde", feature = "alloc"))]
+#[test]
+fn serde_secret_vec_clamps_untrusted_sequence_size_hint() {
+    use serde::de::{value::Error as ValueError, DeserializeSeed, IntoDeserializer, SeqAccess};
+    use serde::Deserialize;
+
+    struct HostileHintDeserializer;
+
+    impl<'de> serde::Deserializer<'de> for HostileHintDeserializer {
+        type Error = ValueError;
+
+        fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: serde::de::Visitor<'de>,
+        {
+            self.deserialize_bytes(visitor)
+        }
+
+        fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: serde::de::Visitor<'de>,
+        {
+            visitor.visit_seq(HostileHintSeq { yielded: false })
+        }
+
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char str string
+            byte_buf option unit unit_struct newtype_struct seq tuple
+            tuple_struct map struct enum identifier ignored_any
+        }
+    }
+
+    struct HostileHintSeq {
+        yielded: bool,
+    }
+
+    impl<'de> SeqAccess<'de> for HostileHintSeq {
+        type Error = ValueError;
+
+        fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+        where
+            T: DeserializeSeed<'de>,
+        {
+            if self.yielded {
+                return Ok(None);
+            }
+
+            self.yielded = true;
+            seed.deserialize(7u8.into_deserializer()).map(Some)
+        }
+
+        fn size_hint(&self) -> Option<usize> {
+            Some(usize::MAX)
+        }
+    }
+
+    let secret = SecretVec::deserialize(HostileHintDeserializer).unwrap();
+
+    assert_eq!(secret.with_secret(|bytes| bytes[0]), 7);
+    assert!(secret.capacity() <= 4096);
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn expiring_error_exposes_source() {
+    let error = ExpiringSecretError::Length(LengthError {
+        expected: 4,
+        actual: 2,
+    });
+
+    assert!(std::error::Error::source(&error).is_some());
+}
+
+#[cfg(all(
+    feature = "std",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn locked_secret_errors_expose_sources() {
+    let length = LockedSecretBytesError::Length(LengthError {
+        expected: 4,
+        actual: 2,
+    });
+    let memory = LockedSecretBytesError::Memory(MemoryLockError {
+        operation: MemoryLockOperation::Lock,
+        errno: 12,
+    });
+    let generated: LockedSecretBytesGenerateError<std::io::Error> =
+        LockedSecretBytesGenerateError::Generate(std::io::Error::other("generation failed"));
+
+    assert!(std::error::Error::source(&length).is_some());
+    assert!(std::error::Error::source(&memory).is_some());
+    assert!(std::error::Error::source(&generated).is_some());
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn locked_secret_bytes_is_send() {
+    fn assert_send<T: Send>() {}
+    fn assert_sync<T: Sync>() {}
+
+    assert_send::<LockedSecretBytes<4>>();
+    assert_send::<SecretPool<4, 2>>();
+    assert_sync::<SecretPool<4, 2>>();
+}
+
+#[cfg(all(
+    feature = "std",
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_errors_expose_sources() {
+    let guarded: GuardedSecretVecGenerateError<std::io::Error> =
+        GuardedSecretVecGenerateError::Guard(GuardPageError {
+            operation: GuardPageOperation::Protect,
+            errno: 13,
+        });
+    let generated: GuardedSecretVecGenerateError<std::io::Error> =
+        GuardedSecretVecGenerateError::Generate(std::io::Error::other("generation failed"));
+
+    assert!(std::error::Error::source(&guarded).is_some());
+    assert!(std::error::Error::source(&generated).is_some());
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_is_send() {
+    fn assert_send<T: Send>() {}
+
+    assert_send::<GuardedSecretVec>();
+}
+
+#[test]
+fn secret_bytes_round_trip_and_clear() {
+    let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+    let mut out = [0; 4];
+
+    assert!(secret.copy_to_slice(&mut out).is_ok());
+    assert_eq!(out, [1, 2, 3, 4]);
+
+    secret.secure_clear();
+    assert!(secret.copy_to_slice(&mut out).is_ok());
+    assert_eq!(out, [0, 0, 0, 0]);
+
+    secret.into_cleared();
+}
+
+#[cfg(feature = "multi-pass-clear")]
+#[test]
+fn secret_bytes_can_clear_multi_pass() {
+    let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+
+    secret.secure_clear_multi_pass();
+
+    assert!(secret.constant_time_eq(&[0, 0, 0, 0]));
+}
+
+#[test]
+fn secret_bytes_can_initialize_from_fallible_fn() {
+    let mut secret =
+        SecretBytes::<4>::try_from_fn(|index| Ok::<u8, &'static str>((index as u8) + 1)).unwrap();
+
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert_eq!(
+        SecretBytes::<4>::try_from_fn(|index| {
+            if index == 2 {
+                Err("generation failed")
+            } else {
+                Ok(index as u8)
+            }
+        })
+        .err(),
+        Some("generation failed")
+    );
+
+    secret.secure_clear();
+    assert!(secret.constant_time_eq(&[0, 0, 0, 0]));
+}
+
+#[test]
+fn secret_bytes_can_replace_from_fn() {
+    let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+
+    secret.replace_from_array([4, 3, 2, 1]);
+    assert!(secret.constant_time_eq(&[4, 3, 2, 1]));
+
+    secret.replace_from_fn(|index| (index as u8) + 7);
+    assert!(secret.constant_time_eq(&[7, 8, 9, 10]));
+
+    assert_eq!(
+        secret.try_replace_from_fn(|index| {
+            if index == 2 {
+                Err("generation failed")
+            } else {
+                Ok(index as u8)
+            }
+        }),
+        Err("generation failed")
+    );
+    assert!(secret.constant_time_eq(&[7, 8, 9, 10]));
+
+    secret
+        .try_replace_from_fn(|index| Ok::<u8, &'static str>((index as u8) + 1))
+        .unwrap();
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    secret.secure_clear();
+}
+
+#[test]
+fn secret_bytes_can_transform_in_place() {
+    let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+
+    secret.transform(|bytes| {
+        for byte in bytes.iter_mut() {
+            *byte ^= 0xFF;
+        }
+    });
+
+    assert!(secret.constant_time_eq(&[254, 253, 252, 251]));
+
+    assert_eq!(
+        secret.try_transform(|bytes| {
+            bytes[0] = 7;
+            Ok::<(), &'static str>(())
+        }),
+        Ok(())
+    );
+    assert!(secret.constant_time_eq(&[7, 253, 252, 251]));
+}
+
+#[test]
+fn secret_bytes_can_derive_new_secret() {
+    let secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+
+    let derived = secret.derive::<8>(|input, output| {
+        output[..4].copy_from_slice(input);
+        output[4..].copy_from_slice(input);
+    });
+
+    assert!(derived.constant_time_eq(&[1, 2, 3, 4, 1, 2, 3, 4]));
+
+    let fallible = secret
+        .try_derive::<2, _>(|input, output| {
+            output.copy_from_slice(&input[..2]);
+            Ok::<(), &'static str>(())
+        })
+        .unwrap();
+
+    assert!(fallible.constant_time_eq(&[1, 2]));
+    assert_eq!(
+        secret
+            .try_derive::<2, _>(|_input, output| {
+                output[0] = 9;
+                Err::<(), &'static str>("derive failed")
+            })
+            .err(),
+        Some("derive failed")
+    );
+}
+
+#[test]
+fn length_errors_are_explicit() {
+    let mut secret = SecretBytes::<4>::zeroed();
+
+    assert_eq!(
+        secret.copy_from_slice(&[1, 2]).err(),
+        Some(LengthError {
+            expected: 4,
+            actual: 2
+        })
+    );
+}
+
+#[test]
+fn equality_does_not_short_circuit_on_first_byte() {
+    let left = SecretBytes::<4>::from_array([9, 8, 7, 6]);
+    let same = SecretBytes::<4>::from_array([9, 8, 7, 6]);
+    let different = SecretBytes::<4>::from_array([0, 8, 7, 6]);
+
+    assert!(left.constant_time_eq(&[9, 8, 7, 6]));
+    assert!(!left.constant_time_eq(&[9, 8, 7]));
+    assert!(!left.constant_time_eq(&[0, 8, 7, 6]));
+    assert!(left.constant_time_eq_secret(&same));
+    assert!(!left.constant_time_eq_secret(&different));
+}
+
+#[cfg(all(
+    feature = "asm-compare",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn assembly_comparison_matches_portable_path() {
+    let left = [1_u8, 2, 3, 4, 5, 6, 7, 8];
+    let same = [1_u8, 2, 3, 4, 5, 6, 7, 8];
+    let different = [1_u8, 2, 3, 4, 5, 6, 7, 0];
+    let empty: [u8; 0] = [];
+
+    assert_eq!(
+        compare_asm::constant_time_eq_equal_len(&left, &same),
+        portable_constant_time_eq_equal_len(&left, &same)
+    );
+    assert_eq!(
+        compare_asm::constant_time_eq_equal_len(&left, &different),
+        portable_constant_time_eq_equal_len(&left, &different)
+    );
+    assert_eq!(
+        compare_asm::constant_time_eq_equal_len(&empty, &empty),
+        portable_constant_time_eq_equal_len(&empty, &empty)
+    );
+}
+
+#[test]
+fn volatile_exposure_returns_closure_result() {
+    let secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+
+    let sum = secret.expose_secret_volatile(|bytes| {
+        bytes
+            .iter()
+            .copied()
+            .fold(0_u8, |total, byte| total.wrapping_add(byte))
+    });
+
+    assert_eq!(sum, 10);
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn expiring_secret_allows_access_before_expiration() {
+    let mut secret =
+        ExpiringSecretBytes::<4>::from_array([1, 2, 3, 4], std::time::Duration::from_secs(60));
+    let mut out = [0; 4];
+
+    assert!(secret.try_copy_to_slice(&mut out).is_ok());
+    assert_eq!(out, [1, 2, 3, 4]);
+    assert_eq!(
+        secret.try_expose_secret(|bytes| bytes[0].wrapping_add(bytes[3])),
+        Ok(5)
+    );
+    assert_eq!(
+        secret.try_expose_secret_volatile(|bytes| bytes[1].wrapping_add(bytes[2])),
+        Ok(5)
+    );
+    assert_eq!(secret.try_constant_time_eq(&[1, 2, 3, 4]), Ok(true));
+
+    secret.into_cleared();
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn expiring_secret_clears_and_rejects_after_expiration() {
+    let mut secret = ExpiringSecretBytes::<4>::from_array([1, 2, 3, 4], std::time::Duration::ZERO);
+    let mut out = [9; 4];
+
+    assert_eq!(
+        secret.try_expose_secret(|bytes| bytes[0]),
+        Err(SecretExpiredError)
+    );
+    assert_eq!(
+        secret.try_copy_to_slice(&mut out),
+        Err(ExpiringSecretError::Expired(SecretExpiredError))
+    );
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn expiring_secret_replacement_restarts_lifetime() {
+    let mut secret =
+        ExpiringSecretBytes::<4>::from_array([1, 2, 3, 4], std::time::Duration::from_secs(60));
+    let mut out = [0; 4];
+
+    secret.replace_from_slice(&[5, 6, 7, 8]).unwrap();
+    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(out, [5, 6, 7, 8]);
+
+    secret.replace_from_array([8, 7, 6, 5]);
+    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(out, [8, 7, 6, 5]);
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn expiring_secret_can_initialize_from_fallible_fn() {
+    let mut secret =
+        ExpiringSecretBytes::<4>::try_from_fn(std::time::Duration::from_secs(60), |index| {
+            Ok::<u8, &'static str>((index as u8) + 1)
+        })
+        .unwrap();
+    let mut out = [0; 4];
+
+    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(out, [1, 2, 3, 4]);
+
+    assert_eq!(
+        ExpiringSecretBytes::<4>::try_from_fn(std::time::Duration::from_secs(60), |index| {
+            if index == 2 {
+                Err("generation failed")
+            } else {
+                Ok(index as u8)
+            }
+        })
+        .err(),
+        Some("generation failed")
+    );
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn expiring_secret_can_replace_from_fn() {
+    let mut secret =
+        ExpiringSecretBytes::<4>::from_array([1, 2, 3, 4], std::time::Duration::from_secs(60));
+    let mut out = [0; 4];
+
+    secret.replace_from_fn(|index| (index as u8) + 7);
+    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(out, [7, 8, 9, 10]);
+
+    assert_eq!(
+        secret.try_replace_from_fn(|index| {
+            if index == 2 {
+                Err("generation failed")
+            } else {
+                Ok(index as u8)
+            }
+        }),
+        Err("generation failed")
+    );
+    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(out, [7, 8, 9, 10]);
+
+    secret
+        .try_replace_from_fn(|index| Ok::<u8, &'static str>((index as u8) + 1))
+        .unwrap();
+    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(out, [1, 2, 3, 4]);
+}
+
+#[test]
+fn monotonic_expiring_secret_allows_access_before_expiration() {
+    let ticks = core::cell::Cell::new(10);
+    let mut secret =
+        MonotonicExpiringSecretBytes::<4, _>::from_array([1, 2, 3, 4], TestClock(&ticks), 5);
+    let mut out = [0; 4];
+
+    ticks.set(14);
+
+    assert_eq!(secret.age_ticks(), 4);
+    assert!(!secret.is_expired());
+    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(out, [1, 2, 3, 4]);
+    assert_eq!(secret.try_constant_time_eq(&[1, 2, 3, 4]), Ok(true));
+}
+
+#[test]
+fn monotonic_expiring_secret_clears_and_rejects_after_expiration() {
+    let ticks = core::cell::Cell::new(10);
+    let mut secret =
+        MonotonicExpiringSecretBytes::<4, _>::from_array([1, 2, 3, 4], TestClock(&ticks), 5);
+    let mut out = [9; 4];
+
+    ticks.set(15);
+
+    assert!(secret.is_expired());
+    assert_eq!(
+        secret.try_copy_to_slice(&mut out),
+        Err(ExpiringSecretError::Expired(SecretExpiredError))
+    );
+    assert_eq!(
+        secret.try_expose_secret(|bytes| bytes[0]),
+        Err(SecretExpiredError)
+    );
+}
+
+#[test]
+fn monotonic_expiring_secret_zero_max_age_expires_immediately() {
+    let ticks = core::cell::Cell::new(10);
+    let mut secret =
+        MonotonicExpiringSecretBytes::<4, _>::from_array([1, 2, 3, 4], TestClock(&ticks), 0);
+
+    assert_eq!(secret.age_ticks(), 0);
+    assert!(secret.is_expired());
+    assert_eq!(
+        secret.try_expose_secret(|bytes| bytes[0]),
+        Err(SecretExpiredError)
+    );
+}
+
+#[test]
+fn monotonic_expiring_secret_replacement_restarts_lifetime() {
+    let ticks = core::cell::Cell::new(10);
+    let mut secret =
+        MonotonicExpiringSecretBytes::<4, _>::from_array([1, 2, 3, 4], TestClock(&ticks), 5);
+    let mut out = [0; 4];
+
+    ticks.set(15);
+    secret.replace_from_array([5, 6, 7, 8]);
+
+    assert_eq!(secret.age_ticks(), 0);
+    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(out, [5, 6, 7, 8]);
+
+    ticks.set(17);
+    secret.replace_from_slice(&[8, 7, 6, 5]).unwrap();
+    assert_eq!(secret.age_ticks(), 0);
+    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(out, [8, 7, 6, 5]);
+}
+
+#[test]
+fn debug_output_is_redacted() {
+    let secret = SecretBytes::<3>::from_array(*b"abc");
+    let rendered = std::format!("{secret:?}");
+
+    assert!(rendered.contains("redacted"));
+    assert!(!rendered.contains("abc"));
+}
+
+#[test]
+fn generic_secret_uses_closure_access() {
+    let mut secret = Secret::new([1, 2, 3, 4]);
+
+    assert_eq!(secret.with_secret(|bytes| bytes[0]), 1);
+    secret.with_secret_mut(|bytes| bytes[0] = 9);
+    assert_eq!(secret.with_secret(|bytes| bytes[0]), 9);
+
+    secret.into_cleared();
+}
+
+#[test]
+fn generic_secret_default_wraps_default_value() {
+    let mut secret = Secret::<[u8; 4]>::default();
+
+    assert_eq!(secret.with_secret(|bytes| *bytes), [0; 4]);
+    secret.with_secret_mut(|bytes| bytes[0] = 7);
+    assert_eq!(secret.with_secret(|bytes| bytes[0]), 7);
+}
+
+#[test]
+fn read_once_secret_consumes_once_by_shared_reference() {
+    let secret = ReadOnceSecret::new(SecretBytes::<4>::from_array([1, 2, 3, 4]));
+
+    let sum = secret.consume(|bytes| {
+        let mut out = [0; 4];
+        bytes.copy_to_slice(&mut out).unwrap();
+        out.iter().copied().fold(0_u8, u8::wrapping_add)
+    });
+
+    assert_eq!(sum, Ok(10));
+    assert_eq!(
+        secret.consume(|_| unreachable!()),
+        Err(AlreadyConsumedError)
+    );
+    assert!(secret.is_consumed());
+}
+
+#[test]
+fn read_once_secret_allows_mutable_finalization() {
+    let secret = ReadOnceSecret::new([1_u8, 2, 3, 4]);
+
+    let first = secret.consume_mut(|bytes| {
+        bytes[0] = 9;
+        bytes[0]
+    });
+
+    assert_eq!(first, Ok(9));
+    assert_eq!(
+        secret.consume_mut(|_| unreachable!()),
+        Err(AlreadyConsumedError)
+    );
+}
+
+#[test]
+fn read_once_secret_allows_only_one_shared_consumer() {
+    let secret = std::sync::Arc::new(ReadOnceSecret::new([1_u8, 2, 3, 4]));
+    let worker_secret = std::sync::Arc::clone(&secret);
+    let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let worker_start = std::sync::Arc::clone(&start);
+
+    let worker = std::thread::spawn(move || {
+        worker_start.wait();
+        worker_secret.consume(|bytes| bytes[0])
+    });
+
+    start.wait();
+    let main_result = secret.consume(|bytes| bytes[0]);
+    let worker_result = worker.join().unwrap();
+
+    let successes = usize::from(main_result.is_ok()) + usize::from(worker_result.is_ok());
+    let failures = usize::from(main_result == Err(AlreadyConsumedError))
+        + usize::from(worker_result == Err(AlreadyConsumedError));
+
+    assert_eq!(successes, 1);
+    assert_eq!(failures, 1);
+}
+
+#[test]
+fn read_once_secret_clears_when_consume_unwinds_while_shared() {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    use std::{
+        panic::{catch_unwind, AssertUnwindSafe},
+        sync::Arc,
+    };
+
+    struct Probe(Arc<AtomicBool>);
+
+    impl SecureSanitize for Probe {
+        fn secure_sanitize(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    let cleared = Arc::new(AtomicBool::new(false));
+    let secret = Arc::new(ReadOnceSecret::new(Probe(Arc::clone(&cleared))));
+    let retained_owner = Arc::clone(&secret);
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = secret.consume(|_| panic!("consumer panic"));
+    }));
+
+    assert!(result.is_err());
+    assert!(cleared.load(Ordering::Acquire));
+    assert!(retained_owner.is_consumed());
+    assert!(Arc::strong_count(&retained_owner) > 1);
+}
+
+#[test]
+fn read_once_secret_clears_when_mutable_consume_unwinds_while_shared() {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    use std::{
+        panic::{catch_unwind, AssertUnwindSafe},
+        sync::Arc,
+    };
+
+    struct Probe(Arc<AtomicBool>);
+
+    impl SecureSanitize for Probe {
+        fn secure_sanitize(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    let cleared = Arc::new(AtomicBool::new(false));
+    let secret = Arc::new(ReadOnceSecret::new(Probe(Arc::clone(&cleared))));
+    let retained_owner = Arc::clone(&secret);
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _ = secret.consume_mut(|_| panic!("mutable consumer panic"));
+    }));
+
+    assert!(result.is_err());
+    assert!(cleared.load(Ordering::Acquire));
+    assert!(retained_owner.is_consumed());
+    assert!(Arc::strong_count(&retained_owner) > 1);
+}
+
+#[test]
+fn read_once_secret_default_and_debug_are_safe() {
+    let secret = ReadOnceSecret::<[u8; 4]>::default();
+    let rendered = std::format!("{secret:?}");
+
+    assert!(rendered.contains("redacted"));
+    assert!(!rendered.contains("consumed"));
+    assert!(!rendered.contains("[0, 0, 0, 0]"));
+}
+
+#[cfg(feature = "split-secret")]
+#[test]
+fn split_secret_reconstructs_with_all_shares() {
+    let split =
+        SplitSecretBytes::<4, 3>::from_array_with_generator([9, 8, 7, 6], |share, index| {
+            ((share as u8) << 4) ^ (index as u8)
+        })
+        .unwrap();
+
+    assert_eq!(split.shares().len(), 3);
+    assert!(split
+        .reconstruct()
+        .constant_time_eq_secret(&SecretBytes::from_array([9, 8, 7, 6])));
+    assert!(std::format!("{split:?}").contains("redacted"));
+}
+
+#[cfg(feature = "split-secret")]
+#[test]
+fn split_secret_rejects_trivially_constant_masks() {
+    assert!(matches!(
+        SplitSecretBytes::<4, 3>::from_array_with_generator([9, 8, 7, 6], |_, _| 0),
+        Err(SplitSecretError::TrivialMask)
+    ));
+}
+
+#[cfg(feature = "split-secret")]
+#[test]
+fn split_secret_rejects_canceling_mask_accumulator() {
+    assert!(matches!(
+        SplitSecretBytes::<4, 3>::from_array_with_generator([9, 8, 7, 6], |_, index| {
+            [1, 2, 3, 4][index]
+        }),
+        Err(SplitSecretError::TrivialMask)
+    ));
+}
+
+#[cfg(feature = "split-secret")]
+#[test]
+fn split_secret_can_consume_source_secret() {
+    let secret = SecretBytes::from_array([9, 8, 7, 6]);
+    let split =
+        SplitSecretBytes::<4, 3>::from_secret_consuming_with_generator(secret, |share, index| {
+            ((share as u8) << 4) ^ (index as u8)
+        })
+        .unwrap();
+
+    assert!(split
+        .reconstruct()
+        .constant_time_eq_secret(&SecretBytes::from_array([9, 8, 7, 6])));
+}
+
+#[cfg(feature = "split-secret")]
+#[test]
+fn split_secret_requires_multiple_shares() {
+    assert!(matches!(
+        SplitSecretBytes::<4, 1>::from_array_with_generator([1, 2, 3, 4], |_, _| 0),
+        Err(SplitSecretError::TooFewShares)
+    ));
+}
+
+#[cfg(feature = "hardware-secrets")]
+#[test]
+fn hardware_secret_error_is_displayable() {
+    let error = hardware::HardwareSecretError {
+        kind: hardware::HardwareSecretErrorKind::Unavailable,
+        code: 0,
+    };
+
+    assert!(std::format!("{error}").contains("Unavailable"));
+}
+
+#[cfg(feature = "register-scrub")]
+#[test]
+fn register_scrub_api_is_callable() {
+    register_scrub::scrub_simd_registers();
+}
+
+#[test]
+fn scalar_values_implement_secure_sanitize() {
+    let mut unsigned = Secret::new(0xDEAD_BEEF_u64);
+    let mut signed = Secret::new(-42_i32);
+    let mut flag = Secret::new(true);
+    let mut float = Secret::new(12.5_f64);
+
+    unsigned.with_secret_mut(SecureSanitize::secure_sanitize);
+    signed.with_secret_mut(SecureSanitize::secure_sanitize);
+    flag.with_secret_mut(SecureSanitize::secure_sanitize);
+    float.with_secret_mut(SecureSanitize::secure_sanitize);
+
+    assert_eq!(unsigned.with_secret(|value| *value), 0);
+    assert_eq!(signed.with_secret(|value| *value), 0);
+    assert!(!flag.with_secret(|value| *value));
+    assert_eq!(float.with_secret(|value| value.to_bits()), 0);
+}
+
+#[test]
+fn compound_standard_types_implement_secure_sanitize() {
+    let mut array = [1_u64, 2, 3, 4];
+    let mut optional = Some([9_u8, 8, 7, 6]);
+    let mut result = Ok::<[u8; 2], [u8; 2]>([5, 4]);
+
+    array.secure_sanitize();
+    optional.secure_sanitize();
+    result.secure_sanitize();
+
+    assert_eq!(array, [0; 4]);
+    assert_eq!(optional, None);
+    assert_eq!(result, Ok([0, 0]));
+}
+
+#[test]
+fn secure_sanitize_struct_macro_covers_all_fields() {
+    crate::secure_sanitize_struct! {
+        struct MacroCredentials {
+            private_key: SecretBytes<4>,
+            nonce: SecretBytes<2>,
+        }
+    }
+
+    let mut credentials = MacroCredentials {
+        private_key: SecretBytes::from_array([1, 2, 3, 4]),
+        nonce: SecretBytes::from_array([5, 6]),
+    };
+
+    credentials.secure_sanitize();
+
+    assert!(credentials.private_key.constant_time_eq(&[0, 0, 0, 0]));
+    assert!(credentials.nonce.constant_time_eq(&[0, 0]));
+}
+
+#[test]
+fn secure_drop_struct_macro_generates_sanitize_and_drop() {
+    crate::secure_drop_struct! {
+        struct DropCredentials {
+            private_key: SecretBytes<4>,
+            nonce: SecretBytes<2>,
+        }
+    }
+
+    let mut credentials = DropCredentials {
+        private_key: SecretBytes::from_array([1, 2, 3, 4]),
+        nonce: SecretBytes::from_array([5, 6]),
+    };
+
+    credentials.secure_sanitize();
+
+    assert!(credentials.private_key.constant_time_eq(&[0, 0, 0, 0]));
+    assert!(credentials.nonce.constant_time_eq(&[0, 0]));
+
+    {
+        let credentials = DropCredentials {
+            private_key: SecretBytes::from_array([1, 2, 3, 4]),
+            nonce: SecretBytes::from_array([5, 6]),
+        };
+
+        let _ = &credentials;
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_vec_round_trip_and_clear() {
+    let mut secret = SecretVec::from_vec(std::vec![1, 2, 3]);
+
+    assert_eq!(secret.with_secret(|bytes| bytes.len()), 3);
+    assert!(secret.constant_time_eq(&[1, 2, 3]));
+    assert!(!secret.constant_time_eq(&[1, 2]));
+    secret.extend_from_slice(&[4]);
+    assert_eq!(secret.with_secret(|bytes| bytes[3]), 4);
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+
+    secret.into_cleared();
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_vec_default_is_empty() {
+    let mut secret = SecretVec::default();
+
+    assert!(secret.is_empty());
+    secret.extend_from_slice(&[1, 2, 3]);
+    assert!(secret.constant_time_eq(&[1, 2, 3]));
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_vec_can_initialize_from_fn() {
+    let mut secret = SecretVec::from_fn(4, |index| (index as u8) + 1);
+
+    assert_eq!(secret.len(), 4);
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+
+    secret.into_cleared();
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_vec_can_initialize_from_fallible_fn() {
+    let mut secret =
+        SecretVec::try_from_fn(4, |index| Ok::<u8, &'static str>((index as u8) + 1)).unwrap();
+
+    assert_eq!(secret.len(), 4);
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert_eq!(
+        SecretVec::try_from_fn(4, |index| {
+            if index == 2 {
+                Err("generation failed")
+            } else {
+                Ok(index as u8)
+            }
+        })
+        .err(),
+        Some("generation failed")
+    );
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_vec_can_replace_secret() {
+    let mut secret = SecretVec::with_capacity(8);
+    secret.extend_from_slice(&[1, 2, 3, 4]);
+
+    assert!(secret.capacity() >= 8);
+
+    secret.replace_from_slice(&[9, 8]);
+
+    assert_eq!(secret.len(), 2);
+    assert!(secret.constant_time_eq(&[9, 8]));
+
+    let larger = [7_u8; 64];
+    secret.replace_from_slice(&larger);
+
+    assert_eq!(secret.len(), larger.len());
+    assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[63])), (7, 7));
+
+    secret.replace_from_vec(std::vec![4, 5, 6]);
+    assert_eq!(secret.len(), 3);
+    assert!(secret.constant_time_eq(&[4, 5, 6]));
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_vec_can_replace_from_fn() {
+    let mut secret = SecretVec::from_slice(&[1, 2, 3, 4]);
+
+    secret.replace_from_fn(3, |index| (index as u8) + 7);
+
+    assert_eq!(secret.len(), 3);
+    assert!(secret.constant_time_eq(&[7, 8, 9]));
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        secret.replace_from_fn(4, |index| {
+            if index == 2 {
+                panic!("intentional generator panic");
+            }
+            index as u8
+        });
+    }));
+
+    assert!(result.is_err());
+    assert!(secret.constant_time_eq(&[7, 8, 9]));
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_vec_try_replace_from_fn_preserves_old_secret_on_error() {
+    let mut secret = SecretVec::from_slice(&[1, 2, 3, 4]);
+
+    secret
+        .try_replace_from_fn(3, |index| Ok::<u8, &'static str>((index as u8) + 7))
+        .unwrap();
+
+    assert!(secret.constant_time_eq(&[7, 8, 9]));
+    assert_eq!(
+        secret
+            .try_replace_from_fn(4, |index| {
+                if index == 2 {
+                    Err("generation failed")
+                } else {
+                    Ok(index as u8)
+                }
+            })
+            .err(),
+        Some("generation failed")
+    );
+    assert!(secret.constant_time_eq(&[7, 8, 9]));
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_vec_grows_exponentially() {
+    let mut secret = SecretVec::from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+    let initial_capacity = secret.inner.capacity();
+
+    secret.extend_from_slice(&[9]);
+
+    assert!(secret.inner.capacity() >= initial_capacity.saturating_mul(2));
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_string_round_trip_and_clear() {
+    let mut secret = SecretString::from_string(std::string::String::from("secret"));
+
+    assert_eq!(secret.try_with_secret(|text| text.len()), Ok(6));
+    secret.push_str("-token");
+    assert_eq!(
+        secret.try_with_secret(|text| text.ends_with("token")),
+        Ok(true)
+    );
+    assert_eq!(
+        secret.try_with_secret_mut(|text| text.make_ascii_uppercase()),
+        Ok(())
+    );
+    assert!(secret.constant_time_eq("SECRET-TOKEN"));
+    assert!(!secret.constant_time_eq("secret-token"));
+    assert_eq!(
+        secret.try_with_secret_mut(|text| text.make_ascii_lowercase()),
+        Ok(())
+    );
+    assert!(secret.constant_time_eq("secret-token"));
+    assert!(!secret.constant_time_eq("secret"));
+
+    let rendered = std::format!("{secret:?}");
+    assert!(rendered.contains("redacted"));
+    assert!(!rendered.contains("secret-token"));
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_string_default_is_empty() {
+    let mut secret = SecretString::default();
+
+    assert!(secret.is_empty());
+    secret.push_str("secret");
+    assert!(secret.constant_time_eq("secret"));
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_string_can_replace_secret() {
+    let mut secret = SecretString::with_capacity(8);
+    secret.push_str("secret");
+
+    assert!(secret.capacity() >= 8);
+
+    secret.replace_from_secret_str("rotated");
+
+    assert_eq!(secret.len(), 7);
+    assert!(secret.constant_time_eq("rotated"));
+
+    let larger = "larger-rotated-secret";
+    secret.replace_from_secret_str(larger);
+
+    assert_eq!(secret.len(), larger.len());
+    assert_eq!(secret.try_with_secret(|text| text == larger), Ok(true));
+
+    secret.replace_from_string(std::string::String::from("owned-token"));
+    assert_eq!(
+        secret.try_with_secret(|text| text == "owned-token"),
+        Ok(true)
+    );
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_string_can_initialize_from_chars() {
+    let mut secret = SecretString::from_chars(4, |index| match index {
+        0 => 's',
+        1 => 'e',
+        2 => 'c',
+        _ => '\u{1F512}',
+    });
+
+    assert_eq!(
+        secret.try_with_secret(|text| text == "sec\u{1F512}"),
+        Ok(true)
+    );
+    assert_eq!(secret.len(), "sec\u{1F512}".len());
+
+    assert_eq!(
+        SecretString::try_from_chars(4, |index| {
+            if index == 2 {
+                Err("generation failed")
+            } else {
+                Ok('x')
+            }
+        })
+        .err(),
+        Some("generation failed")
+    );
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_string_can_replace_from_chars() {
+    let mut secret = SecretString::from_secret_str("secret");
+
+    secret.replace_from_chars(3, |index| match index {
+        0 => 'k',
+        1 => 'e',
+        _ => 'y',
+    });
+    assert!(secret.constant_time_eq("key"));
+
+    assert_eq!(
+        secret
+            .try_replace_from_chars(4, |index| {
+                if index == 2 {
+                    Err("generation failed")
+                } else {
+                    Ok('z')
+                }
+            })
+            .err(),
+        Some("generation failed")
+    );
+    assert!(secret.constant_time_eq("key"));
+
+    secret
+        .try_replace_from_chars(2, |index| {
+            Ok::<char, &'static str>(if index == 0 { '\u{00F8}' } else { 'k' })
+        })
+        .unwrap();
+    assert_eq!(secret.try_with_secret(|text| text == "\u{00F8}k"), Ok(true));
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_string_grows_exponentially() {
+    let mut secret = SecretString::from_secret_str("abcdefgh");
+    let initial_capacity = secret.inner.capacity();
+
+    secret.push_str("i");
+
+    assert!(secret.inner.capacity() >= initial_capacity.saturating_mul(2));
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_string_and_secret_vec_transfer_allocations() {
+    let bytes = SecretVec::from_vec(std::vec![115, 101, 99, 114, 101, 116]);
+    let original_ptr = bytes.inner.as_ptr();
+    let text = SecretString::from_secret_vec(bytes).unwrap();
+
+    assert_eq!(text.inner.as_ptr(), original_ptr);
+    assert!(text.constant_time_eq("secret"));
+
+    let text_ptr = text.inner.as_ptr();
+    let bytes = text.into_secret_vec();
+
+    assert_eq!(bytes.inner.as_ptr(), text_ptr);
+    assert!(bytes.constant_time_eq(b"secret"));
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn secret_string_rejects_invalid_secret_bytes() {
+    let invalid = SecretVec::from_vec(std::vec![0xFF, 0xFE]);
+
+    assert!(SecretString::from_secret_vec(invalid).is_err());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn bounded_secret_string_enforces_utf8_byte_limit() {
+    let mut secret = BoundedSecretString::<8>::from_secret_str("secret").unwrap();
+
+    assert_eq!(secret.push_str("!!"), Ok(()));
+    assert_eq!(
+        secret.push_str("x"),
+        Err(SecretStringLimitError {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert_eq!(secret.try_with_secret(|text| text == "secret!!"), Ok(true));
+    assert_eq!(
+        BoundedSecretString::<1>::from_secret_str("\u{00F8}").err(),
+        Some(SecretStringLimitError {
+            maximum: 1,
+            actual: 2,
+        })
+    );
+
+    let unbounded = secret.into_secret_string();
+    assert!(unbounded.constant_time_eq("secret!!"));
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    not(miri),
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    )
+))]
+#[test]
+fn locked_secret_string_preserves_utf8_and_lock_lifecycle() {
+    let mut secret = match LockedSecretString::from_secret_str("token") {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+
+    assert_eq!(secret.try_with_secret(|text| text == "token"), Ok(true));
+    secret.push_str("-v2").unwrap();
+    secret
+        .try_with_secret_mut(|text| text.make_ascii_uppercase())
+        .unwrap();
+    assert!(secret.constant_time_eq("TOKEN-V2"));
+
+    let bytes = secret.into_locked_secret_vec();
+    let mut text = LockedSecretString::from_locked_secret_vec(bytes).unwrap();
+    assert!(text.constant_time_eq("TOKEN-V2"));
+    text.clear_secret();
+    assert!(text.is_empty());
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    not(miri),
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    )
+))]
+#[test]
+fn guarded_secret_string_preserves_utf8_and_guard_lifecycle() {
+    let mut secret = match GuardedSecretString::from_secret_str("token") {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+
+    assert_eq!(secret.try_with_secret(|text| text == "token"), Ok(true));
+    secret.push_str("-v2").unwrap();
+    secret
+        .try_with_secret_mut(|text| text.make_ascii_uppercase())
+        .unwrap();
+    assert!(secret.constant_time_eq("TOKEN-V2"));
+
+    let bytes = secret.into_guarded_secret_vec();
+    let mut text = GuardedSecretString::from_guarded_secret_vec(bytes).unwrap();
+    assert!(text.constant_time_eq("TOKEN-V2"));
+    text.clear_secret();
+    assert!(text.is_empty());
+}
+
+#[test]
+fn volatile_wipe_clears_slice() {
+    let mut bytes = [0xA5; 16];
+
+    crate::unsafe_wipe::volatile_sanitize_bytes(&mut bytes);
+
+    assert_eq!(bytes, [0; 16]);
+}
+
+#[cfg(feature = "multi-pass-clear")]
+#[test]
+fn multi_pass_wipe_clears_slice() {
+    let mut bytes = [0xA5; 16];
+
+    sanitize_bytes_multi_pass(&mut bytes);
+
+    assert_eq!(bytes, [0; 16]);
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn volatile_wipe_clears_alloc_types_when_enabled() {
+    let mut bytes = std::vec![0xBB; 8];
+    let mut text = std::string::String::from("secret");
+
+    crate::unsafe_wipe::volatile_sanitize_vec(&mut bytes);
+    crate::unsafe_wipe::volatile_sanitize_string(&mut text);
+
+    assert!(bytes.is_empty());
+    assert!(text.is_empty());
+}
+
+#[cfg(all(feature = "alloc", feature = "multi-pass-clear"))]
+#[test]
+fn multi_pass_wipe_clears_alloc_types_when_enabled() {
+    let mut bytes = SecretVec::from_slice(&[1, 2, 3]);
+    let mut text = SecretString::from_secret_str("secret");
+    let mut ordinary = std::vec![0xBB; 8];
+    let mut ordinary_text = std::string::String::from("secret");
+
+    bytes.clear_secret_multi_pass();
+    text.clear_secret_multi_pass();
+    crate::unsafe_wipe::volatile_sanitize_vec_multi_pass(&mut ordinary);
+    crate::unsafe_wipe::volatile_sanitize_string_multi_pass(&mut ordinary_text);
+
+    assert!(bytes.is_empty());
+    assert!(text.is_empty());
+    assert!(ordinary.is_empty());
+    assert!(ordinary_text.is_empty());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn alloc_standard_types_implement_secure_sanitize() {
+    let mut boxed = std::boxed::Box::new([1_u64, 2, 3]);
+    let mut values = std::vec![7_u32, 8, 9];
+    let mut text = std::string::String::from("secret");
+
+    boxed.secure_sanitize();
+    values.secure_sanitize();
+    text.secure_sanitize();
+
+    assert_eq!(*boxed, [0; 3]);
+    assert!(values.is_empty());
+    assert!(text.is_empty());
+}
+
+#[test]
+fn volatile_on_drop_wrapper_is_explicit() {
+    let mut secret = crate::unsafe_wipe::VolatileOnDrop::new([1, 2, 3, 4]);
+
+    assert_eq!(secret.with_secret(|bytes| bytes[2]), 3);
+    secret.with_secret_mut(|bytes| bytes[2] = 9);
+    assert_eq!(secret.with_secret(|bytes| bytes[2]), 9);
+
+    secret.into_cleared();
+}
+
+#[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+#[test]
+fn cache_flush_sanitize_clears_slice_and_secret_bytes() {
+    let mut bytes = [0xA5; 16];
+    crate::cache_flush::cache_flush_sanitize_array(&mut bytes);
+    assert_eq!(bytes, [0; 16]);
+
+    let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
+    secret.secure_clear_and_flush();
+    assert!(secret.constant_time_eq(&[0, 0, 0, 0]));
+
+    let mut wrapped = crate::cache_flush::CacheFlushOnDrop::new([1, 2, 3, 4]);
+    wrapped.with_secret_mut(|value| value[0] = 9);
+    assert_eq!(wrapped.with_secret(|value| value[0]), 9);
+    wrapped.into_cleared();
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn volatile_constructor_aliases_still_work() {
+    let mut bytes = SecretVec::from_slice_volatile(&[1, 2, 3]);
+    let mut text = SecretString::from_secret_str_volatile("secret");
+
+    assert_eq!(bytes.with_secret(|secret| secret[0]), 1);
+    assert_eq!(text.try_with_secret(|secret| secret.len()), Ok(6));
+
+    bytes.clear_secret();
+    text.clear_secret();
+
+    assert!(bytes.is_empty());
+    assert!(text.is_empty());
+}
+
+#[cfg(all(
+    feature = "cache-flush",
+    feature = "alloc",
+    target_arch = "x86_64",
+    not(miri)
+))]
+#[test]
+fn cache_flush_sanitize_clears_alloc_types() {
+    let mut bytes = SecretVec::from_slice(&[1, 2, 3]);
+    let mut text = SecretString::from_secret_str("secret");
+
+    bytes.clear_secret_and_flush();
+    text.clear_secret_and_flush();
+
+    assert!(bytes.is_empty());
+    assert!(text.is_empty());
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_bytes_round_trip_and_clear() {
+    let mut secret = LockedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+    let mut out = [0; 4];
+
+    assert!(secret.copy_to_slice(&mut out).is_ok());
+    assert_eq!(out, [1, 2, 3, 4]);
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(!secret.constant_time_eq(&[1, 2, 3]));
+
+    secret.secure_clear();
+    #[cfg(feature = "canary-check")]
+    {
+        assert_eq!(secret.verify_integrity(), Ok(()));
+        assert!(secret.copy_to_slice(&mut out).is_ok());
+        assert_eq!(out, [0, 0, 0, 0]);
+        assert!(secret.copy_from_slice(&[9, 8, 7, 6]).is_ok());
+        assert!(secret.constant_time_eq(&[9, 8, 7, 6]));
+    }
+    #[cfg(not(feature = "canary-check"))]
+    {
+        assert!(secret.copy_to_slice(&mut out).is_ok());
+        assert_eq!(out, [0, 0, 0, 0]);
+    }
+
+    secret.into_cleared();
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_bytes_can_load_from_slice() {
+    let mut secret = LockedSecretBytes::<4>::from_slice(&[1, 2, 3, 4]).unwrap();
+    let mut out = [0; 4];
+
+    assert!(secret.copy_to_slice(&mut out).is_ok());
+    assert_eq!(out, [1, 2, 3, 4]);
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    assert_eq!(
+        LockedSecretBytes::<4>::from_slice(&[1, 2]).err(),
+        Some(LockedSecretBytesError::Length(LengthError {
+            expected: 4,
+            actual: 2,
+        }))
+    );
+
+    secret.secure_clear();
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_bytes_can_initialize_from_fn() {
+    let mut secret = LockedSecretBytes::<4>::from_fn(|index| (index as u8) + 1).unwrap();
+    let mut out = [0; 4];
+
+    assert!(secret.copy_to_slice(&mut out).is_ok());
+    assert_eq!(out, [1, 2, 3, 4]);
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    secret.secure_clear();
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_bytes_can_initialize_from_fallible_fn() {
+    let mut secret = match LockedSecretBytes::<4>::try_from_fn(|index| {
+        Ok::<u8, &'static str>((index as u8) + 1)
+    }) {
+        Ok(secret) => secret,
+        Err(LockedSecretBytesGenerateError::Memory(_)) => return,
+        Err(LockedSecretBytesGenerateError::Generate(error)) => {
+            panic!("unexpected generator error: {error}")
+        }
+    };
+    let mut out = [0; 4];
+
+    assert!(secret.copy_to_slice(&mut out).is_ok());
+    assert_eq!(out, [1, 2, 3, 4]);
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    match LockedSecretBytes::<4>::try_from_fn(|index| {
+        if index == 2 {
+            Err("generation failed")
+        } else {
+            Ok(index as u8)
+        }
+    }) {
+        Ok(_) => panic!("generation should have failed"),
+        Err(LockedSecretBytesGenerateError::Memory(_)) => return,
+        Err(LockedSecretBytesGenerateError::Generate(error)) => {
+            assert_eq!(error, "generation failed");
+        }
+    }
+
+    secret.secure_clear();
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_bytes_can_replace_secret() {
+    let mut secret = match LockedSecretBytes::<4>::from_array([1, 2, 3, 4]) {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+    let mut out = [0; 4];
+
+    if let Err(LockedSecretBytesError::Memory(_)) = secret.replace_from_slice(&[9, 8, 7, 6]) {
+        return;
+    }
+    assert!(secret.copy_to_slice(&mut out).is_ok());
+    assert_eq!(out, [9, 8, 7, 6]);
+
+    if secret.replace_from_array([6, 7, 8, 9]).is_err() {
+        return;
+    }
+    assert!(secret.copy_to_slice(&mut out).is_ok());
+    assert_eq!(out, [6, 7, 8, 9]);
+
+    assert_eq!(
+        secret.replace_from_slice(&[1, 2]).err(),
+        Some(LockedSecretBytesError::Length(LengthError {
+            expected: 4,
+            actual: 2,
+        }))
+    );
+    assert!(secret.constant_time_eq(&[6, 7, 8, 9]));
+
+    if secret.replace_from_fn(|index| (index as u8) + 1).is_err() {
+        return;
+    }
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    match secret.try_replace_from_fn(|index| {
+        if index == 2 {
+            Err("generation failed")
+        } else {
+            Ok(index as u8)
+        }
+    }) {
+        Ok(_) => panic!("generation should have failed"),
+        Err(LockedSecretBytesGenerateError::Memory(_)) => return,
+        Err(LockedSecretBytesGenerateError::Generate(error)) => {
+            assert_eq!(error, "generation failed");
+        }
+    }
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    match secret.try_replace_from_fn(|index| Ok::<u8, &'static str>((index as u8) + 7)) {
+        Ok(()) => {}
+        Err(LockedSecretBytesGenerateError::Memory(_)) => return,
+        Err(LockedSecretBytesGenerateError::Generate(error)) => {
+            panic!("unexpected generator error: {error}")
+        }
+    }
+    assert!(secret.constant_time_eq(&[7, 8, 9, 10]));
+
+    secret.secure_clear();
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_bytes_can_fill_in_place() {
+    let mut secret = match LockedSecretBytes::<4>::from_fill(|output| {
+        output.copy_from_slice(&[1, 2, 3, 4]);
+    }) {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    match LockedSecretBytes::<4>::try_from_fill(|output| {
+        output[..2].copy_from_slice(&[9, 8]);
+        Err("decode failed")
+    }) {
+        Ok(_) => panic!("fill should have failed"),
+        Err(LockedSecretBytesGenerateError::Memory(_)) => return,
+        Err(LockedSecretBytesGenerateError::Generate(error)) => {
+            assert_eq!(error, "decode failed");
+        }
+    }
+
+    secret
+        .replace_from_fill(|output| output.copy_from_slice(&[5, 6, 7, 8]))
+        .unwrap();
+    assert!(secret.constant_time_eq(&[5, 6, 7, 8]));
+
+    assert_eq!(
+        secret.try_replace_from_fill(|output| {
+            output[0] = 0;
+            Err("decode failed")
+        }),
+        Err(LockedSecretBytesGenerateError::Generate("decode failed"))
+    );
+    assert!(secret.constant_time_eq(&[5, 6, 7, 8]));
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_vec_round_trip_grow_replace_and_clear() {
+    let mut secret = match LockedSecretVec::from_slice(b"key") {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+
+    assert_eq!(secret.len(), 3);
+    assert!(secret.capacity() >= 3);
+    assert!(secret.locked_len() >= 3);
+    assert_eq!(secret.with_secret(|bytes| bytes[0]), b'k');
+    assert!(secret.constant_time_eq(b"key"));
+    assert!(!secret.constant_time_eq(b"ke"));
+
+    secret.extend_from_slice(b"-material").unwrap();
+    assert!(secret.constant_time_eq(b"key-material"));
+
+    secret
+        .replace_from_fn(4, |index| (index as u8) + 1)
+        .unwrap();
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    assert_eq!(
+        secret.try_replace_from_fn(4, |index| {
+            if index == 2 {
+                Err("generation failed")
+            } else {
+                Ok(index as u8)
+            }
+        }),
+        Err(LockedSecretVecGenerateError::Generate("generation failed"))
+    );
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    secret.with_secret_mut(|bytes| bytes[0] = 9);
+    assert!(secret.constant_time_eq(&[9, 2, 3, 4]));
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+    #[cfg(feature = "canary-check")]
+    assert_eq!(secret.verify_integrity(), Ok(()));
+
+    secret.extend_from_slice(b"next").unwrap();
+    assert!(secret.constant_time_eq(b"next"));
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_vec_can_fill_in_place() {
+    let mut exact = match LockedSecretVec::from_exact_len(4, |output| {
+        output.copy_from_slice(&[1, 2, 3, 4]);
+    }) {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+    assert!(exact.constant_time_eq(&[1, 2, 3, 4]));
+
+    match LockedSecretVec::try_from_exact_len(4, |output| {
+        output[..2].copy_from_slice(&[9, 8]);
+        Err("decode failed")
+    }) {
+        Ok(_) => panic!("fill should have failed"),
+        Err(LockedSecretVecGenerateError::Memory(_)) => return,
+        Err(LockedSecretVecGenerateError::Generate(error)) => {
+            assert_eq!(error, "decode failed");
+        }
+    }
+
+    let mut bounded = match LockedSecretVec::from_capacity(8, |output| {
+        output[..5].copy_from_slice(b"token");
+        output[5..8].copy_from_slice(b"old");
+        5
+    }) {
+        Ok(secret) => secret,
+        Err(LockedSecretVecFillError::Memory(_)) => return,
+        Err(error) => panic!("unexpected capacity fill error: {error}"),
+    };
+    assert_eq!(bounded.len(), 5);
+    assert!(bounded.capacity() >= 8);
+    assert!(bounded.constant_time_eq(b"token"));
+
+    match LockedSecretVec::try_from_capacity(4, |output| {
+        output.copy_from_slice(b"abcd");
+        Ok::<usize, &'static str>(5)
+    }) {
+        Ok(_) => panic!("reported length should have failed"),
+        Err(LockedSecretVecFillError::Memory(_)) => return,
+        Err(error) => assert_eq!(
+            error,
+            LockedSecretVecFillError::Length(LengthError {
+                expected: 4,
+                actual: 5,
+            })
+        ),
+    }
+
+    exact
+        .replace_from_exact_len(3, |output| output.copy_from_slice(b"key"))
+        .unwrap();
+    assert!(exact.constant_time_eq(b"key"));
+
+    assert_eq!(
+        exact.try_replace_from_exact_len(4, |output| {
+            output[..2].copy_from_slice(&[9, 8]);
+            Err("decode failed")
+        }),
+        Err(LockedSecretVecGenerateError::Generate("decode failed"))
+    );
+    assert!(exact.constant_time_eq(b"key"));
+
+    assert_eq!(
+        exact.try_replace_from_exact_len(4, |output| {
+            output.copy_from_slice(b"fail");
+            Err("decode failed")
+        }),
+        Err(LockedSecretVecGenerateError::Generate("decode failed"))
+    );
+    assert!(exact.constant_time_eq(b"key"));
+
+    bounded
+        .replace_from_capacity(8, |output| {
+            output[..6].copy_from_slice(b"secret");
+            6
+        })
+        .unwrap();
+    assert!(bounded.constant_time_eq(b"secret"));
+
+    assert_eq!(
+        bounded.try_replace_from_capacity(4, |output| {
+            output.copy_from_slice(b"abcd");
+            Ok::<usize, &'static str>(5)
+        }),
+        Err(LockedSecretVecFillError::Length(LengthError {
+            expected: 4,
+            actual: 5,
+        }))
+    );
+    assert!(bounded.constant_time_eq(b"secret"));
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_vec_zero_capacity_is_reusable() {
+    let mut secret = LockedSecretVec::with_capacity(0).unwrap();
+
+    assert!(secret.is_empty());
+    assert_eq!(secret.capacity(), 0);
+    assert_eq!(secret.locked_len(), 0);
+    secret.clear_secret();
+    #[cfg(feature = "canary-check")]
+    assert_eq!(secret.verify_integrity(), Ok(()));
+
+    if secret.extend_from_slice(b"x").is_err() {
+        return;
+    }
+    assert!(secret.constant_time_eq(b"x"));
+}
+
+#[cfg(all(
+    feature = "std",
+    feature = "canary-check",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_vec_canaries_detect_corruption() {
+    let mut secret = match LockedSecretVec::from_slice(b"secret") {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+
+    assert_eq!(secret.verify_integrity(), Ok(()));
+    assert_eq!(secret.expose_secret_checked(|bytes| bytes[0]), Ok(b's'));
+    assert_eq!(secret.constant_time_eq_checked(b"secret"), Ok(true));
+
+    secret.corrupt_prefix_canary_for_test();
+
+    assert_eq!(
+        secret.expose_secret_checked(|bytes| bytes[0]),
+        Err(CanaryCorruptedError)
+    );
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    feature = "cache-flush",
+    target_os = "linux",
+    target_arch = "x86_64",
+    not(miri)
+))]
+#[test]
+fn locked_secret_bytes_can_clear_and_flush() {
+    let mut secret = LockedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+    #[cfg(not(feature = "canary-check"))]
+    let mut out = [0; 4];
+
+    secret.secure_clear_and_flush();
+
+    #[cfg(feature = "canary-check")]
+    assert_eq!(secret.verify_integrity(), Ok(()));
+    #[cfg(not(feature = "canary-check"))]
+    {
+        assert!(secret.copy_to_slice(&mut out).is_ok());
+        assert_eq!(out, [0, 0, 0, 0]);
+    }
+}
+
+#[cfg(all(
+    feature = "std",
+    feature = "canary-check",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_canary_checked_apis_detect_corruption() {
+    let mut secret = match LockedSecretBytes::<4>::from_array([1, 2, 3, 4]) {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+    let mut out = [0; 4];
+
+    assert_eq!(secret.verify_integrity(), Ok(()));
+    assert_eq!(secret.expose_secret_checked(|bytes| bytes[0]), Ok(1));
+    assert_eq!(secret.copy_to_slice_checked(&mut out), Ok(()));
+    assert_eq!(out, [1, 2, 3, 4]);
+    assert_eq!(secret.constant_time_eq_checked(&[1, 2, 3, 4]), Ok(true));
+    assert_eq!(
+        secret.copy_to_slice_checked(&mut [0; 2]),
+        Err(LockedSecretBytesCheckedCopyError::Length(LengthError {
+            expected: 4,
+            actual: 2,
+        }))
+    );
+
+    secret.corrupt_prefix_canary_for_test();
+
+    assert_eq!(
+        secret.expose_secret_checked(|bytes| bytes[0]),
+        Err(CanaryCorruptedError)
+    );
+}
+
+#[cfg(all(
+    feature = "std",
+    feature = "canary-check",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_canary_legacy_exposure_fails_closed() {
+    let mut secret = match LockedSecretBytes::<4>::from_array([1, 2, 3, 4]) {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+
+    secret.corrupt_prefix_canary_for_test();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = secret.with_secret(|bytes| bytes[0]);
+    }));
+
+    assert!(result.is_err());
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn secret_pool_allocates_reuses_and_clears_slots() {
+    let pool = match SecretPool::<4, 2>::new() {
+        Ok(pool) => pool,
+        Err(_) => return,
+    };
+
+    assert_eq!(pool.slot_size(), 4);
+    assert_eq!(pool.capacity_slots(), 2);
+    assert!(pool.locked_len() >= 8);
+    assert_eq!(pool.available_slots(), 2);
+
+    let mut first = pool.allocate_from_array([1, 2, 3, 4]).unwrap();
+    let mut second = pool.allocate_from_fn(|index| (index as u8) + 5).unwrap();
+    let mut out = [0; 4];
+
+    assert_eq!(pool.available_slots(), 0);
+    assert!(pool.allocate().is_none());
+    assert!(pool.try_allocate().unwrap().is_none());
+    assert!(first.constant_time_eq(&[1, 2, 3, 4]));
+    assert!(second.copy_to_slice(&mut out).is_ok());
+    assert_eq!(out, [5, 6, 7, 8]);
+
+    first.with_secret_mut(|bytes| bytes[0] = 9);
+    assert!(first.constant_time_eq(&[9, 2, 3, 4]));
+    first.secure_clear();
+    #[cfg(feature = "canary-check")]
+    assert_eq!(first.verify_integrity(), Ok(()));
+    assert!(first.constant_time_eq(&[0, 0, 0, 0]));
+    first.copy_from_slice(&[4, 3, 2, 1]).unwrap();
+    assert!(first.constant_time_eq(&[4, 3, 2, 1]));
+    first.secure_clear();
+    assert!(first.constant_time_eq(&[0, 0, 0, 0]));
+
+    let freed_index = first.slot_index();
+    drop(first);
+    assert_eq!(pool.available_slots(), 1);
+
+    let reused = pool.allocate_from_slice(&[7, 7, 7, 7]).unwrap().unwrap();
+    assert_eq!(reused.slot_index(), freed_index);
+    assert!(reused.constant_time_eq(&[7, 7, 7, 7]));
+
+    second.replace_from_array([8, 8, 8, 8]);
+    assert!(second.constant_time_eq(&[8, 8, 8, 8]));
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn secret_pool_handles_generation_and_zero_slot_cases() {
+    let pool = match SecretPool::<4, 1>::new() {
+        Ok(pool) => pool,
+        Err(_) => return,
+    };
+
+    let mut slot = match pool
+        .try_allocate_from_fn(|index| Ok::<u8, &'static str>((index as u8).wrapping_add(1)))
+    {
+        Ok(Some(slot)) => slot,
+        Ok(None) => panic!("pool should have one available slot"),
+        Err(error) => panic!("unexpected generator error: {error}"),
+    };
+
+    assert!(slot.constant_time_eq(&[1, 2, 3, 4]));
+    assert_eq!(
+        slot.try_replace_from_fn(|index| {
+            if index == 2 {
+                Err("generation failed")
+            } else {
+                Ok(index as u8)
+            }
+        }),
+        Err("generation failed")
+    );
+    #[cfg(feature = "canary-check")]
+    assert_eq!(slot.verify_integrity(), Ok(()));
+    assert!(slot.constant_time_eq(&[0, 0, 0, 0]));
+    slot.copy_from_slice(&[9, 9, 9, 9]).unwrap();
+    assert!(slot.constant_time_eq(&[9, 9, 9, 9]));
+    drop(slot);
+
+    match pool.try_allocate_from_fn(|index| {
+        if index == 1 {
+            Err("generation failed")
+        } else {
+            Ok(index as u8)
+        }
+    }) {
+        Ok(_) => panic!("generation should have failed"),
+        Err(error) => assert_eq!(error, "generation failed"),
+    }
+    assert_eq!(pool.available_slots(), 1);
+
+    let empty = SecretPool::<0, 2>::new().unwrap();
+    assert!(empty.is_empty());
+    assert_eq!(empty.locked_len(), 0);
+    let slot = empty.allocate().unwrap();
+    assert!(slot.is_empty());
+}
+
+#[cfg(all(
+    feature = "std",
+    feature = "canary-check",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn secret_pool_slot_canaries_detect_corruption() {
+    let pool = match SecretPool::<4, 1>::new() {
+        Ok(pool) => pool,
+        Err(_) => return,
+    };
+    let mut slot = pool.allocate_from_array([1, 2, 3, 4]).unwrap();
+
+    assert_eq!(slot.verify_integrity(), Ok(()));
+    assert_eq!(slot.expose_secret_checked(|bytes| bytes[0]), Ok(1));
+    assert_eq!(slot.constant_time_eq_checked(&[1, 2, 3, 4]), Ok(true));
+
+    slot.corrupt_prefix_canary_for_test();
+
+    assert_eq!(
+        slot.expose_secret_checked(|bytes| bytes[0]),
+        Err(CanaryCorruptedError)
+    );
+}
+
+#[cfg(all(
+    feature = "std",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn secret_pool_concurrent_allocation_gets_distinct_slots() {
+    let pool = match SecretPool::<4, 2>::new() {
+        Ok(pool) => std::sync::Arc::new(pool),
+        Err(_) => return,
+    };
+    let worker_pool = std::sync::Arc::clone(&pool);
+    let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let finish = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let worker_start = std::sync::Arc::clone(&start);
+    let worker_finish = std::sync::Arc::clone(&finish);
+
+    let worker = std::thread::spawn(move || {
+        worker_start.wait();
+        let slot = worker_pool.allocate();
+        let index = slot.as_ref().map(|slot| slot.slot_index());
+        worker_finish.wait();
+        index
+    });
+
+    start.wait();
+    let slot = pool.allocate();
+    let main_index = slot.as_ref().map(|slot| slot.slot_index());
+    finish.wait();
+    let worker_index = worker.join().unwrap();
+
+    if let (Some(left), Some(right)) = (main_index, worker_index) {
+        assert_ne!(left, right);
+    }
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_round_trip_grow_and_clear() {
+    let mut secret = GuardedSecretVec::from_slice(&[1, 2, 3]).unwrap();
+
+    assert_eq!(secret.len(), 3);
+    assert!(secret.capacity() >= 3);
+    assert!(!secret.is_memory_locked());
+    assert_eq!(secret.with_secret(|bytes| bytes[0]), 1);
+    assert!(secret.constant_time_eq(&[1, 2, 3]));
+    assert!(!secret.constant_time_eq(&[1, 2]));
+
+    secret.with_secret_mut(|bytes| bytes[0] = 9);
+    let original_capacity = secret.capacity();
+    let extra = [4_u8; 5000];
+    secret.extend_from_slice(&extra).unwrap();
+
+    assert!(secret.capacity() > original_capacity);
+    assert_eq!(secret.len(), 5003);
+    assert_eq!(
+        secret.with_secret(|bytes| (bytes[0], bytes[2], bytes[5002])),
+        (9, 3, 4)
+    );
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+    #[cfg(feature = "canary-check")]
+    assert_eq!(secret.verify_integrity(), Ok(()));
+    secret.extend_from_slice(b"world").unwrap();
+    assert!(secret.constant_time_eq(b"world"));
+
+    secret.into_cleared();
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_can_replace_secret() {
+    let mut secret = GuardedSecretVec::from_slice(&[1, 2, 3, 4]).unwrap();
+    let original_capacity = secret.capacity();
+
+    secret.replace_from_slice(&[9, 8]).unwrap();
+
+    assert_eq!(secret.len(), 2);
+    assert_eq!(secret.capacity(), original_capacity);
+    assert!(secret.constant_time_eq(&[9, 8]));
+
+    let larger = [7_u8; 70_000];
+    secret.replace_from_slice(&larger).unwrap();
+
+    assert_eq!(secret.len(), larger.len());
+    assert!(secret.capacity() >= larger.len());
+    assert_eq!(
+        secret.with_secret(|bytes| (bytes[0], bytes[69_999])),
+        (7, 7)
+    );
+
+    secret.clear_secret();
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_can_replace_from_fn() {
+    let mut secret = GuardedSecretVec::from_slice(&[1, 2, 3, 4]).unwrap();
+
+    secret
+        .replace_from_fn(3, |index| (index as u8) + 7)
+        .unwrap();
+
+    assert_eq!(secret.len(), 3);
+    assert!(secret.constant_time_eq(&[7, 8, 9]));
+
+    assert_eq!(
+        secret
+            .try_replace_from_fn(4, |index| {
+                if index == 2 {
+                    Err("generation failed")
+                } else {
+                    Ok(index as u8)
+                }
+            })
+            .err(),
+        Some(GuardedSecretVecGenerateError::Generate("generation failed"))
+    );
+    assert!(secret.constant_time_eq(&[7, 8, 9]));
+
+    secret
+        .try_replace_from_fn(4, |index| Ok::<u8, &'static str>((index as u8) + 1))
+        .unwrap();
+
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    feature = "cache-flush",
+    target_os = "linux",
+    target_arch = "x86_64",
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_can_clear_and_flush() {
+    let mut secret = GuardedSecretVec::from_slice(&[1, 2, 3, 4]).unwrap();
+
+    secret.clear_secret_and_flush();
+
+    assert!(secret.is_empty());
+    #[cfg(feature = "canary-check")]
+    assert_eq!(secret.verify_integrity(), Ok(()));
+    #[cfg(not(feature = "canary-check"))]
+    assert_eq!(secret.with_secret(|bytes| bytes.len()), 0);
+
+    let wrapped = crate::cache_flush::CacheFlushOnDrop::new(
+        GuardedSecretVec::from_slice(&[5, 6, 7, 8]).unwrap(),
+    );
+    assert_eq!(wrapped.with_secret(|secret| secret.len()), 4);
+    wrapped.into_cleared();
+}
+
+#[cfg(all(
+    feature = "std",
+    feature = "guard-pages",
+    feature = "canary-check",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_canaries_detect_corruption() {
+    let mut secret = GuardedSecretVec::from_slice(&[1, 2, 3, 4]).unwrap();
+
+    assert_eq!(secret.verify_integrity(), Ok(()));
+    assert_eq!(secret.expose_secret_checked(|bytes| bytes[0]), Ok(1));
+    assert_eq!(secret.constant_time_eq_checked(&[1, 2, 3, 4]), Ok(true));
+
+    secret.extend_from_slice(&[5, 6]).unwrap();
+    assert_eq!(secret.expose_secret_checked(|bytes| bytes[5]), Ok(6));
+
+    secret.corrupt_suffix_canary_for_test();
+
+    assert_eq!(
+        secret.expose_secret_checked(|bytes| bytes[0]),
+        Err(CanaryCorruptedError)
+    );
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_can_initialize_from_fn() {
+    let mut secret = GuardedSecretVec::from_fn(4, |index| (index as u8) + 1).unwrap();
+
+    assert_eq!(secret.len(), 4);
+    assert!(!secret.is_memory_locked());
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[3])), (1, 4));
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_can_initialize_from_fallible_fn() {
+    let mut secret =
+        GuardedSecretVec::try_from_fn(4, |index| Ok::<u8, &'static str>((index as u8) + 1))
+            .unwrap();
+
+    assert_eq!(secret.len(), 4);
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert_eq!(
+        GuardedSecretVec::try_from_fn(4, |index| {
+            if index == 2 {
+                Err("generation failed")
+            } else {
+                Ok(index as u8)
+            }
+        })
+        .err(),
+        Some(GuardedSecretVecGenerateError::Generate("generation failed"))
+    );
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_can_be_memory_locked() {
+    let mut secret = match GuardedSecretVec::locked_from_slice(&[1, 2, 3]) {
+        Ok(secret) => secret,
+        Err(GuardPageError {
+            operation:
+                GuardPageOperation::DontDump | GuardPageOperation::DontFork | GuardPageOperation::Lock,
+            ..
+        }) => return,
+        Err(error) => panic!("unexpected guarded lock error: {error:?}"),
+    };
+
+    assert!(secret.is_memory_locked());
+    assert!(secret.constant_time_eq(&[1, 2, 3]));
+
+    secret.extend_from_slice(&[4]).unwrap();
+
+    assert!(secret.is_memory_locked());
+    assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[3])), (1, 4));
+
+    let larger = [9_u8; 5000];
+    secret.replace_from_slice(&larger).unwrap();
+
+    assert!(secret.is_memory_locked());
+    assert_eq!(secret.len(), larger.len());
+    assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[4999])), (9, 9));
+
+    secret
+        .replace_from_fn(4, |index| (index as u8) + 1)
+        .unwrap();
+
+    assert!(secret.is_memory_locked());
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    match secret.try_replace_from_fn(4, |index| {
+        if index == 2 {
+            Err("generation failed")
+        } else {
+            Ok(index as u8)
+        }
+    }) {
+        Ok(_) => panic!("generation should have failed"),
+        Err(GuardedSecretVecGenerateError::Generate(error)) => {
+            assert_eq!(error, "generation failed");
+        }
+        Err(GuardedSecretVecGenerateError::Guard(error)) => {
+            panic!("unexpected guarded setup error: {error:?}")
+        }
+    }
+
+    assert!(secret.is_memory_locked());
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_can_initialize_locked_from_fn() {
+    let mut secret = match GuardedSecretVec::locked_from_fn(4, |index| (index as u8) + 1) {
+        Ok(secret) => secret,
+        Err(GuardPageError {
+            operation:
+                GuardPageOperation::DontDump | GuardPageOperation::DontFork | GuardPageOperation::Lock,
+            ..
+        }) => return,
+        Err(error) => panic!("unexpected guarded lock error: {error:?}"),
+    };
+
+    assert!(secret.is_memory_locked());
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+    assert_eq!(secret.with_secret(|bytes| (bytes[0], bytes[3])), (1, 4));
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_can_initialize_locked_from_fallible_fn() {
+    let mut secret = match GuardedSecretVec::locked_try_from_fn(4, |index| {
+        Ok::<u8, &'static str>((index as u8) + 1)
+    }) {
+        Ok(secret) => secret,
+        Err(GuardedSecretVecGenerateError::Guard(GuardPageError {
+            operation:
+                GuardPageOperation::DontDump | GuardPageOperation::DontFork | GuardPageOperation::Lock,
+            ..
+        })) => return,
+        Err(error) => panic!("unexpected guarded generation error: {error:?}"),
+    };
+
+    assert!(secret.is_memory_locked());
+    assert_eq!(secret.len(), 4);
+    assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
+
+    match GuardedSecretVec::locked_try_from_fn(4, |index| {
+        if index == 2 {
+            Err("generation failed")
+        } else {
+            Ok(index as u8)
+        }
+    }) {
+        Ok(_) => panic!("generation should have failed"),
+        Err(GuardedSecretVecGenerateError::Guard(GuardPageError {
+            operation:
+                GuardPageOperation::DontDump | GuardPageOperation::DontFork | GuardPageOperation::Lock,
+            ..
+        })) => return,
+        Err(GuardedSecretVecGenerateError::Guard(error)) => {
+            panic!("unexpected guarded setup error: {error:?}")
+        }
+        Err(GuardedSecretVecGenerateError::Generate(error)) => {
+            assert_eq!(error, "generation failed");
+        }
+    }
+
+    secret.clear_secret();
+    assert!(secret.is_empty());
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn guarded_secret_vec_debug_is_redacted_and_sanitizable() {
+    let mut secret = GuardedSecretVec::from_slice(b"secret").unwrap();
+    let rendered = std::format!("{secret:?}");
+
+    assert!(rendered.contains("redacted"));
+    assert!(!rendered.contains("secret"));
+
+    secret.secure_sanitize();
+    assert!(secret.is_empty());
+}

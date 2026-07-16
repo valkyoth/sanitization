@@ -112,7 +112,7 @@ scripts/verify-evidence.py
 ```
 
 This verifies that `docs/ct-evidence.json` has the expected schema and that its
-listed Kani proof names match the proof harnesses in `src/lib.rs`.
+listed Kani proof names match the proof harnesses in `src/owned.rs`.
 
 Generate local release-evidence metadata for reviewer or release notes:
 

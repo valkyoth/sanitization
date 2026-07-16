@@ -1,0 +1,257 @@
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+    target_os = "windows",
+))]
+use core::ffi::c_void;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use core::arch::asm;
+
+#[cfg(all(
+    any(target_os = "linux", target_os = "android"),
+    target_arch = "x86_64"
+))]
+const SYS_GETRANDOM: usize = 318;
+#[cfg(all(
+    any(target_os = "linux", target_os = "android"),
+    target_arch = "aarch64"
+))]
+const SYS_GETRANDOM: usize = 278;
+
+#[cfg(target_os = "windows")]
+const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x0000_0002;
+#[cfg(all(
+    any(target_os = "linux", target_os = "android"),
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+const ERRNO_NO_PROGRESS: i32 = -2;
+#[cfg(all(
+    any(target_os = "linux", target_os = "android"),
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+const EINTR: i32 = 4;
+#[cfg(all(
+    any(target_os = "linux", target_os = "android"),
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+const EAGAIN: i32 = 11;
+#[cfg(all(
+    any(target_os = "linux", target_os = "android"),
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+const MAX_GETRANDOM_RETRIES: usize = 16;
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+))]
+unsafe extern "C" {
+    fn arc4random_buf(buf: *mut c_void, nbytes: usize);
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "bcrypt")]
+unsafe extern "system" {
+    fn BCryptGenRandom(algorithm: *mut c_void, buffer: *mut u8, buffer_len: u32, flags: u32)
+        -> i32;
+}
+
+#[cfg(all(target_os = "wasi", target_env = "p1"))]
+#[link(wasm_import_module = "wasi_snapshot_preview1")]
+unsafe extern "C" {
+    #[link_name = "random_get"]
+    fn wasi_random_get(buf: *mut u8, buf_len: usize) -> u16;
+}
+
+pub(crate) fn fill(bytes: &mut [u8]) -> Result<(), i32> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+
+    fill_inner(bytes)
+}
+
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+fn fill_inner(bytes: &mut [u8]) -> Result<(), i32> {
+    fill_with_getrandom_syscall(bytes)
+}
+
+#[cfg(all(
+    target_os = "android",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+fn fill_inner(bytes: &mut [u8]) -> Result<(), i32> {
+    fill_with_getrandom_syscall(bytes)
+}
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+))]
+fn fill_inner(bytes: &mut [u8]) -> Result<(), i32> {
+    // SAFETY: `bytes` is a live mutable byte slice, and `arc4random_buf`
+    // fills exactly the provided byte range without additional
+    // initialization requirements.
+    unsafe { arc4random_buf(bytes.as_mut_ptr().cast::<c_void>(), bytes.len()) };
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn fill_inner(bytes: &mut [u8]) -> Result<(), i32> {
+    for chunk in bytes.chunks_mut(u32::MAX as usize) {
+        // SAFETY: `chunk` is a live mutable byte slice. A null algorithm
+        // handle with `BCRYPT_USE_SYSTEM_PREFERRED_RNG` requests the
+        // system-preferred CSPRNG.
+        let status = unsafe {
+            BCryptGenRandom(
+                core::ptr::null_mut(),
+                chunk.as_mut_ptr(),
+                chunk.len() as u32,
+                BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+            )
+        };
+        if status != 0 {
+            return Err(status);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(target_os = "wasi", target_env = "p1"))]
+fn fill_inner(bytes: &mut [u8]) -> Result<(), i32> {
+    // SAFETY: `bytes` is a live mutable byte slice. WASI preview1
+    // `random_get` writes exactly the requested byte range or returns an
+    // errno without retaining the pointer.
+    let errno = unsafe { wasi_random_get(bytes.as_mut_ptr(), bytes.len()) };
+    if errno == 0 {
+        Ok(())
+    } else {
+        Err(errno as i32)
+    }
+}
+
+#[cfg(not(any(
+    all(
+        any(target_os = "linux", target_os = "android"),
+        target_arch = "x86_64"
+    ),
+    all(
+        any(target_os = "linux", target_os = "android"),
+        target_arch = "aarch64"
+    ),
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+    target_os = "windows",
+    all(target_os = "wasi", target_env = "p1"),
+)))]
+fn fill_inner(_bytes: &mut [u8]) -> Result<(), i32> {
+    const ERRNO_UNSUPPORTED_PLATFORM: i32 = -1;
+    Err(ERRNO_UNSUPPORTED_PLATFORM)
+}
+
+#[cfg(all(
+    any(target_os = "linux", target_os = "android"),
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+fn fill_with_getrandom_syscall(bytes: &mut [u8]) -> Result<(), i32> {
+    let mut filled = 0;
+    let mut retries = 0;
+    while filled < bytes.len() {
+        let ptr = bytes[filled..].as_mut_ptr() as usize;
+        let len = bytes.len() - filled;
+        let ret = raw_syscall3(SYS_GETRANDOM, ptr, len, 0);
+        if syscall_failed(ret) {
+            let errno = (-ret) as i32;
+            if errno == EINTR || errno == EAGAIN {
+                retries += 1;
+                if retries > MAX_GETRANDOM_RETRIES {
+                    return Err(errno);
+                }
+                continue;
+            }
+
+            return Err(errno);
+        }
+
+        if ret == 0 {
+            return Err(ERRNO_NO_PROGRESS);
+        }
+
+        filled += ret as usize;
+    }
+
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn syscall_failed(ret: isize) -> bool {
+    (-4095..=-1).contains(&ret)
+}
+
+#[cfg(all(
+    any(target_os = "linux", target_os = "android"),
+    target_arch = "x86_64"
+))]
+fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
+    let ret: isize;
+
+    // SAFETY: Registers follow the Linux x86_64 syscall ABI. The caller
+    // supplies the `getrandom` syscall number and pointer/length args.
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") number as isize => ret,
+            in("rdi") arg1,
+            in("rsi") arg2,
+            in("rdx") arg3,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack)
+        );
+    }
+
+    ret
+}
+
+#[cfg(all(
+    any(target_os = "linux", target_os = "android"),
+    target_arch = "aarch64"
+))]
+fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
+    let ret: isize;
+
+    // SAFETY: Registers follow the Linux aarch64 syscall ABI. The caller
+    // supplies the `getrandom` syscall number and pointer/length args.
+    unsafe {
+        asm!(
+            "svc 0",
+            inlateout("x0") arg1 as isize => ret,
+            in("x1") arg2,
+            in("x2") arg3,
+            in("x8") number,
+            options(nostack)
+        );
+    }
+
+    ret
+}

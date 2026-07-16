@@ -12,7 +12,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE = ROOT / "docs/ct-evidence.json"
-LIB_RS = ROOT / "crates" / "sanitization" / "src" / "lib.rs"
+SOURCE_ROOT = ROOT / "crates" / "sanitization" / "src"
 
 REQUIRED_TOP_LEVEL = {
     "schema_version",
@@ -46,8 +46,11 @@ def require_string_list(value: Any, path: str) -> None:
 
 
 def kani_proofs() -> set[str]:
-    source = LIB_RS.read_text(encoding="utf-8")
-    return set(re.findall(r"fn\s+(prove_[A-Za-z0-9_]+)\s*\(", source))
+    proofs: set[str] = set()
+    for path in SOURCE_ROOT.rglob("*.rs"):
+        source = path.read_text(encoding="utf-8")
+        proofs.update(re.findall(r"fn\s+(prove_[A-Za-z0-9_]+)\s*\(", source))
+    return proofs
 
 
 def require_check_coverage(checks: list[dict[str, Any]], name: str, needles: list[str]) -> None:
