@@ -246,6 +246,26 @@ impl ProtectionRequest {
         }
     }
 
+    /// Fail-closed policy used by default page-sealed storage.
+    ///
+    /// Linux must establish `MADV_WIPEONFORK` so a fork during an exposed
+    /// access window cannot leave readable secret bytes in the child. Windows
+    /// does not clone the process address space during process creation.
+    /// Other targets currently report the required fork policy as unsupported,
+    /// so callers must use an explicit policy only after reviewing that risk.
+    #[cfg(feature = "page-seal")]
+    #[must_use]
+    pub const fn page_sealed() -> Self {
+        Self {
+            memory_lock: Requirement::NotRequested,
+            dump_exclusion: Requirement::NotRequested,
+            fork: page_sealed_fork_request(),
+            guard_pages: Requirement::Required,
+            canary: compiled_canary_requirement(),
+            cache_policy: Requirement::NotRequested,
+        }
+    }
+
     /// Policy used by guarded and page-locked storage.
     #[must_use]
     pub const fn locked_guarded() -> Self {
@@ -313,6 +333,24 @@ impl ProtectionRequest {
             cache_policy: Requirement::NotRequested,
         }
     }
+}
+
+#[cfg(all(feature = "page-seal", target_os = "linux"))]
+const fn page_sealed_fork_request() -> ForkProtectionRequest {
+    ForkProtectionRequest::wipe_child(Requirement::Required)
+}
+
+#[cfg(all(feature = "page-seal", target_os = "windows"))]
+const fn page_sealed_fork_request() -> ForkProtectionRequest {
+    ForkProtectionRequest::inherit()
+}
+
+#[cfg(all(
+    feature = "page-seal",
+    not(any(target_os = "linux", target_os = "windows"))
+))]
+const fn page_sealed_fork_request() -> ForkProtectionRequest {
+    ForkProtectionRequest::wipe_child(Requirement::Required)
 }
 
 #[cfg(feature = "canary-check")]

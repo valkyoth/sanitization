@@ -176,8 +176,17 @@ claim are the stale-handle defense.
 With the opt-in `page-seal` feature, `SealedSecretBytes<N>` keeps its data pages
 inaccessible between scoped mutable-borrow access windows. Normal return and
 panic unwinding both attempt to restore no-access protection. A detected
-normal-return reseal failure clears and retires the mapping instead of
-returning the closure result.
+normal-return transition failure normalizes every data page to read/write,
+clears only after all pages are confirmed writable, and retires the mapping
+instead of returning the closure result. If normalization fails, cleanup does
+not dereference the uncertain mapping and only attempts release.
+
+Default page-sealed constructors require Linux `MADV_WIPEONFORK`. A child
+created while an unrelated thread has opened an access window therefore
+receives zero-filled data pages instead of a permanently exposed copy. Windows
+process creation does not clone the address space. Fork-capable targets without
+a reviewed equivalent fail default construction; an explicit
+`ProtectionRequest` is required to acknowledge a lower-assurance fork policy.
 
 This remains a conditional 2.0 guarantee pending the CP-16 unsafe review and
 native target evidence. Existing locked and guarded guarantees do not depend on

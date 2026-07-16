@@ -3231,7 +3231,7 @@ fn required_lock_failure_rolls_back_guarded_mapping() {
     not(miri)
 ))]
 #[test]
-fn preferred_unavailable_guarded_controls_are_reported() {
+fn preferred_guarded_controls_report_independent_fork_support() {
     let request = ProtectionRequest {
         memory_lock: Requirement::Preferred,
         dump_exclusion: Requirement::Preferred,
@@ -3247,7 +3247,7 @@ fn preferred_unavailable_guarded_controls_are_reported() {
     assert_eq!(report.memory_lock, ProtectionState::Unsupported);
     assert_eq!(report.dump_exclusion, ProtectionState::Unsupported);
     assert_eq!(report.fork.policy, ForkPolicy::Exclude);
-    assert_eq!(report.fork.state, ProtectionState::Unsupported);
+    assert_eq!(report.fork.state, ProtectionState::Established);
     assert_eq!(report.locked_bytes, 0);
 }
 
@@ -3262,6 +3262,18 @@ fn sealed_secret_bytes_reseal_after_scoped_access() {
     let mut secret = SealedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
 
     assert!(secret.is_sealed());
+    assert_eq!(
+        secret.protection_request(),
+        ProtectionRequest::page_sealed()
+    );
+    assert_eq!(
+        secret.protection_report().fork.policy,
+        ForkPolicy::WipeChild
+    );
+    assert_eq!(
+        secret.protection_report().fork.state,
+        ProtectionState::Established
+    );
     assert_eq!(secret.len(), 4);
     assert_eq!(secret.with_secret(|bytes| *bytes).unwrap(), [1, 2, 3, 4]);
     assert!(secret.is_sealed());
@@ -3308,7 +3320,24 @@ fn sealed_secret_bytes_reseal_after_unwind() {
     not(miri)
 ))]
 #[test]
-fn sealed_secret_bytes_reject_nested_state_and_retire_on_reseal_failure() {
+fn sealed_secret_bytes_wipe_exposed_payload_in_forked_child() {
+    let mut secret = SealedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+
+    assert!(secret
+        .child_observes_zero_during_exposed_fork_for_test()
+        .unwrap());
+    assert!(secret.is_sealed());
+    assert_eq!(secret.with_secret(|bytes| *bytes).unwrap(), [1, 2, 3, 4]);
+}
+
+#[cfg(all(
+    feature = "page-seal",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn sealed_secret_bytes_reject_nested_state_and_retire_on_partial_reseal_failure() {
     let mut nested = SealedSecretBytes::<4>::zeroed().unwrap();
     nested.mark_access_in_progress_for_test().unwrap();
     assert_eq!(
@@ -3336,7 +3365,7 @@ fn sealed_secret_bytes_reject_nested_state_and_retire_on_reseal_failure() {
     not(miri)
 ))]
 #[test]
-fn sealed_secret_bytes_reports_failed_unseal_without_claiming_sanitization() {
+fn sealed_secret_bytes_retires_after_partial_unseal_failure() {
     let mut secret = SealedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
     secret.fail_next_unseal_for_test();
 
@@ -3344,8 +3373,12 @@ fn sealed_secret_bytes_reports_failed_unseal_without_claiming_sanitization() {
         secret.try_secure_sanitize(),
         Err(SealedSecretAccessError::Guard(_))
     ));
-    assert!(secret.is_sealed());
-    assert_eq!(secret.with_secret(|bytes| *bytes).unwrap(), [1, 2, 3, 4]);
+    assert!(!secret.is_sealed());
+    assert!(secret.is_retired());
+    assert_eq!(
+        secret.with_secret(|_| ()),
+        Err(SealedSecretAccessError::Retired)
+    );
 }
 
 #[cfg(all(

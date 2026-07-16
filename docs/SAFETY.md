@@ -491,10 +491,11 @@ Operations:
   pages.
 - Raw pointers from the writable middle region are converted into slices for
   initialized length or full writable capacity.
+- Linux applies an explicitly requested inherit, exclude, or wipe-child fork
+  policy independently of memory locking.
 - When `memory-lock` is also enabled, locked constructors apply supported
-  platform memory-lock policies on the writable data pages before copying
-  secret bytes into them. Linux also applies `MADV_DONTDUMP` and the requested
-  inherit, exclude, or wipe-child fork policy; FreeBSD also applies
+  platform lock and dump policies on the writable data pages before copying
+  secret bytes into them. Linux applies `MADV_DONTDUMP`; FreeBSD applies
   `MADV_NOCORE`.
 - `from_fn` constructors generate bytes directly into the writable data pages
   after mapping setup and optional lock policies have succeeded.
@@ -570,11 +571,19 @@ Invariant:
 - Canary verification occurs only after the page becomes readable. Corruption
   clears the writable region, restores a zeroed fixed payload and fresh
   canaries, and returns an integrity error after resealing.
-- A normal-return reseal failure clears the writable mapping and attempts to
-  unlock and unmap it. Successful release marks the value retired, so later
-  access returns `Retired` and `Drop` does not touch stale pointers.
-- If retirement unmapping fails, the value remains in the exposed state so
-  `Drop` retries full guarded cleanup.
+- A failed unseal, reseal, or initial seal may have changed only part of the
+  requested range. The state becomes poisoned immediately. Cleanup applies a
+  read/write transition to each page independently and wipes only if every
+  page is confirmed writable.
+- If page normalization fails, cleanup never dereferences the uncertain
+  mapping. It attempts unlock and unmap only. Successful release marks the
+  value retired; failed release leaves it poisoned and `Drop` retries only
+  unlock and unmap.
+- Default constructors require Linux `MADV_WIPEONFORK`. Fork-policy syscalls
+  are independent of memory locking because `madvise` does not require
+  `mlock`. Windows process creation does not clone the address space. Other
+  fork-capable targets fail the default constructor and require an explicit
+  lower-assurance protection request.
 - Drop normally makes a sealed page writable, then delegates volatile clear,
   unlock, and unmap to `GuardedSecretVec`. If making the page writable fails,
   Drop can only attempt unlock and unmap; it cannot truthfully guarantee a

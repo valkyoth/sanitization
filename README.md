@@ -239,7 +239,7 @@ sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3",
 | `cache-flush` | no | Enables checked clear-and-cache-line-evict helpers. x86_64 uses CPUID-gated `clflush`; unsupported targets return a structured error after sanitizing helpers still wipe. |
 | `register-scrub` | no | Enables explicit best-effort SIMD/vector register scrubbing helpers with a report of the architectural subset actually covered. |
 | `guard-pages` | no | Enables `GuardedSecretVec` and `GuardedSecretString` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. This feature is rejected at compile time on WASM. |
-| `page-seal` | no | Enables the review-candidate `SealedSecretBytes<N>` fixed-size mapping. Its data page is inaccessible between scoped `&mut self` access windows. Implies `guard-pages` and is unavailable on WASM/Miri. |
+| `page-seal` | no | Enables the review-candidate `SealedSecretBytes<N>` fixed-size mapping. Its data page is inaccessible between scoped `&mut self` access windows. Default construction requires Linux `MADV_WIPEONFORK`; fork-capable targets without a reviewed equivalent require an explicit protection request. Implies `guard-pages` and is unavailable on WASM/Miri. |
 | `require-fork-exclusion` | no | Enables `memory-lock` and makes locked constructors fail when fork-inheritance exclusion cannot be applied. Currently this is a Linux-only hardening guarantee. |
 | `multi-pass-clear` | no | Enables explicit three-pass volatile overwrite helpers for policy or audit compatibility. |
 | `hardware-secrets` | no | Enables dependency-free traits for external hardware-backed secret provider crates. |
@@ -1284,8 +1284,18 @@ Every access requires `&mut self`. The implementation temporarily changes the
 middle data pages to read/write, verifies canaries when enabled, runs the
 closure, and restores no-access protection before returning. An unwind guard
 attempts the same reseal when the closure panics. If normal-return resealing
-fails, the implementation volatile-clears and retires the mapping; the closure
-result is not returned.
+fails, the implementation first restores each page to a known writable state.
+It wipes only after every page is confirmed writable, then retires the mapping;
+the closure result is not returned. If page normalization fails, cleanup never
+dereferences the uncertain mapping and only attempts to unlock and unmap it.
+
+Default `zeroed()` and `from_array()` construction requires
+`MADV_WIPEONFORK` on Linux. This prevents a fork from preserving a permanently
+readable child copy when another thread forks during an access window. Windows
+process creation does not clone the current address space. Other fork-capable
+native targets currently fail default construction because no equivalent
+reviewed policy is implemented. `zeroed_with_protection()` remains available
+for callers that explicitly select and document a lower-assurance fork policy.
 
 `SealedSecretBytes<N>` is `Send` but deliberately not `Sync`. Safe nested access
 is prevented by exclusive borrowing and the internal state rejects callback or

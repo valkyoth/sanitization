@@ -293,11 +293,12 @@ enters the guarded container.
 restricting safe access to UTF-8. Converting an existing guarded byte container
 does not remap or copy it; invalid UTF-8 is cleared before rejection.
 
-When both `guard-pages` and `memory-lock` are enabled, `GuardedSecretVec`
-locked constructors also lock the writable data pages. Linux additionally calls
-`MADV_DONTDUMP` and applies the requested inherit, exclude, or wipe-child fork
-policy. This combines guard-page fault isolation with swap/pagefile reduction
-for dynamic secrets, but all memory-lock limits still apply.
+Explicit Linux guarded requests apply inherit, exclude, or wipe-child fork
+policy independently of memory locking. When both `guard-pages` and
+`memory-lock` are enabled, `GuardedSecretVec` locked constructors also lock the
+writable data pages and request `MADV_DONTDUMP`. This combines guard-page fault
+isolation with swap/pagefile reduction for dynamic secrets, but all memory-lock
+limits still apply.
 
 On non-Linux Unix targets, explicit exclude and wipe-child fork policies are
 reported as unsupported. An explicit inherit policy succeeds because ordinary
@@ -316,10 +317,15 @@ where accidental fork inheritance is an audit blocker.
 With `page-seal`, fixed-size secret data pages are changed to no-access between
 scoped accesses. The access window itself remains readable/writable, requires
 `&mut self`, and is guarded against ordinary reentry. Normal return and panic
-unwinding attempt to reseal. A reseal failure clears and retires the mapping
-when release succeeds. Signals, process abort, privileged remapping, DMA, and
-failure to make a sealed page writable during `Drop` remain explicit residual
-risks.
+unwinding attempt to reseal. A failed transition first normalizes every page
+to read/write; cleanup wipes only if all pages reach that known state, and
+otherwise only attempts release. Default constructors require Linux
+`MADV_WIPEONFORK`, preventing an unrelated thread's fork during the access
+window from retaining readable child bytes. Fork-capable targets without a
+reviewed equivalent require an explicit lower-assurance policy; Windows
+process creation does not clone the current address space. Signals, process
+abort, privileged remapping, DMA, and failure to make a sealed page writable
+during `Drop` remain explicit residual risks.
 The type therefore exposes fallible explicit sanitization and does not
 implement infallible sanitization or zeroize-on-drop traits.
 

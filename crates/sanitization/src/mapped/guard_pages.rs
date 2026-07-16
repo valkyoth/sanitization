@@ -13,6 +13,18 @@ use super::{
 };
 
 #[cfg(all(
+    test,
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+unsafe extern "C" {
+    fn fork() -> i32;
+    fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+    fn _exit(status: i32) -> !;
+}
+
+#[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
@@ -118,13 +130,11 @@ const MAP_PRIVATE: usize = 0x02;
 const MAP_ANONYMOUS: usize = 0x20;
 #[cfg(target_os = "linux")]
 const MAP_FD_ANONYMOUS: usize = (-1isize) as usize;
-#[cfg(feature = "memory-lock")]
 #[cfg(target_os = "linux")]
 const MADV_DONTFORK: usize = 10;
 #[cfg(feature = "memory-lock")]
 #[cfg(target_os = "linux")]
 const MADV_DONTDUMP: usize = 16;
-#[cfg(feature = "memory-lock")]
 #[cfg(target_os = "linux")]
 const MADV_WIPEONFORK: usize = 18;
 
@@ -150,7 +160,7 @@ const SYS_MMAP: usize = 9;
 const SYS_MPROTECT: usize = 10;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const SYS_MUNMAP: usize = 11;
-#[cfg(all(feature = "memory-lock", target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const SYS_MADVISE: usize = 28;
 #[cfg(all(feature = "memory-lock", target_os = "linux", target_arch = "x86_64"))]
 const SYS_MLOCK: usize = 149;
@@ -163,7 +173,7 @@ const SYS_MMAP: usize = 222;
 const SYS_MPROTECT: usize = 226;
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 const SYS_MUNMAP: usize = 215;
-#[cfg(all(feature = "memory-lock", target_os = "linux", target_arch = "aarch64"))]
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 const SYS_MADVISE: usize = 233;
 #[cfg(all(feature = "memory-lock", target_os = "linux", target_arch = "aarch64"))]
 const SYS_MLOCK: usize = 228;
@@ -1143,8 +1153,13 @@ pub enum SealedSecretAccessError {
     Canary(CanaryCorruptedError),
     /// Access was attempted while another access window was active.
     AccessInProgress,
-    /// A prior reseal failure retired and released the mapping.
+    /// A prior protection-transition failure retired and released the mapping.
     Retired,
+    /// A protection transition failed and the mapping could not be released.
+    ///
+    /// The mapping's page protections are uncertain. No later operation will
+    /// dereference it; `Drop` only retries unlock and unmap.
+    Poisoned,
 }
 
 #[cfg(feature = "page-seal")]
@@ -1157,6 +1172,7 @@ impl fmt::Display for SealedSecretAccessError {
                 formatter.write_str("page-sealed secret access is already in progress")
             }
             Self::Retired => formatter.write_str("page-sealed secret mapping is retired"),
+            Self::Poisoned => formatter.write_str("page-sealed secret mapping is poisoned"),
         }
     }
 }
@@ -1167,7 +1183,7 @@ impl std::error::Error for SealedSecretAccessError {
         match self {
             Self::Guard(error) => Some(error),
             Self::Canary(error) => Some(error),
-            Self::AccessInProgress | Self::Retired => None,
+            Self::AccessInProgress | Self::Retired | Self::Poisoned => None,
         }
     }
 }
@@ -1193,6 +1209,7 @@ impl From<CanaryCorruptedError> for SealedSecretAccessError {
 enum SealedState {
     Sealed,
     Exposed,
+    Poisoned,
     Retired,
 }
 
@@ -1206,6 +1223,10 @@ enum SealedState {
 /// This opt-in type is deliberately not `Sync`. Signal handlers, process
 /// abort, privileged remapping, DMA, and copies made by the closure remain
 /// outside the guarantee.
+///
+/// Default construction requires Linux wipe-on-fork. Windows process creation
+/// does not clone the current address space. Other fork-capable targets must
+/// use an explicit [`ProtectionRequest`] after reviewing the inheritance risk.
 ///
 /// ```compile_fail
 /// use sanitization::SealedSecretBytes;
@@ -1233,7 +1254,7 @@ unsafe impl<const N: usize> Send for SealedSecretBytes<N> {}
 impl<const N: usize> SealedSecretBytes<N> {
     /// Allocate a zero-filled page-sealed secret.
     pub fn zeroed() -> Result<Self, GuardPageError> {
-        Self::zeroed_with_protection(ProtectionRequest::guarded())
+        Self::zeroed_with_protection(ProtectionRequest::page_sealed())
             .map_err(protection_error_as_guard_page)
     }
 
@@ -1245,7 +1266,7 @@ impl<const N: usize> SealedSecretBytes<N> {
         if let Err(error) = seal_data(inner.data, inner.writable_len) {
             let mut report = *inner.protection_report();
             report.guard_pages = ProtectionState::Failed { code: error.errno };
-            let rollback = rollback_sealed_construction(inner);
+            let rollback = rollback_sealed_transition_failure(inner);
             return Err(ProtectionError {
                 failure: ProtectionFailure {
                     control: ProtectionControl::GuardPages,
@@ -1304,6 +1325,14 @@ impl<const N: usize> SealedSecretBytes<N> {
     #[inline]
     pub const fn is_retired(&self) -> bool {
         matches!(self.state, SealedState::Retired)
+    }
+
+    /// Returns true when a failed transition left uncertain page protections
+    /// and releasing the mapping also failed.
+    #[must_use]
+    #[inline]
+    pub const fn is_poisoned(&self) -> bool {
+        matches!(self.state, SealedState::Poisoned)
     }
 
     /// Actual protections established for the underlying guarded mapping.
@@ -1392,19 +1421,31 @@ impl<const N: usize> SealedSecretBytes<N> {
         match self.state {
             SealedState::Sealed => {}
             SealedState::Exposed => return Err(SealedSecretAccessError::AccessInProgress),
+            SealedState::Poisoned => return Err(SealedSecretAccessError::Poisoned),
             SealedState::Retired => return Err(SealedSecretAccessError::Retired),
         }
 
         #[cfg(test)]
         if core::mem::take(&mut self.fail_next_unseal) {
-            return Err(GuardPageError {
-                operation: GuardPageOperation::Protect,
-                errno: 0,
-            }
-            .into());
+            let error = match simulate_partial_transition(
+                self.inner.data,
+                self.inner.writable_len,
+                PageProtection::ReadWrite,
+            ) {
+                Ok(()) => GuardPageError {
+                    operation: GuardPageOperation::Protect,
+                    errno: 0,
+                },
+                Err(error) => error,
+            };
+            self.retire_after_transition_failure();
+            return Err(error.into());
         }
 
-        protect_data(self.inner.data, self.inner.writable_len)?;
+        if let Err(error) = protect_data(self.inner.data, self.inner.writable_len) {
+            self.retire_after_transition_failure();
+            return Err(error.into());
+        }
         self.state = SealedState::Exposed;
         Ok(())
     }
@@ -1415,16 +1456,24 @@ impl<const N: usize> SealedSecretBytes<N> {
                 SealedState::Sealed | SealedState::Exposed => {
                     Err(SealedSecretAccessError::AccessInProgress)
                 }
+                SealedState::Poisoned => Err(SealedSecretAccessError::Poisoned),
                 SealedState::Retired => Err(SealedSecretAccessError::Retired),
             };
         }
 
         #[cfg(test)]
         let seal_result = if core::mem::take(&mut self.fail_next_seal) {
-            Err(GuardPageError {
-                operation: GuardPageOperation::Protect,
-                errno: 0,
-            })
+            match simulate_partial_transition(
+                self.inner.data,
+                self.inner.writable_len,
+                PageProtection::NoAccess,
+            ) {
+                Ok(()) => Err(GuardPageError {
+                    operation: GuardPageOperation::Protect,
+                    errno: 0,
+                }),
+                Err(error) => Err(error),
+            }
         } else {
             seal_data(self.inner.data, self.inner.writable_len)
         };
@@ -1437,7 +1486,7 @@ impl<const N: usize> SealedSecretBytes<N> {
                 Ok(())
             }
             Err(error) => {
-                self.retire_exposed_mapping();
+                self.retire_after_transition_failure();
                 Err(error.into())
             }
         }
@@ -1449,8 +1498,17 @@ impl<const N: usize> SealedSecretBytes<N> {
         self.inner.write_canaries();
     }
 
-    fn retire_exposed_mapping(&mut self) {
-        self.reset_zeroed_payload();
+    fn retire_after_transition_failure(&mut self) {
+        self.state = SealedState::Poisoned;
+        if normalize_data_pages(
+            self.inner.data,
+            self.inner.writable_len,
+            PageProtection::ReadWrite,
+        )
+        .is_ok()
+        {
+            self.reset_zeroed_payload();
+        }
         #[cfg(feature = "memory-lock")]
         if self.inner.locked {
             let _ = unlock_mapping(self.inner.data, self.inner.writable_len);
@@ -1475,6 +1533,45 @@ impl<const N: usize> SealedSecretBytes<N> {
         protect_data(self.inner.data, self.inner.writable_len)?;
         self.state = SealedState::Exposed;
         Ok(())
+    }
+
+    #[cfg(all(
+        test,
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    pub(crate) fn child_observes_zero_during_exposed_fork_for_test(
+        &mut self,
+    ) -> Result<bool, SealedSecretAccessError> {
+        self.begin_access()?;
+        let guard = SealedAccessGuard::new(self);
+
+        // SAFETY: the child performs only direct reads followed by `_exit`.
+        // `MADV_WIPEONFORK` applies before the child resumes after `fork`.
+        let pid = unsafe { fork() };
+        if pid == 0 {
+            // SAFETY: the parent successfully opened the data page before
+            // forking. The child inherits the mapping with zeroed contents.
+            let bytes = unsafe {
+                core::slice::from_raw_parts(guard.secret.inner.payload_ptr() as *const u8, N)
+            };
+            let all_zero = bytes.iter().all(|byte| *byte == 0);
+            // SAFETY: `_exit` terminates the post-fork child without running
+            // Rust destructors or allocator code.
+            unsafe { _exit(if all_zero { 0 } else { 1 }) };
+        }
+
+        let mut status = -1;
+        // SAFETY: a positive `pid` identifies the child created above and
+        // `status` points to writable parent memory.
+        let waited = if pid > 0 {
+            unsafe { waitpid(pid, &mut status, 0) }
+        } else {
+            -1
+        };
+        guard.finish()?;
+        Ok(waited == pid && status == 0)
     }
 
     #[cfg(all(test, feature = "canary-check", feature = "std"))]
@@ -1528,6 +1625,7 @@ impl<const N: usize> Drop for SealedSecretBytes<N> {
                     // previously been dropped.
                     unsafe { ManuallyDrop::drop(&mut self.inner) };
                 } else {
+                    self.state = SealedState::Poisoned;
                     #[cfg(feature = "memory-lock")]
                     if self.inner.locked {
                         let _ = unlock_mapping(self.inner.data, self.inner.writable_len);
@@ -1539,6 +1637,14 @@ impl<const N: usize> Drop for SealedSecretBytes<N> {
             SealedState::Exposed => {
                 // SAFETY: the page is writable and `inner` remains live.
                 unsafe { ManuallyDrop::drop(&mut self.inner) };
+                self.state = SealedState::Retired;
+            }
+            SealedState::Poisoned => {
+                #[cfg(feature = "memory-lock")]
+                if self.inner.locked {
+                    let _ = unlock_mapping(self.inner.data, self.inner.writable_len);
+                }
+                let _ = unmap_guarded(self.inner.base, self.inner.map_len);
                 self.state = SealedState::Retired;
             }
             SealedState::Retired => {}
@@ -1553,6 +1659,7 @@ impl<const N: usize> fmt::Debug for SealedSecretBytes<N> {
             .debug_struct("SealedSecretBytes")
             .field("len", &N)
             .field("sealed", &self.is_sealed())
+            .field("poisoned", &self.is_poisoned())
             .field("retired", &self.is_retired())
             .field("contents", &"<redacted>")
             .finish()
@@ -1560,8 +1667,10 @@ impl<const N: usize> fmt::Debug for SealedSecretBytes<N> {
 }
 
 #[cfg(feature = "page-seal")]
-fn rollback_sealed_construction(mut inner: GuardedSecretVec) -> RollbackReport {
-    inner.clear_secret();
+fn rollback_sealed_transition_failure(mut inner: GuardedSecretVec) -> RollbackReport {
+    if normalize_data_pages(inner.data, inner.writable_len, PageProtection::ReadWrite).is_ok() {
+        inner.clear_secret();
+    }
     let inner = ManuallyDrop::new(inner);
 
     #[cfg(feature = "memory-lock")]
@@ -1803,12 +1912,12 @@ const fn dump_exclusion_supported() -> bool {
 
 #[inline]
 const fn fork_exclusion_supported() -> bool {
-    cfg!(all(feature = "memory-lock", target_os = "linux"))
+    cfg!(target_os = "linux")
 }
 
 #[inline]
 const fn wipe_child_supported() -> bool {
-    cfg!(all(feature = "memory-lock", target_os = "linux"))
+    cfg!(target_os = "linux")
 }
 
 #[cfg(feature = "memory-lock")]
@@ -1837,30 +1946,12 @@ fn guard_mark_dontdump(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageEr
     })
 }
 
-#[cfg(feature = "memory-lock")]
 fn guard_mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
     mark_dontfork(ptr, len)
 }
 
-#[cfg(not(feature = "memory-lock"))]
-fn guard_mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
-    Err(GuardPageError {
-        operation: GuardPageOperation::DontFork,
-        errno: 0,
-    })
-}
-
-#[cfg(feature = "memory-lock")]
 fn guard_mark_wipeonfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
     mark_wipeonfork(ptr, len)
-}
-
-#[cfg(not(feature = "memory-lock"))]
-fn guard_mark_wipeonfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
-    Err(GuardPageError {
-        operation: GuardPageOperation::WipeOnFork,
-        errno: 0,
-    })
 }
 
 #[cfg(feature = "random-canary")]
@@ -2209,6 +2300,70 @@ fn seal_data(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
     }
 }
 
+#[cfg(feature = "page-seal")]
+#[derive(Clone, Copy)]
+enum PageProtection {
+    ReadWrite,
+    #[cfg(test)]
+    NoAccess,
+}
+
+#[cfg(feature = "page-seal")]
+fn apply_page_protection(
+    ptr: NonNull<u8>,
+    len: usize,
+    protection: PageProtection,
+) -> Result<(), GuardPageError> {
+    match protection {
+        PageProtection::ReadWrite => protect_data(ptr, len),
+        #[cfg(test)]
+        PageProtection::NoAccess => seal_data(ptr, len),
+    }
+}
+
+/// Re-establish a known protection for every page in the data region.
+///
+/// A failed range-wide `mprotect`/`VirtualProtect` transition may have changed
+/// only part of the range. Cleanup must not dereference the mapping until every
+/// page has independently been confirmed writable.
+#[cfg(feature = "page-seal")]
+fn normalize_data_pages(
+    ptr: NonNull<u8>,
+    len: usize,
+    protection: PageProtection,
+) -> Result<(), GuardPageError> {
+    let page_granule = platform_page_granule();
+    let mut first_error = None;
+
+    for offset in (0..len).step_by(page_granule) {
+        // SAFETY: guarded writable regions are page-aligned, page-rounded,
+        // and live for `len` bytes. `offset` is strictly inside that range.
+        let page = unsafe { NonNull::new_unchecked(ptr.as_ptr().add(offset)) };
+        if let Err(error) = apply_page_protection(page, page_granule, protection) {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
+    }
+
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+#[cfg(all(feature = "page-seal", test))]
+fn simulate_partial_transition(
+    ptr: NonNull<u8>,
+    len: usize,
+    protection: PageProtection,
+) -> Result<(), GuardPageError> {
+    if len != 0 {
+        apply_page_protection(ptr, platform_page_granule(), protection)?;
+    }
+    Ok(())
+}
+
 #[cfg(all(feature = "memory-lock", target_os = "linux"))]
 fn lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
     let ret = raw_syscall2(SYS_MLOCK, ptr.as_ptr() as usize, len);
@@ -2287,7 +2442,7 @@ fn mark_dontdump(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
     }
 }
 
-#[cfg(all(feature = "memory-lock", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 fn mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
     let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_DONTFORK);
     if syscall_failed(ret) {
@@ -2297,7 +2452,7 @@ fn mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
     }
 }
 
-#[cfg(all(feature = "memory-lock", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 fn mark_wipeonfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
     let ret = raw_syscall3(SYS_MADVISE, ptr.as_ptr() as usize, len, MADV_WIPEONFORK);
     if syscall_failed(ret) {
@@ -2307,7 +2462,7 @@ fn mark_wipeonfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
     }
 }
 
-#[cfg(all(feature = "memory-lock", not(target_os = "linux")))]
+#[cfg(not(target_os = "linux"))]
 #[inline]
 fn mark_wipeonfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
     Err(GuardPageError {
@@ -2316,7 +2471,7 @@ fn mark_wipeonfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError>
     })
 }
 
-#[cfg(all(feature = "memory-lock", not(target_os = "linux")))]
+#[cfg(not(target_os = "linux"))]
 #[inline]
 fn mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), GuardPageError> {
     Err(GuardPageError {

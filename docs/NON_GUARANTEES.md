@@ -149,6 +149,21 @@ under page-protection failure. CP-16 acceptance also requires native target
 evidence and external unsafe review; otherwise the feature will be deferred
 from 2.0 stable.
 
+POSIX permits a failed protection update to have changed only part of a
+multi-page range. After any failed page-seal transition, the implementation
+therefore treats the mapping as poisoned until every page is independently
+confirmed writable or the mapping is released. If normalization fails, it
+does not attempt a wipe through uncertain page protections. An unmap failure
+may consequently retain an inaccessible or partially protected mapping until
+process exit, without exposing it again through safe APIs.
+
+Linux default constructors require wipe-on-fork. Fork-capable targets without
+a reviewed equivalent do not claim that a page-sealed access window is
+fork-safe; callers can only select ordinary inheritance through an explicit
+protection request after accepting that another thread's fork may preserve the
+exposed child mapping. Windows process creation does not clone this address
+space and is not affected by that POSIX fork race.
+
 Accordingly, `SealedSecretBytes<N>` does not claim infallible `SecureSanitize`
 or zeroize compatibility. Callers must handle the result of
 `try_secure_sanitize()` or `clear_secret()`.
