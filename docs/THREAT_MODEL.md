@@ -14,12 +14,16 @@ Rust applications.
   spare heap capacity before freeing their allocations.
 - Const-generic `BoundedSecretVec<MAX>` enforcement for dynamic secret input
   whose length must be limited at an application trust boundary.
+- Const-generic `BoundedSecretString<MAX>` enforcement for secret UTF-8 input
+  whose encoded byte length must be limited at an application trust boundary.
 - Explicit volatile helper APIs for existing ordinary buffers.
 - Optional platform memory locking for `LockedSecretBytes<N>` when the
   `memory-lock` feature is enabled on supported Linux, Android, macOS, iOS,
   Windows, and BSD targets.
 - Optional dynamic platform memory locking for `LockedSecretVec` when the
   `memory-lock` feature is enabled on supported native targets.
+- Optional UTF-8-safe dynamic memory locking for `LockedSecretString`, backed
+  by `LockedSecretVec`.
 - Optional pooled platform memory locking for many same-size fixed secrets with
   `SecretPool<N, SLOTS>` when the `memory-lock` feature is enabled on supported
   targets.
@@ -51,6 +55,8 @@ Rust applications.
 - Optional platform guard-page storage for dynamic byte secrets with
   `GuardedSecretVec` on supported Linux, Android, macOS, iOS, Windows, and BSD
   targets.
+- Optional UTF-8-safe guard-page storage with `GuardedSecretString`, backed by
+  `GuardedSecretVec`.
 - Optional platform memory locking for `GuardedSecretVec` when both
   `guard-pages` and `memory-lock` are enabled.
 
@@ -59,8 +65,9 @@ Rust applications.
 - Preventing secrets from entering hibernation files, crash dumps, logs, tracing
   systems, or external libraries.
 - Preventing swap/pagefile exposure on unsupported targets or for values not
-  stored inside native `LockedSecretBytes<N>`, `LockedSecretVec`, `SecretPool`,
-  or locked `GuardedSecretVec` storage.
+  stored inside native `LockedSecretBytes<N>`, `LockedSecretVec`,
+  `LockedSecretString`, `SecretPool`, or locked `GuardedSecretVec`/
+  `GuardedSecretString` storage.
 - Preventing host-runtime copies, swapping, snapshots, dumps, or browser memory
   inspection for WASM linear memory.
 - Preventing disclosure through a debugger, `/proc/<pid>/mem`, ptrace, kernel
@@ -68,8 +75,8 @@ Rust applications.
 - Revoking external copies after a secret has already been exposed to caller
   code or third-party libraries.
 - Preventing a deserializer or transport from allocating its own input before
-  the 1 MiB `SecretVec` ceiling or a caller-selected `BoundedSecretVec<MAX>`
-  receives visitor control.
+  the 1 MiB `SecretVec`/`SecretString` ceilings or a caller-selected bounded
+  byte/text container receives visitor control.
 - Soundly scrubbing old stack frames, prior Rust move copies, all CPU
   registers, unrelated CPU cache lines, allocator metadata, or third-party
   library copies. The `register-scrub` feature is only an explicit best-effort
@@ -85,9 +92,9 @@ Rust applications.
 
 The default API tries to avoid creating hard-to-clear copies in the first place.
 `SecretBytes<N>` is the strongest default path because the storage is controlled
-by this crate from initialization to drop. `SecretVec` and `SecretString` are
-more practical for dynamic integration boundaries but still cannot control
-copies made before data enters the container.
+by this crate from initialization to drop. `SecretVec`, `SecretString`, and
+their bounded variants are more practical for dynamic integration boundaries
+but still cannot control copies made before data enters the container.
 
 Volatile byte writes improve clearing resistance against compiler optimization,
 but they do not solve broader process, OS, hardware, or allocator threats.
@@ -124,6 +131,12 @@ container. Leaking a slot with `core::mem::forget` also leaks that slot's
 allocation state and skips its drop-time clearing, just as leaking any
 secret-owning value skips its destructor.
 
+`LockedSecretString` is a UTF-8-safe wrapper over `LockedSecretVec`; it does not
+add a second mapping or allocation. Moving an ordinary `String` into locked
+text requires copying into the platform mapping, after which the source string
+allocation is cleared. Converting an existing locked byte container validates
+UTF-8 without reallocating and clears invalid input before returning an error.
+
 With both `memory-lock` and `wasm-compat` on WASM targets,
 `LockedSecretBytes<N>` and `SecretPool<N, SLOTS>` are exposed as volatile-only
 compatibility containers. They keep API-level code portable and still clear
@@ -147,6 +160,9 @@ that stay inside the writable mapping but reach the canary words, including
 some overrun/underrun cases that do not reach a guard page. It does not detect
 corruption entirely inside the secret bytes and does not provide authenticity
 against an attacker who can read and rewrite the full process memory image.
+The locked and guarded UTF-8 wrappers expose checked text access through
+`SecretTextIntegrityError`, which distinguishes canary corruption from invalid
+UTF-8 payload bytes.
 
 By default, canary words are derived from mapping or slot addresses and a fixed
 mask. This deterministic mode assumes ASLR or otherwise unpredictable mapping
@@ -221,6 +237,10 @@ between inaccessible pages. This can turn linear overreads or overwrites beyond
 the mapped data pages into faults, but it does not catch logical overreads
 inside the writable capacity and does not protect copies made before data
 enters the guarded container.
+
+`GuardedSecretString` applies the same mapping and guard-page properties while
+restricting safe access to UTF-8. Converting an existing guarded byte container
+does not remap or copy it; invalid UTF-8 is cleared before rejection.
 
 When both `guard-pages` and `memory-lock` are enabled, `GuardedSecretVec`
 locked constructors also lock the writable data pages. Linux additionally calls

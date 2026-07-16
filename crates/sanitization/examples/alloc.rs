@@ -1,5 +1,5 @@
 #[cfg(feature = "alloc")]
-use sanitization::{SecretString, SecretVec};
+use sanitization::{BoundedSecretString, SecretString, SecretVec};
 
 fn main() {
     #[cfg(feature = "alloc")]
@@ -20,5 +20,12 @@ fn main() {
         bytes = SecretVec::with_capacity(16);
         bytes.extend_from_slice(b"secret");
         assert_eq!(bytes.with_secret(|value| value.len()), 6);
+
+        let text = SecretString::from_secret_vec(bytes).unwrap();
+        assert!(text.constant_time_eq("secret"));
+
+        let mut bounded = BoundedSecretString::<16>::from_secret_string(text).unwrap();
+        bounded.push_str("-token").unwrap();
+        assert!(bounded.constant_time_eq("secret-token"));
     }
 }

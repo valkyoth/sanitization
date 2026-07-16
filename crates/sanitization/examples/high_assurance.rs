@@ -1,20 +1,27 @@
 #[cfg(feature = "std")]
 use sanitization::ExpiringSecretBytes;
 #[cfg(all(
-    feature = "guard-pages",
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(miri)
-))]
-use sanitization::GuardedSecretVec;
-#[cfg(all(
     feature = "memory-lock",
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 use sanitization::LockedSecretBytes;
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+use sanitization::LockedSecretString;
 #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
 use sanitization::{cache_flush::cache_flush_sanitize_bytes, SecretBytes};
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+use sanitization::{GuardedSecretString, GuardedSecretVec};
 
 fn main() {
     #[cfg(feature = "std")]
@@ -41,6 +48,18 @@ fn main() {
             .unwrap();
         assert!(key.constant_time_eq(&[7; 32]));
         key.into_cleared();
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    {
+        let mut token = LockedSecretString::from_secret_str("session-token").unwrap();
+        token.push_str("-v2").unwrap();
+        assert!(token.constant_time_eq("session-token-v2"));
     }
 
     #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
@@ -72,6 +91,10 @@ fn main() {
             .unwrap();
         assert!(token.constant_time_eq(b"session-key!"));
         token.into_cleared();
+
+        let mut text = GuardedSecretString::from_secret_str("session-token").unwrap();
+        text.push_str("-v2").unwrap();
+        assert!(text.constant_time_eq("session-token-v2"));
     }
 
     #[cfg(all(

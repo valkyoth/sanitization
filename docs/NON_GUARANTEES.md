@@ -92,10 +92,15 @@ into the crate's own leaf secret types keeps ingestion on the secret-aware path.
 For generic `Secret<T>` or `ReadOnceSecret<T>`, secrecy during deserialization
 depends on `T`'s own `Deserialize` implementation and any intermediate buffers
 it creates.
-`SecretVec` uses a 1 MiB default serde ceiling. Use `BoundedSecretVec<MAX>` at
-untrusted dynamic-byte boundaries that require a protocol-specific limit, while
-retaining transport and parser limits because a deserializer may allocate
-before calling either visitor.
+`SecretVec` and `SecretString` use 1 MiB default serde ceilings.
+Use `BoundedSecretVec<MAX>` or `BoundedSecretString<MAX>` at untrusted dynamic
+boundaries that require a protocol-specific limit, while retaining transport
+and parser limits because a deserializer may allocate before calling either
+visitor.
+
+Moving an owned `String` into `SecretString` transfers that allocation without
+copying, but it cannot clear JSON input buffers, parser scratch allocations, or
+other copies created before the string reaches the secret container.
 
 Optional `zeroize`, `subtle`, `arrayvec`, and `bytes` interop is feature-gated
 and exists to fit existing ecosystems. It does not extend this crate's

@@ -99,8 +99,6 @@ extern crate std;
 
 #[cfg(feature = "alloc")]
 use alloc::{boxed::Box, string::String, vec::Vec};
-#[cfg(feature = "alloc")]
-use core::str::Utf8Error;
 use core::{
     fmt,
     hint::black_box,
@@ -10780,6 +10778,16 @@ impl SecretVec {
         self.clear_secret();
     }
 
+    /// Convert this byte container into secret UTF-8 text without reallocating.
+    ///
+    /// The existing heap allocation is transferred to [`SecretString`] after
+    /// UTF-8 validation. If validation fails, the full allocation capacity is
+    /// volatile-cleared before the error is returned.
+    #[inline]
+    pub fn try_into_secret_string(self) -> Result<SecretString, core::str::Utf8Error> {
+        SecretString::from_secret_vec(self)
+    }
+
     fn grow_for(&mut self, additional: usize) {
         let required = self.inner.len().saturating_add(additional);
         if required <= self.inner.capacity() {
@@ -11059,6 +11067,13 @@ pub struct SecretString {
     inner: Vec<u8>,
 }
 
+/// Default maximum accepted by serde deserialization into [`SecretString`].
+///
+/// The limit is measured in UTF-8 bytes, not Unicode scalar values. Use
+/// [`BoundedSecretString<MAX>`] when a protocol requires a different maximum.
+#[cfg(feature = "alloc")]
+pub const DEFAULT_SECRET_STRING_SERDE_MAX_LEN: usize = 1024 * 1024;
+
 #[cfg(feature = "alloc")]
 impl SecretString {
     /// Wrap a string using volatile clearing on drop.
@@ -11079,6 +11094,23 @@ impl SecretString {
     #[inline]
     pub fn from_string(text: String) -> Self {
         Self::new(text)
+    }
+
+    /// Convert secret bytes into UTF-8 text without reallocating.
+    ///
+    /// UTF-8 is validated before the byte allocation is transferred. Invalid
+    /// input is volatile-cleared before [`core::str::Utf8Error`] is returned; the rejected
+    /// secret bytes are not returned to the caller.
+    #[inline]
+    pub fn from_secret_vec(mut secret: SecretVec) -> Result<Self, core::str::Utf8Error> {
+        if let Err(error) = core::str::from_utf8(secret.inner.as_slice()) {
+            secret.clear_secret();
+            return Err(error);
+        }
+
+        Ok(Self {
+            inner: core::mem::take(&mut secret.inner),
+        })
     }
 
     /// Compatibility alias for [`SecretString::new`].
@@ -11190,7 +11222,10 @@ impl SecretString {
     /// The result is fallible because the text is stored internally as bytes to
     /// keep clearing safe without `String::as_mut_vec`.
     #[inline]
-    pub fn try_with_secret<R>(&self, inspect: impl FnOnce(&str) -> R) -> Result<R, Utf8Error> {
+    pub fn try_with_secret<R>(
+        &self,
+        inspect: impl FnOnce(&str) -> R,
+    ) -> Result<R, core::str::Utf8Error> {
         core::str::from_utf8(self.inner.as_slice()).map(inspect)
     }
 
@@ -11203,7 +11238,7 @@ impl SecretString {
     pub fn try_with_secret_mut<R>(
         &mut self,
         edit: impl FnOnce(&mut str) -> R,
-    ) -> Result<R, Utf8Error> {
+    ) -> Result<R, core::str::Utf8Error> {
         core::str::from_utf8_mut(self.inner.as_mut_slice()).map(edit)
     }
 
@@ -11335,6 +11370,13 @@ impl SecretString {
         self.clear_secret();
     }
 
+    /// Convert this UTF-8 text into secret bytes without reallocating.
+    #[must_use]
+    #[inline]
+    pub fn into_secret_vec(mut self) -> SecretVec {
+        SecretVec::from_vec(core::mem::take(&mut self.inner))
+    }
+
     fn grow_for(&mut self, additional: usize) {
         let required = self.inner.len().saturating_add(additional);
         if required <= self.inner.capacity() {
@@ -11404,6 +11446,993 @@ impl ct::ConstantTimeEq<str> for SecretString {
     #[inline]
     fn ct_eq(&self, other: &str) -> ct::Choice {
         ct::eq_public_len(self.inner.as_slice(), other.as_bytes())
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl TryFrom<SecretVec> for SecretString {
+    type Error = core::str::Utf8Error;
+
+    #[inline]
+    fn try_from(secret: SecretVec) -> Result<Self, Self::Error> {
+        Self::from_secret_vec(secret)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl From<SecretString> for SecretVec {
+    #[inline]
+    fn from(secret: SecretString) -> Self {
+        secret.into_secret_vec()
+    }
+}
+
+/// Error returned when secret UTF-8 text exceeds its declared public limit.
+#[cfg(feature = "alloc")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SecretStringLimitError {
+    /// Maximum accepted UTF-8 byte length.
+    pub maximum: usize,
+    /// UTF-8 byte length that was rejected.
+    pub actual: usize,
+}
+
+#[cfg(feature = "alloc")]
+impl fmt::Display for SecretStringLimitError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "secret text length exceeds limit: maximum {} UTF-8 bytes, got {} bytes",
+            self.maximum, self.actual
+        )
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for SecretStringLimitError {}
+
+/// Heap-allocated secret UTF-8 text constrained to a public byte limit.
+///
+/// The limit is measured after UTF-8 encoding. This type is intended for
+/// configuration and protocol boundaries where unbounded textual secret
+/// allocation is unacceptable. Rejected owned strings and secret containers
+/// are volatile-cleared before the error is returned.
+#[cfg(feature = "alloc")]
+pub struct BoundedSecretString<const MAX: usize> {
+    inner: SecretString,
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> BoundedSecretString<MAX> {
+    /// Create an empty bounded secret string.
+    #[must_use]
+    #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            inner: SecretString::empty(),
+        }
+    }
+
+    /// Copy UTF-8 text into bounded secret storage.
+    #[inline]
+    pub fn from_secret_str(text: &str) -> Result<Self, SecretStringLimitError> {
+        Self::validate_len(text.len())?;
+        Ok(Self {
+            inner: SecretString::from_secret_str(text),
+        })
+    }
+
+    /// Take ownership of a string after validating its UTF-8 byte length.
+    ///
+    /// An oversized input allocation is volatile-cleared before the error is
+    /// returned.
+    #[inline]
+    pub fn from_string(mut text: String) -> Result<Self, SecretStringLimitError> {
+        if let Err(error) = Self::validate_len(text.len()) {
+            text.secure_sanitize();
+            return Err(error);
+        }
+        Ok(Self {
+            inner: SecretString::from_string(text),
+        })
+    }
+
+    /// Convert an existing secret string after validating its byte length.
+    ///
+    /// An oversized input is cleared before the error is returned.
+    #[inline]
+    pub fn from_secret_string(mut secret: SecretString) -> Result<Self, SecretStringLimitError> {
+        if let Err(error) = Self::validate_len(secret.len()) {
+            secret.clear_secret();
+            return Err(error);
+        }
+        Ok(Self { inner: secret })
+    }
+
+    /// Convert secret bytes without reallocating after UTF-8 and length checks.
+    ///
+    /// Invalid UTF-8 is cleared by [`SecretString::from_secret_vec`]. Valid but
+    /// oversized text is cleared before the limit error is returned.
+    #[inline]
+    pub fn from_secret_vec(secret: SecretVec) -> Result<Self, BoundedSecretStringError> {
+        let text = SecretString::from_secret_vec(secret).map_err(BoundedSecretStringError::Utf8)?;
+        Self::from_secret_string(text).map_err(BoundedSecretStringError::Limit)
+    }
+
+    /// Maximum accepted UTF-8 byte length.
+    #[must_use]
+    #[inline]
+    pub const fn max_len() -> usize {
+        MAX
+    }
+
+    /// Number of initialized UTF-8 bytes.
+    #[must_use]
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns true when no text is held.
+    #[must_use]
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Current allocation capacity in bytes.
+    #[must_use]
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
+
+    /// Run a closure with read-only access to the secret text.
+    #[inline]
+    pub fn try_with_secret<R>(
+        &self,
+        inspect: impl FnOnce(&str) -> R,
+    ) -> Result<R, core::str::Utf8Error> {
+        self.inner.try_with_secret(inspect)
+    }
+
+    /// Run a closure with mutable access to the secret text.
+    #[inline]
+    pub fn try_with_secret_mut<R>(
+        &mut self,
+        edit: impl FnOnce(&mut str) -> R,
+    ) -> Result<R, core::str::Utf8Error> {
+        self.inner.try_with_secret_mut(edit)
+    }
+
+    /// Append text without permitting the configured byte limit to be exceeded.
+    #[inline]
+    pub fn push_str(&mut self, text: &str) -> Result<(), SecretStringLimitError> {
+        Self::validate_len(self.len().saturating_add(text.len()))?;
+        self.inner.push_str(text);
+        Ok(())
+    }
+
+    /// Replace the current value after validating the replacement byte length.
+    #[inline]
+    pub fn replace_from_secret_str(&mut self, text: &str) -> Result<(), SecretStringLimitError> {
+        Self::validate_len(text.len())?;
+        self.inner.replace_from_secret_str(text);
+        Ok(())
+    }
+
+    /// Replace the current value by taking ownership of a bounded string.
+    ///
+    /// Oversized input is cleared before the error is returned. On success the
+    /// provided allocation becomes the secret storage without copying.
+    #[inline]
+    pub fn replace_from_string(&mut self, text: String) -> Result<(), SecretStringLimitError> {
+        let mut replacement = Self::from_string(text)?;
+        self.clear_secret();
+        core::mem::swap(&mut self.inner, &mut replacement.inner);
+        Ok(())
+    }
+
+    /// Clear this value immediately with volatile writes.
+    #[inline(never)]
+    pub fn clear_secret(&mut self) {
+        self.inner.clear_secret();
+    }
+
+    /// Compare against UTF-8 text without early exit for equal-length inputs.
+    #[must_use]
+    #[inline]
+    pub fn constant_time_eq(&self, other: &str) -> bool {
+        self.inner.constant_time_eq(other)
+    }
+
+    /// Return the bounded value as an ordinary clear-on-drop secret string.
+    #[must_use]
+    #[inline]
+    pub fn into_secret_string(self) -> SecretString {
+        self.inner
+    }
+
+    /// Return the bounded value as secret bytes without reallocating.
+    #[must_use]
+    #[inline]
+    pub fn into_secret_vec(self) -> SecretVec {
+        self.inner.into_secret_vec()
+    }
+
+    #[inline]
+    fn validate_len(actual: usize) -> Result<(), SecretStringLimitError> {
+        if actual > MAX {
+            Err(SecretStringLimitError {
+                maximum: MAX,
+                actual,
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Error returned while converting bounded secret bytes into UTF-8 text.
+#[cfg(feature = "alloc")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BoundedSecretStringError {
+    /// The secret bytes were not valid UTF-8.
+    Utf8(core::str::Utf8Error),
+    /// The valid UTF-8 text exceeded the declared public limit.
+    Limit(SecretStringLimitError),
+}
+
+#[cfg(feature = "alloc")]
+impl fmt::Display for BoundedSecretStringError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Utf8(error) => error.fmt(formatter),
+            Self::Limit(error) => error.fmt(formatter),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for BoundedSecretStringError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Utf8(error) => Some(error),
+            Self::Limit(error) => Some(error),
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> Default for BoundedSecretString<MAX> {
+    #[inline]
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> SecureSanitize for BoundedSecretString<MAX> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.clear_secret();
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> fmt::Debug for BoundedSecretString<MAX> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BoundedSecretString")
+            .field("len", &self.len())
+            .field("max_len", &MAX)
+            .field("contents", &"<redacted>")
+            .finish()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> ct::ConstantTimeEq for BoundedSecretString<MAX> {
+    #[inline]
+    fn ct_eq(&self, other: &Self) -> ct::Choice {
+        self.inner.ct_eq(&other.inner)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> ct::ConstantTimeEq<str> for BoundedSecretString<MAX> {
+    #[inline]
+    fn ct_eq(&self, other: &str) -> ct::Choice {
+        self.inner.ct_eq(other)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> From<BoundedSecretString<MAX>> for SecretString {
+    #[inline]
+    fn from(secret: BoundedSecretString<MAX>) -> Self {
+        secret.into_secret_string()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> TryFrom<SecretString> for BoundedSecretString<MAX> {
+    type Error = SecretStringLimitError;
+
+    #[inline]
+    fn try_from(secret: SecretString) -> Result<Self, Self::Error> {
+        Self::from_secret_string(secret)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<const MAX: usize> TryFrom<SecretVec> for BoundedSecretString<MAX> {
+    type Error = BoundedSecretStringError;
+
+    #[inline]
+    fn try_from(secret: SecretVec) -> Result<Self, Self::Error> {
+        Self::from_secret_vec(secret)
+    }
+}
+
+/// Error returned when checked secret-text exposure detects corruption or
+/// invalid UTF-8.
+#[cfg(feature = "canary-check")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SecretTextIntegrityError {
+    /// Prefix or suffix canary verification failed.
+    Canary(CanaryCorruptedError),
+    /// The payload bytes were not valid UTF-8.
+    Utf8(core::str::Utf8Error),
+}
+
+#[cfg(feature = "canary-check")]
+impl fmt::Display for SecretTextIntegrityError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Canary(error) => error.fmt(formatter),
+            Self::Utf8(error) => error.fmt(formatter),
+        }
+    }
+}
+
+#[cfg(all(feature = "canary-check", feature = "std"))]
+impl std::error::Error for SecretTextIntegrityError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Canary(error) => Some(error),
+            Self::Utf8(error) => Some(error),
+        }
+    }
+}
+
+/// UTF-8 text stored in a private platform mapping locked against paging.
+///
+/// This wrapper delegates allocation, locking, dump/fork exclusion, canary
+/// handling, growth, clearing, unlocking, and unmapping to [`LockedSecretVec`].
+/// It exposes only `str`/`mut str` access, so safe Rust cannot invalidate UTF-8.
+#[cfg(all(
+    feature = "memory-lock",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+pub struct LockedSecretString {
+    inner: LockedSecretVec,
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+impl LockedSecretString {
+    /// Allocate empty locked text storage with at least `capacity` UTF-8 bytes.
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> Result<Self, MemoryLockError> {
+        LockedSecretVec::with_capacity(capacity).map(|inner| Self { inner })
+    }
+
+    /// Copy UTF-8 text directly into a locked platform mapping.
+    #[inline]
+    pub fn from_secret_str(text: &str) -> Result<Self, MemoryLockError> {
+        LockedSecretVec::from_slice(text.as_bytes()).map(|inner| Self { inner })
+    }
+
+    /// Move an owned string through clear-on-drop staging into locked storage.
+    ///
+    /// The original string allocation is volatile-cleared whether mapping setup
+    /// succeeds or fails. The locked mapping necessarily receives a copy
+    /// because it does not use the Rust global allocator.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn from_string(text: String) -> Result<Self, MemoryLockError> {
+        let source = SecretString::from_string(text);
+        LockedSecretVec::from_slice(source.inner.as_slice()).map(|inner| Self { inner })
+    }
+
+    /// Wrap existing locked bytes without reallocating after UTF-8 validation.
+    ///
+    /// Invalid input is cleared before [`core::str::Utf8Error`] is returned.
+    #[inline]
+    pub fn from_locked_secret_vec(
+        mut inner: LockedSecretVec,
+    ) -> Result<Self, core::str::Utf8Error> {
+        let valid = inner.with_secret(|bytes| core::str::from_utf8(bytes).map(|_| ()));
+        if let Err(error) = valid {
+            inner.clear_secret();
+            return Err(error);
+        }
+        Ok(Self { inner })
+    }
+
+    /// Number of initialized UTF-8 bytes.
+    #[must_use]
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns true when no text is held.
+    #[must_use]
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Payload capacity in UTF-8 bytes.
+    #[must_use]
+    #[inline]
+    pub const fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
+
+    /// Length of the underlying locked mapping.
+    #[must_use]
+    #[inline]
+    pub const fn locked_len(&self) -> usize {
+        self.inner.locked_len()
+    }
+
+    /// Run a closure with read-only access to the locked secret text.
+    #[inline]
+    pub fn try_with_secret<R>(
+        &self,
+        inspect: impl FnOnce(&str) -> R,
+    ) -> Result<R, core::str::Utf8Error> {
+        self.inner
+            .with_secret(|bytes| core::str::from_utf8(bytes).map(inspect))
+    }
+
+    /// Run a closure with mutable access to the locked secret text.
+    #[inline]
+    pub fn try_with_secret_mut<R>(
+        &mut self,
+        edit: impl FnOnce(&mut str) -> R,
+    ) -> Result<R, core::str::Utf8Error> {
+        self.inner
+            .with_secret_mut(|bytes| core::str::from_utf8_mut(bytes).map(edit))
+    }
+
+    /// Verify canaries and UTF-8 before exposing locked secret text.
+    #[cfg(feature = "canary-check")]
+    #[inline]
+    pub fn expose_secret_checked<R>(
+        &self,
+        inspect: impl FnOnce(&str) -> R,
+    ) -> Result<R, SecretTextIntegrityError> {
+        self.inner
+            .expose_secret_checked(|bytes| core::str::from_utf8(bytes).map(inspect))
+            .map_err(SecretTextIntegrityError::Canary)?
+            .map_err(SecretTextIntegrityError::Utf8)
+    }
+
+    /// Append UTF-8 text, preserving locked storage across growth.
+    #[inline]
+    pub fn push_str(&mut self, text: &str) -> Result<(), MemoryLockError> {
+        self.inner.extend_from_slice(text.as_bytes())
+    }
+
+    /// Replace all text while preserving locked-storage semantics.
+    #[inline]
+    pub fn replace_from_secret_str(&mut self, text: &str) -> Result<(), MemoryLockError> {
+        self.inner.replace_from_slice(text.as_bytes())
+    }
+
+    /// Replace all text from an owned string and clear the source allocation.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn replace_from_string(&mut self, text: String) -> Result<(), MemoryLockError> {
+        let mut replacement = Self::from_string(text)?;
+        self.clear_secret();
+        core::mem::swap(&mut self.inner, &mut replacement.inner);
+        Ok(())
+    }
+
+    /// Clear the full locked mapping and reset the text length.
+    #[inline(never)]
+    pub fn clear_secret(&mut self) {
+        self.inner.clear_secret();
+    }
+
+    /// Clear the locked mapping, then flush its cache lines.
+    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[inline(never)]
+    pub fn clear_secret_and_flush(&mut self) {
+        self.inner.clear_secret_and_flush();
+    }
+
+    /// Compare against UTF-8 text without early exit for equal-length inputs.
+    #[must_use]
+    #[inline]
+    pub fn constant_time_eq(&self, other: &str) -> bool {
+        self.inner.constant_time_eq(other.as_bytes())
+    }
+
+    /// Verify the underlying locked mapping canaries.
+    #[cfg(feature = "canary-check")]
+    #[inline]
+    pub fn verify_integrity(&self) -> Result<(), CanaryCorruptedError> {
+        self.inner.verify_integrity()
+    }
+
+    /// Return the locked byte container without reallocating.
+    #[must_use]
+    #[inline]
+    pub fn into_locked_secret_vec(self) -> LockedSecretVec {
+        self.inner
+    }
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+impl TryFrom<LockedSecretVec> for LockedSecretString {
+    type Error = core::str::Utf8Error;
+
+    #[inline]
+    fn try_from(secret: LockedSecretVec) -> Result<Self, Self::Error> {
+        Self::from_locked_secret_vec(secret)
+    }
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+impl From<LockedSecretString> for LockedSecretVec {
+    #[inline]
+    fn from(secret: LockedSecretString) -> Self {
+        secret.into_locked_secret_vec()
+    }
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+impl SecureSanitize for LockedSecretString {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.clear_secret();
+    }
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+impl fmt::Debug for LockedSecretString {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LockedSecretString")
+            .field("len", &self.len())
+            .field("capacity", &self.capacity())
+            .field("locked_len", &self.locked_len())
+            .field("contents", &"<redacted>")
+            .finish()
+    }
+}
+
+/// UTF-8 text stored between inaccessible platform guard pages.
+///
+/// This wrapper delegates guarded mapping ownership, optional memory locking,
+/// canary handling, growth, clearing, and unmapping to [`GuardedSecretVec`].
+/// It exposes only `str`/`mut str` access.
+#[cfg(all(
+    feature = "guard-pages",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+pub struct GuardedSecretString {
+    inner: GuardedSecretVec,
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+impl GuardedSecretString {
+    /// Allocate empty guarded text storage with at least `capacity` UTF-8 bytes.
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> Result<Self, GuardPageError> {
+        GuardedSecretVec::with_capacity(capacity).map(|inner| Self { inner })
+    }
+
+    /// Copy UTF-8 text directly into a guarded platform mapping.
+    #[inline]
+    pub fn from_secret_str(text: &str) -> Result<Self, GuardPageError> {
+        GuardedSecretVec::from_slice(text.as_bytes()).map(|inner| Self { inner })
+    }
+
+    /// Move an owned string through clear-on-drop staging into guarded storage.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn from_string(text: String) -> Result<Self, GuardPageError> {
+        let source = SecretString::from_string(text);
+        GuardedSecretVec::from_slice(source.inner.as_slice()).map(|inner| Self { inner })
+    }
+
+    /// Copy UTF-8 text into a guarded and memory-locked mapping.
+    #[cfg(feature = "memory-lock")]
+    #[inline]
+    pub fn locked_from_secret_str(text: &str) -> Result<Self, GuardPageError> {
+        GuardedSecretVec::locked_from_slice(text.as_bytes()).map(|inner| Self { inner })
+    }
+
+    /// Move an owned string through clear-on-drop staging into a guarded and
+    /// memory-locked mapping.
+    #[cfg(all(feature = "alloc", feature = "memory-lock"))]
+    #[inline]
+    pub fn locked_from_string(text: String) -> Result<Self, GuardPageError> {
+        let source = SecretString::from_string(text);
+        GuardedSecretVec::locked_from_slice(source.inner.as_slice()).map(|inner| Self { inner })
+    }
+
+    /// Wrap existing guarded bytes without reallocating after UTF-8 validation.
+    ///
+    /// Invalid input is cleared before [`core::str::Utf8Error`] is returned.
+    #[inline]
+    pub fn from_guarded_secret_vec(
+        mut inner: GuardedSecretVec,
+    ) -> Result<Self, core::str::Utf8Error> {
+        let valid = inner.with_secret(|bytes| core::str::from_utf8(bytes).map(|_| ()));
+        if let Err(error) = valid {
+            inner.clear_secret();
+            return Err(error);
+        }
+        Ok(Self { inner })
+    }
+
+    /// Number of initialized UTF-8 bytes.
+    #[must_use]
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns true when no text is held.
+    #[must_use]
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Payload capacity in UTF-8 bytes.
+    #[must_use]
+    #[inline]
+    pub const fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
+
+    /// Returns true when the writable guarded pages are memory locked.
+    #[must_use]
+    #[inline]
+    pub const fn is_memory_locked(&self) -> bool {
+        self.inner.is_memory_locked()
+    }
+
+    /// Run a closure with read-only access to the guarded secret text.
+    #[inline]
+    pub fn try_with_secret<R>(
+        &self,
+        inspect: impl FnOnce(&str) -> R,
+    ) -> Result<R, core::str::Utf8Error> {
+        self.inner
+            .with_secret(|bytes| core::str::from_utf8(bytes).map(inspect))
+    }
+
+    /// Run a closure with mutable access to the guarded secret text.
+    #[inline]
+    pub fn try_with_secret_mut<R>(
+        &mut self,
+        edit: impl FnOnce(&mut str) -> R,
+    ) -> Result<R, core::str::Utf8Error> {
+        self.inner
+            .with_secret_mut(|bytes| core::str::from_utf8_mut(bytes).map(edit))
+    }
+
+    /// Verify canaries and UTF-8 before exposing guarded secret text.
+    #[cfg(feature = "canary-check")]
+    #[inline]
+    pub fn expose_secret_checked<R>(
+        &self,
+        inspect: impl FnOnce(&str) -> R,
+    ) -> Result<R, SecretTextIntegrityError> {
+        self.inner
+            .expose_secret_checked(|bytes| core::str::from_utf8(bytes).map(inspect))
+            .map_err(SecretTextIntegrityError::Canary)?
+            .map_err(SecretTextIntegrityError::Utf8)
+    }
+
+    /// Append UTF-8 text, preserving guarded and lock-state semantics.
+    #[inline]
+    pub fn push_str(&mut self, text: &str) -> Result<(), GuardPageError> {
+        self.inner.extend_from_slice(text.as_bytes())
+    }
+
+    /// Replace all text while preserving guarded and lock-state semantics.
+    #[inline]
+    pub fn replace_from_secret_str(&mut self, text: &str) -> Result<(), GuardPageError> {
+        self.inner.replace_from_slice(text.as_bytes())
+    }
+
+    /// Replace all text from an owned string and clear the source allocation.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn replace_from_string(&mut self, text: String) -> Result<(), GuardPageError> {
+        let source = SecretString::from_string(text);
+        self.inner.replace_from_slice(source.inner.as_slice())
+    }
+
+    /// Clear the full writable guarded region and reset the text length.
+    #[inline(never)]
+    pub fn clear_secret(&mut self) {
+        self.inner.clear_secret();
+    }
+
+    /// Clear the writable guarded region, then flush its cache lines.
+    #[cfg(all(feature = "cache-flush", target_arch = "x86_64", not(miri)))]
+    #[inline(never)]
+    pub fn clear_secret_and_flush(&mut self) {
+        self.inner.clear_secret_and_flush();
+    }
+
+    /// Compare against UTF-8 text without early exit for equal-length inputs.
+    #[must_use]
+    #[inline]
+    pub fn constant_time_eq(&self, other: &str) -> bool {
+        self.inner.constant_time_eq(other.as_bytes())
+    }
+
+    /// Verify the guarded mapping canaries.
+    #[cfg(feature = "canary-check")]
+    #[inline]
+    pub fn verify_integrity(&self) -> Result<(), CanaryCorruptedError> {
+        self.inner.verify_integrity()
+    }
+
+    /// Return the guarded byte container without reallocating.
+    #[must_use]
+    #[inline]
+    pub fn into_guarded_secret_vec(self) -> GuardedSecretVec {
+        self.inner
+    }
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+impl TryFrom<GuardedSecretVec> for GuardedSecretString {
+    type Error = core::str::Utf8Error;
+
+    #[inline]
+    fn try_from(secret: GuardedSecretVec) -> Result<Self, Self::Error> {
+        Self::from_guarded_secret_vec(secret)
+    }
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+impl From<GuardedSecretString> for GuardedSecretVec {
+    #[inline]
+    fn from(secret: GuardedSecretString) -> Self {
+        secret.into_guarded_secret_vec()
+    }
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+impl SecureSanitize for GuardedSecretString {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.clear_secret();
+    }
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+impl fmt::Debug for GuardedSecretString {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GuardedSecretString")
+            .field("len", &self.len())
+            .field("capacity", &self.capacity())
+            .field("memory_locked", &self.is_memory_locked())
+            .field("contents", &"<redacted>")
+            .finish()
     }
 }
 
@@ -11724,6 +12753,22 @@ mod native_ct_memory_lock_impls {
             self.with_secret(|left| ct::eq_public_len(left, other))
         }
     }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(miri)))]
+    impl ct::ConstantTimeEq for LockedSecretString {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> ct::Choice {
+            self.inner.ct_eq(&other.inner)
+        }
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(miri)))]
+    impl ct::ConstantTimeEq<str> for LockedSecretString {
+        #[inline]
+        fn ct_eq(&self, other: &str) -> ct::Choice {
+            self.inner.ct_eq(other.as_bytes())
+        }
+    }
 }
 
 #[cfg(all(
@@ -11758,6 +12803,20 @@ mod native_ct_guard_page_impls {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
             self.with_secret(|left| ct::eq_public_len(left, other))
+        }
+    }
+
+    impl ct::ConstantTimeEq for GuardedSecretString {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> ct::Choice {
+            self.inner.ct_eq(&other.inner)
+        }
+    }
+
+    impl ct::ConstantTimeEq<str> for GuardedSecretString {
+        #[inline]
+        fn ct_eq(&self, other: &str) -> ct::Choice {
+            self.inner.ct_eq(other.as_bytes())
         }
     }
 }
@@ -11807,6 +12866,17 @@ mod zeroize_interop {
 
     #[cfg(feature = "alloc")]
     impl zeroize::ZeroizeOnDrop for SecretString {}
+
+    #[cfg(feature = "alloc")]
+    impl<const MAX: usize> zeroize::Zeroize for BoundedSecretString<MAX> {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl<const MAX: usize> zeroize::ZeroizeOnDrop for BoundedSecretString<MAX> {}
 
     impl<T: SecureSanitize> zeroize::Zeroize for Secret<T> {
         #[inline]
@@ -11859,6 +12929,17 @@ mod zeroize_interop {
     #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
     impl zeroize::ZeroizeOnDrop for LockedSecretVec {}
 
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    impl zeroize::Zeroize for LockedSecretString {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    impl zeroize::ZeroizeOnDrop for LockedSecretString {}
+
     #[cfg(all(feature = "guard-pages", not(miri)))]
     impl zeroize::Zeroize for GuardedSecretVec {
         #[inline]
@@ -11869,6 +12950,17 @@ mod zeroize_interop {
 
     #[cfg(all(feature = "guard-pages", not(miri)))]
     impl zeroize::ZeroizeOnDrop for GuardedSecretVec {}
+
+    #[cfg(all(feature = "guard-pages", not(miri)))]
+    impl zeroize::Zeroize for GuardedSecretString {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(all(feature = "guard-pages", not(miri)))]
+    impl zeroize::ZeroizeOnDrop for GuardedSecretString {}
 }
 
 #[cfg(feature = "subtle-interop")]
@@ -11915,6 +13007,14 @@ mod subtle_interop {
         }
     }
 
+    #[cfg(feature = "alloc")]
+    impl<const MAX: usize> ConstantTimeEq for BoundedSecretString<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            Choice::from(constant_time_eq_slices(&self.inner.inner, &other.inner.inner) as u8)
+        }
+    }
+
     #[cfg(feature = "memory-lock")]
     impl<const N: usize> ConstantTimeEq for LockedSecretBytes<N> {
         #[inline]
@@ -11931,11 +13031,35 @@ mod subtle_interop {
         }
     }
 
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    impl ConstantTimeEq for LockedSecretString {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            Choice::from(
+                other
+                    .inner
+                    .with_secret(|bytes| self.inner.constant_time_eq(bytes)) as u8,
+            )
+        }
+    }
+
     #[cfg(all(feature = "guard-pages", not(miri)))]
     impl ConstantTimeEq for GuardedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
             Choice::from(other.with_secret(|bytes| self.constant_time_eq(bytes)) as u8)
+        }
+    }
+
+    #[cfg(all(feature = "guard-pages", not(miri)))]
+    impl ConstantTimeEq for GuardedSecretString {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            Choice::from(
+                other
+                    .inner
+                    .with_secret(|bytes| self.inner.constant_time_eq(bytes)) as u8,
+            )
         }
     }
 }
@@ -12213,6 +13337,18 @@ mod serde_impls {
     struct SecretStringVisitor;
 
     #[cfg(feature = "alloc")]
+    fn validate_default_secret_string_len<E: DeError>(actual: usize) -> Result<(), E> {
+        if actual > DEFAULT_SECRET_STRING_SERDE_MAX_LEN {
+            Err(E::custom(SecretStringLimitError {
+                maximum: DEFAULT_SECRET_STRING_SERDE_MAX_LEN,
+                actual,
+            }))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "alloc")]
     impl<'de> Visitor<'de> for SecretStringVisitor {
         type Value = SecretString;
 
@@ -12224,14 +13360,67 @@ mod serde_impls {
         where
             E: DeError,
         {
+            validate_default_secret_string_len::<E>(text.len())?;
             Ok(SecretString::from_secret_str(text))
+        }
+
+        fn visit_string<E>(self, mut text: String) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            if let Err(error) = validate_default_secret_string_len::<E>(text.len()) {
+                text.secure_sanitize();
+                return Err(error);
+            }
+            Ok(SecretString::from_string(text))
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl<const MAX: usize> Serialize for BoundedSecretString<MAX> {
+        #[inline]
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serializer.serialize_str(REDACTED)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    impl<'de, const MAX: usize> Deserialize<'de> for BoundedSecretString<MAX> {
+        #[inline]
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserializer.deserialize_string(BoundedSecretStringVisitor::<MAX>)
+        }
+    }
+
+    #[cfg(feature = "alloc")]
+    struct BoundedSecretStringVisitor<const MAX: usize>;
+
+    #[cfg(feature = "alloc")]
+    impl<'de, const MAX: usize> Visitor<'de> for BoundedSecretStringVisitor<MAX> {
+        type Value = BoundedSecretString<MAX>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(formatter, "at most {MAX} UTF-8 bytes of secret text")
+        }
+
+        fn visit_str<E>(self, text: &str) -> Result<Self::Value, E>
+        where
+            E: DeError,
+        {
+            BoundedSecretString::from_secret_str(text).map_err(E::custom)
         }
 
         fn visit_string<E>(self, text: String) -> Result<Self::Value, E>
         where
             E: DeError,
         {
-            Ok(SecretString::from_string(text))
+            BoundedSecretString::from_string(text).map_err(E::custom)
         }
     }
 
@@ -12300,6 +13489,18 @@ mod serde_impls {
             .is_ok());
             assert!(validate_default_secret_vec_len::<ValueError>(
                 DEFAULT_SECRET_VEC_SERDE_MAX_LEN.saturating_add(1)
+            )
+            .is_err());
+        }
+
+        #[test]
+        fn default_secret_string_limit_rejects_excess_length() {
+            assert!(validate_default_secret_string_len::<ValueError>(
+                DEFAULT_SECRET_STRING_SERDE_MAX_LEN
+            )
+            .is_ok());
+            assert!(validate_default_secret_string_len::<ValueError>(
+                DEFAULT_SECRET_STRING_SERDE_MAX_LEN.saturating_add(1)
             )
             .is_err());
         }
@@ -12673,6 +13874,13 @@ mod tests {
             assert_eq!(string_left.ct_eq(&string_same).unwrap_u8(), 1);
             assert_eq!(string_left.ct_eq(&string_different).unwrap_u8(), 0);
             assert_eq!(string_left.ct_eq("token").unwrap_u8(), 1);
+
+            let bounded_left = BoundedSecretString::<8>::from_secret_str("token").unwrap();
+            let bounded_same = BoundedSecretString::<8>::from_secret_str("token").unwrap();
+            let bounded_different = BoundedSecretString::<8>::from_secret_str("other").unwrap();
+            assert_eq!(bounded_left.ct_eq(&bounded_same).unwrap_u8(), 1);
+            assert_eq!(bounded_left.ct_eq(&bounded_different).unwrap_u8(), 0);
+            assert_eq!(bounded_left.ct_eq("token").unwrap_u8(), 1);
         }
 
         #[cfg(all(
@@ -12748,6 +13956,21 @@ mod tests {
             assert_eq!(locked_vec_left.ct_eq(&locked_vec_same).unwrap_u8(), 1);
             assert_eq!(locked_vec_left.ct_eq(&locked_vec_different).unwrap_u8(), 0);
             assert_eq!(locked_vec_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+
+            let (locked_text_left, locked_text_same, locked_text_different) = match (
+                LockedSecretString::from_secret_str("token"),
+                LockedSecretString::from_secret_str("token"),
+                LockedSecretString::from_secret_str("other"),
+            ) {
+                (Ok(left), Ok(same), Ok(different)) => (left, same, different),
+                _ => return,
+            };
+            assert_eq!(locked_text_left.ct_eq(&locked_text_same).unwrap_u8(), 1);
+            assert_eq!(
+                locked_text_left.ct_eq(&locked_text_different).unwrap_u8(),
+                0
+            );
+            assert_eq!(locked_text_left.ct_eq("token").unwrap_u8(), 1);
         }
 
         #[cfg(all(
@@ -12780,6 +14003,21 @@ mod tests {
             assert_eq!(guarded_left.ct_eq(&guarded_same).unwrap_u8(), 1);
             assert_eq!(guarded_left.ct_eq(&guarded_different).unwrap_u8(), 0);
             assert_eq!(guarded_left.ct_eq(b"token".as_slice()).unwrap_u8(), 1);
+
+            let (guarded_text_left, guarded_text_same, guarded_text_different) = match (
+                GuardedSecretString::from_secret_str("token"),
+                GuardedSecretString::from_secret_str("token"),
+                GuardedSecretString::from_secret_str("other"),
+            ) {
+                (Ok(left), Ok(same), Ok(different)) => (left, same, different),
+                _ => return,
+            };
+            assert_eq!(guarded_text_left.ct_eq(&guarded_text_same).unwrap_u8(), 1);
+            assert_eq!(
+                guarded_text_left.ct_eq(&guarded_text_different).unwrap_u8(),
+                0
+            );
+            assert_eq!(guarded_text_left.ct_eq("token").unwrap_u8(), 1);
         }
     }
 
@@ -12902,11 +14140,18 @@ mod tests {
     fn serde_interop_loads_alloc_secrets_and_redacts_output() {
         let bytes: SecretVec = serde_json::from_str("[1,2,3,4]").unwrap();
         let text: SecretString = serde_json::from_str("\"token\"").unwrap();
+        let bounded_text: BoundedSecretString<5> = serde_json::from_str("\"token\"").unwrap();
 
         assert_eq!(bytes.with_secret(|secret| secret.len()), 4);
         assert_eq!(text.try_with_secret(str::len), Ok(5));
+        assert_eq!(bounded_text.try_with_secret(str::len), Ok(5));
         assert_eq!(serde_json::to_string(&bytes).unwrap(), "\"<redacted>\"");
         assert_eq!(serde_json::to_string(&text).unwrap(), "\"<redacted>\"");
+        assert_eq!(
+            serde_json::to_string(&bounded_text).unwrap(),
+            "\"<redacted>\""
+        );
+        assert!(serde_json::from_str::<BoundedSecretString<4>>("\"token\"").is_err());
     }
 
     #[cfg(all(feature = "serde", feature = "alloc"))]
@@ -14127,6 +15372,135 @@ mod tests {
         secret.push_str("i");
 
         assert!(secret.inner.capacity() >= initial_capacity.saturating_mul(2));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn secret_string_and_secret_vec_transfer_allocations() {
+        let bytes = SecretVec::from_vec(std::vec![115, 101, 99, 114, 101, 116]);
+        let original_ptr = bytes.inner.as_ptr();
+        let text = SecretString::from_secret_vec(bytes).unwrap();
+
+        assert_eq!(text.inner.as_ptr(), original_ptr);
+        assert!(text.constant_time_eq("secret"));
+
+        let text_ptr = text.inner.as_ptr();
+        let bytes = text.into_secret_vec();
+
+        assert_eq!(bytes.inner.as_ptr(), text_ptr);
+        assert!(bytes.constant_time_eq(b"secret"));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn secret_string_rejects_invalid_secret_bytes() {
+        let invalid = SecretVec::from_vec(std::vec![0xFF, 0xFE]);
+
+        assert!(SecretString::from_secret_vec(invalid).is_err());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn bounded_secret_string_enforces_utf8_byte_limit() {
+        let mut secret = BoundedSecretString::<8>::from_secret_str("secret").unwrap();
+
+        assert_eq!(secret.push_str("!!"), Ok(()));
+        assert_eq!(
+            secret.push_str("x"),
+            Err(SecretStringLimitError {
+                maximum: 8,
+                actual: 9,
+            })
+        );
+        assert_eq!(secret.try_with_secret(|text| text == "secret!!"), Ok(true));
+        assert_eq!(
+            BoundedSecretString::<1>::from_secret_str("\u{00F8}").err(),
+            Some(SecretStringLimitError {
+                maximum: 1,
+                actual: 2,
+            })
+        );
+
+        let unbounded = secret.into_secret_string();
+        assert!(unbounded.constant_time_eq("secret!!"));
+    }
+
+    #[cfg(all(
+        feature = "memory-lock",
+        not(miri),
+        any(
+            all(
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ),
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+        )
+    ))]
+    #[test]
+    fn locked_secret_string_preserves_utf8_and_lock_lifecycle() {
+        let mut secret = match LockedSecretString::from_secret_str("token") {
+            Ok(secret) => secret,
+            Err(_) => return,
+        };
+
+        assert_eq!(secret.try_with_secret(|text| text == "token"), Ok(true));
+        secret.push_str("-v2").unwrap();
+        secret
+            .try_with_secret_mut(|text| text.make_ascii_uppercase())
+            .unwrap();
+        assert!(secret.constant_time_eq("TOKEN-V2"));
+
+        let bytes = secret.into_locked_secret_vec();
+        let mut text = LockedSecretString::from_locked_secret_vec(bytes).unwrap();
+        assert!(text.constant_time_eq("TOKEN-V2"));
+        text.clear_secret();
+        assert!(text.is_empty());
+    }
+
+    #[cfg(all(
+        feature = "guard-pages",
+        not(miri),
+        any(
+            all(
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ),
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+        )
+    ))]
+    #[test]
+    fn guarded_secret_string_preserves_utf8_and_guard_lifecycle() {
+        let mut secret = match GuardedSecretString::from_secret_str("token") {
+            Ok(secret) => secret,
+            Err(_) => return,
+        };
+
+        assert_eq!(secret.try_with_secret(|text| text == "token"), Ok(true));
+        secret.push_str("-v2").unwrap();
+        secret
+            .try_with_secret_mut(|text| text.make_ascii_uppercase())
+            .unwrap();
+        assert!(secret.constant_time_eq("TOKEN-V2"));
+
+        let bytes = secret.into_guarded_secret_vec();
+        let mut text = GuardedSecretString::from_guarded_secret_vec(bytes).unwrap();
+        assert!(text.constant_time_eq("TOKEN-V2"));
+        text.clear_secret();
+        assert!(text.is_empty());
     }
 
     #[test]

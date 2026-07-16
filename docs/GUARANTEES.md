@@ -43,6 +43,13 @@ audited wipe boundary. This is the crate's primary clearing guarantee:
   append, replacement, and every supported serde visitor input form.
 - Ordinary `SecretVec` serde rejects inputs larger than the documented 1 MiB
   default ceiling rather than allocating without a crate-level bound.
+- `BoundedSecretString<MAX>` checks its public UTF-8 byte maximum before
+  construction, append, replacement, and supported serde string inputs.
+- Ordinary `SecretString` serde rejects inputs larger than the documented
+  1 MiB byte ceiling.
+- Consuming `SecretVec`/`SecretString` conversions transfer the existing heap
+  allocation after UTF-8 validation. Invalid byte input is cleared before the
+  conversion error is returned.
 
 The guarantee is about bytes reachable through the current allocation or
 container. It does not cover allocator metadata, stale copies from earlier
@@ -60,10 +67,14 @@ constructors also request `MADV_DONTDUMP`, and when available they request
 The stronger native storage types guarantee:
 
 - locked mappings are cleared before unlock/unmap on drop;
+- `LockedSecretString` delegates its storage lifecycle to `LockedSecretVec`
+  while restricting safe exposure to valid UTF-8;
 - failed constructors do not intentionally leak successfully created mappings;
 - canary-enabled mappings verify prefix/suffix integrity before exposure;
 - guarded dynamic storage places inaccessible guard pages around the writable
   region on supported native targets.
+- `GuardedSecretString` delegates its storage lifecycle to
+  `GuardedSecretVec` while restricting safe exposure to valid UTF-8.
 
 When `require-fork-exclusion` is enabled, native locked constructors fail
 closed on platforms where fork-inheritance exclusion is unavailable.

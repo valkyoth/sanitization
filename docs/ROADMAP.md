@@ -305,6 +305,10 @@ Keep and harden:
 - `SecretBytes<N>`;
 - `SecretVec`;
 - `SecretString`;
+- `BoundedSecretVec<MAX>`;
+- `BoundedSecretString<MAX>`;
+- `LockedSecretString`;
+- `GuardedSecretString`;
 - `Secret<T>` including `Default` when `T: SecureSanitize + Default`;
 - closure-based exposure;
 - redacted `Debug`;
@@ -349,7 +353,10 @@ Implemented dynamic rotation helpers:
 - `SecretString::replace_from_string`;
 - `SecretString::replace_from_secret_str`;
 - `SecretString::replace_from_chars`;
-- `SecretString::try_replace_from_chars`.
+- `SecretString::try_replace_from_chars`;
+- allocation-preserving `SecretVec`/`SecretString` conversions;
+- UTF-8-validating `LockedSecretVec`/`LockedSecretString` conversions;
+- UTF-8-validating `GuardedSecretVec`/`GuardedSecretString` conversions.
 
 Continue avoiding:
 

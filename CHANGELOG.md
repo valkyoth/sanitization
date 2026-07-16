@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.2.5
+
+- Added `BoundedSecretString<MAX>` with byte-length enforcement for
+  construction, mutation, conversion, and serde ingestion.
+- Added a 1 MiB default serde ceiling for ordinary `SecretString`.
+- Added zero-reallocation conversions between `SecretVec` and `SecretString`
+  with clear-on-invalid-UTF-8 failure behavior.
+- Added `LockedSecretString` over `LockedSecretVec` and
+  `GuardedSecretString` over `GuardedSecretVec`.
+- Added checked canary and UTF-8 exposure errors for mapped text containers.
+- Extended native constant-time traits and optional `zeroize`/`subtle`
+  interoperability to the new text types.
+- Documented direct JSON-to-secret ingestion and the remaining parser/input
+  copy limitations.
+
 ## 1.2.4
 
 - Switched the pinned/default toolchain to Rust `1.97.0` while retaining Rust

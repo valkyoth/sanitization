@@ -10,7 +10,7 @@ default-members = ["crates/sanitization"]
 resolver = "2"
 
 [workspace.package]
-version = "1.2.4"
+version = "1.2.5"
 edition = "2021"
 rust-version = "1.90"
 license = "MIT OR Apache-2.0"

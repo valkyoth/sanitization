@@ -39,7 +39,7 @@ internal unsafe boundary.
 
 ## Current Status
 
-The crate is published as stable `1.2.4` on crates.io. It is intended for
+The crate is published as stable `1.2.5` on crates.io. It is intended for
 projects that want dependency-free secret ownership and sanitization by
 default, with stronger platform hardening available through explicit feature
 flags.
@@ -63,20 +63,23 @@ Implemented now:
 - optional `sanitization-crypto-interop` sister crate for targeted cleanup
   wrappers around third-party hash crates such as `sha2` and `blake3`.
 - optional `serde` deserialization for loading secrets from config formats,
-  with redacted serialization and const-generic `BoundedSecretVec<MAX>` input
-  limits for untrusted dynamic byte sequences.
+  with redacted serialization and const-generic `BoundedSecretVec<MAX>` and
+  `BoundedSecretString<MAX>` input limits.
 - native dependency-free `sanitization::ct` data-oblivious primitives with
   explicit declassification boundaries, `Choice`, `CtOption`, `CtResult`,
   `CtOrdering`, fixed-size equality and ordering, conditional selection,
   conditional copy/swap, slice selection, and oblivious lookup helpers.
 - optional conservative native `ct` derives through the `derive` feature for
   field-wise `ConstantTimeEq` and `ConditionallySelectable` struct derives.
-- optional `alloc` support with `SecretVec` and `SecretString`.
+- optional `alloc` support with `SecretVec`, `SecretString`, bounded byte/text
+  variants, and allocation-preserving byte/text conversions.
 - optional platform memory locking with `LockedSecretBytes<N>` on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets, plus a documented
   volatile-only WASM compatibility backend behind `wasm-compat`.
 - optional dynamic locked byte storage with `LockedSecretVec` on supported
   native memory-lock targets.
+- optional UTF-8-safe locked text storage with `LockedSecretString`, backed by
+  `LockedSecretVec`.
 - optional pooled locked-memory arenas with `SecretPool<N, SLOTS>` for many
   same-size fixed secrets under one memory-lock operation on native backends,
   plus the same pool API on WASM behind `wasm-compat` without host memory
@@ -96,6 +99,8 @@ Implemented now:
 - optional `std` lifetime enforcement with `ExpiringSecretBytes<N>`.
 - optional guard-page dynamic byte storage with `GuardedSecretVec` on supported
   Linux, Android, macOS, iOS, Windows, and BSD targets.
+- optional UTF-8-safe guarded text storage with `GuardedSecretString`, backed by
+  `GuardedSecretVec`.
 - explicit volatile helper APIs for existing ordinary buffers.
 - redacted `Debug` for secret-owning wrapper types.
 - clear-on-drop behavior for crate-owned secret containers.
@@ -142,7 +147,7 @@ work.
 The minimum supported Rust version is Rust `1.90.0`. New deployments should use
 the pinned stable Rust `1.97.0` until the toolchain policy is updated.
 
-Compatibility evidence for `1.2.4`:
+Compatibility evidence for `1.2.5`:
 
 | Rust | Local Evidence |
 | --- | --- |
@@ -160,14 +165,14 @@ Compatibility evidence for `1.2.4`:
 
 ```toml
 [dependencies]
-sanitization = "1.2.4"
+sanitization = "1.2.5"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["alloc"] }
+sanitization = { version = "1.2.5", features = ["alloc"] }
 ```
 
 The `unsafe-wipe` feature is kept as a no-op compatibility flag for older
@@ -177,28 +182,28 @@ For memory-locked fixed-size secrets on supported native platforms:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["memory-lock"] }
+sanitization = { version = "1.2.5", features = ["memory-lock"] }
 ```
 
 For derive macros:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["derive"] }
+sanitization = { version = "1.2.5", features = ["derive"] }
 ```
 
 For optional ecosystem interop:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["zeroize-interop", "subtle-interop"] }
+sanitization = { version = "1.2.5", features = ["zeroize-interop", "subtle-interop"] }
 ```
 
 For serde-based config loading:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["serde", "alloc"] }
+sanitization = { version = "1.2.5", features = ["serde", "alloc"] }
 ```
 
 For optional ecosystem wrappers, depend on the separate sister crates only when
@@ -206,23 +211,23 @@ you already use those external libraries:
 
 ```toml
 [dependencies]
-sanitization-arrayvec = "1.2.4"
-sanitization-bytes = "1.2.4"
-sanitization-crypto-interop = { version = "1.2.4", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-arrayvec = "1.2.5"
+sanitization-bytes = "1.2.5"
+sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ## Features
 
 | Feature | Default | Purpose |
 | --- | --- | --- |
-| `alloc` | no | Enables `SecretVec` and `SecretString`. |
+| `alloc` | no | Enables `SecretVec`, `BoundedSecretVec<MAX>`, `SecretString`, and `BoundedSecretString<MAX>`. |
 | `std` | no | Enables `alloc` plus `ExpiringSecretBytes<N>` lifetime enforcement. |
 | `derive` | no | Re-exports `sanitization-derive` proc macros for `#[derive(SecureSanitize)]`, `#[derive(SecureSanitizeOnDrop)]`, and conservative struct-only native `ct` derives for `ConstantTimeEq` and `ConditionallySelectable`. Pulls in proc-macro dependencies only when explicitly enabled. |
 | `strict-enum-derive` | no | Enables `derive` and rejects enum derives unless the inactive-variant byte risk is explicitly acknowledged. |
 | `serde` | no | Implements serde deserialization for secret loading and redacted serialization for secret-owning wrappers. |
 | `zeroize-interop` | no | Implements `zeroize::Zeroize` and `zeroize::ZeroizeOnDrop` for crate-owned secret containers. |
 | `subtle-interop` | no | Implements `subtle::ConstantTimeEq` for byte-oriented secret containers where the `subtle` trait can represent the comparison. |
-| `memory-lock` | no | Enables `LockedSecretBytes<N>`, native `LockedSecretVec`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported native targets. On WASM this must be paired with `wasm-compat` and exposes fixed-size volatile-only compatibility backends with no actual memory locking. |
+| `memory-lock` | no | Enables `LockedSecretBytes<N>`, native `LockedSecretVec` and `LockedSecretString`, `SecretPool<N, SLOTS>`, and locked guarded mappings on supported native targets. On WASM this must be paired with `wasm-compat` and exposes fixed-size volatile-only compatibility backends with no actual memory locking. |
 | `wasm-compat` | no | Explicitly enables reduced-guarantee WASM compatibility backends for `memory-lock` APIs. This does not provide `mlock`, `mprotect`, dump exclusion, or guard pages. |
 | `canary-check` | no | Enables `memory-lock` plus prefix/suffix canary checks for non-empty locked byte mappings, pooled slots, and guarded dynamic mappings. On WASM this must be paired with `wasm-compat` and `random-canary`. |
 | `random-canary` | no | Enables `canary-check` and generates canary words from the OS CSPRNG instead of deriving them from mapping addresses. WASI preview1 uses `random_get`; other bare WASM targets report random generation failure. On WASM it also needs `wasm-compat`. |
@@ -231,7 +236,7 @@ sanitization-crypto-interop = { version = "1.2.4", features = ["sha2", "blake3",
 | `strict-ct` | no | Enables `asm-compare` and rejects non-Miri targets without a supported assembly comparison backend. |
 | `cache-flush` | no | Enables explicit x86_64 clear-and-cache-line-evict helpers. |
 | `register-scrub` | no | Enables explicit best-effort SIMD/vector register scrubbing helpers on x86_64 and AArch64. |
-| `guard-pages` | no | Enables `GuardedSecretVec` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. This feature is rejected at compile time on WASM. |
+| `guard-pages` | no | Enables `GuardedSecretVec` and `GuardedSecretString` on supported Linux, Android, macOS, iOS, Windows, and BSD targets. This feature is rejected at compile time on WASM. |
 | `require-fork-exclusion` | no | Enables `memory-lock` and makes locked constructors fail when fork-inheritance exclusion cannot be applied. Currently this is a Linux-only hardening guarantee. |
 | `multi-pass-clear` | no | Enables explicit three-pass volatile overwrite helpers for policy or audit compatibility. |
 | `hardware-secrets` | no | Enables dependency-free traits for external hardware-backed secret provider crates. |
@@ -358,7 +363,7 @@ those host-kernel facilities directly.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["memory-lock", "wasm-compat"] }
+sanitization = { version = "1.2.5", features = ["memory-lock", "wasm-compat"] }
 ```
 
 `memory-lock` without `wasm-compat` is rejected at compile time on WASM so
@@ -468,7 +473,7 @@ Enable `std` when you want the convenience wrapper backed by
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["std"] }
+sanitization = { version = "1.2.5", features = ["std"] }
 ```
 
 ```rust
@@ -562,7 +567,7 @@ assert!(key.constant_time_eq(&[0; 32]));
 Enable `alloc` for dynamic secret bytes and secret UTF-8 text.
 
 ```rust
-use sanitization::{SecretString, SecretVec};
+use sanitization::{BoundedSecretString, SecretString, SecretVec};
 
 let mut token = SecretString::from_string(String::from("bearer-token"));
 assert_eq!(token.try_with_secret(str::len), Ok(12));
@@ -584,6 +589,10 @@ token
     })
     .unwrap();
 
+let mut bounded = BoundedSecretString::<64>::from_secret_str("api-token").unwrap();
+bounded.push_str("-v2").unwrap();
+assert!(bounded.constant_time_eq("api-token-v2"));
+
 let mut bytes = SecretVec::from_vec(vec![115, 101, 115, 115, 105, 111, 110]);
 bytes.extend_from_slice(b"-key");
 assert_eq!(bytes.with_secret(|value| value.len()), 11);
@@ -600,13 +609,24 @@ bytes.replace_from_fn(16, |index| index as u8);
 bytes
     .try_replace_from_fn(16, |index| Ok::<u8, &'static str>(index as u8))
     .unwrap();
+
+let text = SecretString::from_secret_vec(
+    SecretVec::from_vec(b"allocation-transfer".to_vec()),
+)
+.unwrap();
+let bytes = text.into_secret_vec();
+assert!(bytes.constant_time_eq(b"allocation-transfer"));
 ```
 
-`SecretVec` and `SecretString` wipe initialized bytes and spare heap capacity
-before freeing their allocations. Use `from_slice` and `from_secret_str` when
-loading borrowed data. Use `from_vec`, `from_string`, `replace_from_vec`, and
-`replace_from_string` to take ownership of existing heap allocations without
-copying; those allocations become clear-on-drop secret storage. Use
+`SecretVec`, `SecretString`, and their bounded variants wipe initialized bytes
+and spare heap capacity before freeing their allocations. Use `from_slice` and
+`from_secret_str` when loading borrowed data. Use `from_vec`, `from_string`,
+`replace_from_vec`, and `replace_from_string` to take ownership of existing heap
+allocations without copying; those allocations become clear-on-drop secret
+storage. `SecretString::from_secret_vec` and `SecretString::into_secret_vec`
+transfer the existing allocation after UTF-8 validation instead of creating a
+second heap copy. Invalid UTF-8 is cleared before the conversion error is
+returned. Use
 `replace_from_slice` and `replace_from_secret_str` when rotating from borrowed
 data. Use `SecretVec::from_fn`, `try_from_fn`, `replace_from_fn`, or
 `try_replace_from_fn` when dynamic bytes can be generated directly into
@@ -617,7 +637,8 @@ generated as `char` values. Fallible generation clears partial output on error.
 allowing safe Rust to invalidate UTF-8. They expose contents through closures
 and redact `Debug`. `capacity()` exposes allocation size metadata for callers
 that need to size append-heavy flows. `Default` creates an empty heap secret
-container.
+container. `BoundedSecretString<MAX>` measures `MAX` in UTF-8 bytes, not
+characters.
 
 ## Memory-Locked Secrets
 
@@ -641,7 +662,7 @@ must be a hard failure rather than a documented platform limitation:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["require-fork-exclusion"] }
+sanitization = { version = "1.2.5", features = ["require-fork-exclusion"] }
 ```
 
 With this profile, locked constructors and locked guarded constructors return a
@@ -747,6 +768,24 @@ token.clear_secret();
 assert!(token.is_empty());
 ```
 
+For textual secrets, `LockedSecretString` provides the same mapping and lock
+semantics while exposing only UTF-8-safe access:
+
+```rust
+use sanitization::{LockedSecretString, LockedSecretVec};
+
+let mut token = LockedSecretString::from_secret_str("bearer-token").unwrap();
+token.push_str("-v2").unwrap();
+token
+    .try_with_secret_mut(|text| text.make_ascii_uppercase())
+    .unwrap();
+assert!(token.constant_time_eq("BEARER-TOKEN-V2"));
+
+let locked_bytes: LockedSecretVec = token.into();
+let token = LockedSecretString::try_from(locked_bytes).unwrap();
+assert_eq!(token.try_with_secret(str::len), Ok(15));
+```
+
 `LockedSecretVec` uses the same native mapping and memory-lock backends as
 `LockedSecretBytes<N>`, but its payload length and capacity are dynamic. It is
 lower overhead than `GuardedSecretVec` because it does not reserve guard pages.
@@ -761,7 +800,10 @@ maximum decoded length up front and returns the actual initialized byte count
 after decoding. If the reported length exceeds capacity, the temporary locked
 mapping is cleared and an error is returned. If the reported length is smaller
 than capacity, spare payload bytes are volatile-cleared before the value is
-exposed.
+exposed. `LockedSecretString::from_string` clears the source `String`
+allocation after copying into the locked mapping. Converting an existing
+`LockedSecretVec` into `LockedSecretString` validates UTF-8 without reallocating
+and clears invalid input before returning an error.
 
 Enable `canary-check` when locked or guarded secrets should detect corruption
 that reaches either side of the secret data while staying inside the writable
@@ -769,7 +811,7 @@ mapping or pooled slot.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["canary-check"] }
+sanitization = { version = "1.2.5", features = ["canary-check"] }
 ```
 
 ```rust
@@ -821,7 +863,7 @@ system CSPRNG instead of the deterministic address-derived fallback:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["random-canary"] }
+sanitization = { version = "1.2.5", features = ["random-canary"] }
 ```
 
 `random-canary` uses direct platform backends without additional crates: Linux
@@ -845,7 +887,7 @@ dependency-free random backend:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["strict-canary-check"] }
+sanitization = { version = "1.2.5", features = ["strict-canary-check"] }
 ```
 
 For many same-size locked secrets on native targets, use
@@ -903,7 +945,7 @@ pages on supported Linux, Android, macOS, iOS, Windows, and BSD targets:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["guard-pages"] }
+sanitization = { version = "1.2.5", features = ["guard-pages"] }
 ```
 
 ```rust
@@ -928,6 +970,20 @@ token
 token.clear_secret();
 assert!(token.is_empty());
 token.into_cleared();
+```
+
+`GuardedSecretString` applies the same guard-page layout to UTF-8 text:
+
+```rust
+use sanitization::{GuardedSecretString, GuardedSecretVec};
+
+let mut token = GuardedSecretString::from_secret_str("session-token").unwrap();
+token.push_str("-v2").unwrap();
+assert!(token.constant_time_eq("session-token-v2"));
+
+let guarded_bytes: GuardedSecretVec = token.into();
+let token = GuardedSecretString::try_from(guarded_bytes).unwrap();
+assert_eq!(token.try_with_secret(str::len), Ok(16));
 ```
 
 `GuardedSecretVec` uses a private platform mapping, leaves the pages before and
@@ -958,7 +1014,7 @@ can also lock their writable data pages:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["guard-pages", "memory-lock"] }
+sanitization = { version = "1.2.5", features = ["guard-pages", "memory-lock"] }
 ```
 
 ```rust
@@ -977,6 +1033,8 @@ FreeBSD writable data pages are marked with `MADV_NOCORE` before locking.
 Other non-Linux backends currently lock the writable pages without crate-level
 dump or fork policy. Locking can fail due to OS resource limits or policy, and
 this does not change the broader memory-lock limits described above.
+`GuardedSecretString::locked_from_secret_str` combines the UTF-8-safe wrapper
+with the same locked guarded mapping.
 `GuardedSecretVec::locked_from_fn` is available for direct byte generation after
 the writable data pages have been prepared and locked. Use `locked_try_from_fn`
 for fallible generation into locked guarded storage.
@@ -1039,7 +1097,7 @@ the explicit proc-macro dependency tradeoff:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["derive"] }
+sanitization = { version = "1.2.5", features = ["derive"] }
 ```
 
 ```rust
@@ -1140,7 +1198,7 @@ downstream API already requires these ecosystem traits:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["zeroize-interop", "subtle-interop"] }
+sanitization = { version = "1.2.5", features = ["zeroize-interop", "subtle-interop"] }
 ```
 
 ```rust
@@ -1170,18 +1228,18 @@ do not leak secret material.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["serde", "alloc"] }
+sanitization = { version = "1.2.5", features = ["serde", "alloc"] }
 serde = { version = "1", features = ["derive"] }
 ```
 
 ```rust
-use sanitization::{BoundedSecretVec, SecretBytes, SecretString};
+use sanitization::{BoundedSecretString, BoundedSecretVec, SecretBytes};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct Config {
     signing_key: SecretBytes<32>,
-    api_token: SecretString,
+    api_token: BoundedSecretString<4096>,
     recovery_blob: BoundedSecretVec<65536>,
 }
 ```
@@ -1190,15 +1248,23 @@ This serde support is intentionally for ingestion. Do not rely on serde
 serialization to export or back up secrets; it redacts by design. For generic
 `Secret<T>` and `ReadOnceSecret<T>`, deserialization uses `T`'s own
 `Deserialize` implementation, so use this crate's leaf types such as
-`SecretBytes<N>`, `SecretVec`, and `SecretString` at secret-bearing fields when
-you need secret-aware ingestion end to end.
+`SecretBytes<N>`, `SecretVec`, `SecretString`, and their bounded variants at
+secret-bearing fields when you need secret-aware ingestion end to end.
 
 Plain `SecretVec` deserialization rejects inputs larger than the public
-`DEFAULT_SECRET_VEC_SERDE_MAX_LEN` ceiling of 1 MiB. At an untrusted boundary,
-prefer `BoundedSecretVec<MAX>` so borrowed bytes, owned byte buffers, and
-element sequences use the application's protocol-specific maximum. Some
-deserializers may allocate input before the visitor is called, so transport and
-parser input limits remain required.
+`DEFAULT_SECRET_VEC_SERDE_MAX_LEN` ceiling of 1 MiB. Plain `SecretString`
+deserialization uses the same 1 MiB byte ceiling through
+`DEFAULT_SECRET_STRING_SERDE_MAX_LEN`. At an untrusted boundary, prefer
+`BoundedSecretVec<MAX>` or `BoundedSecretString<MAX>` so the application chooses
+the protocol-specific maximum.
+
+Deserialize secret fields directly into these leaf types where possible.
+Building a generic JSON tree first can leave another plaintext `String` in that
+tree. If a `serde_json::Value::String` already exists, move its owned `String`
+into `SecretString::from_string`; this transfers the allocation without a
+second heap copy. The original JSON input and parser scratch buffers may still
+contain plaintext, and some deserializers allocate input before the visitor is
+called, so transport and parser input limits remain required.
 
 ## Generic Secret Wrapper
 
@@ -1335,7 +1401,7 @@ evidence:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["multi-pass-clear"] }
+sanitization = { version = "1.2.5", features = ["multi-pass-clear"] }
 ```
 
 ```rust
@@ -1362,7 +1428,7 @@ clearing followed by `clflush`/`mfence` over the affected cache lines:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["cache-flush"] }
+sanitization = { version = "1.2.5", features = ["cache-flush"] }
 ```
 
 ```rust
@@ -1393,7 +1459,7 @@ comparisons to cross an explicit compiler boundary:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["asm-compare"] }
+sanitization = { version = "1.2.5", features = ["asm-compare"] }
 ```
 
 The public API does not change. `SecretBytes<N>`, `SecretVec`, `SecretString`,
@@ -1410,7 +1476,7 @@ portable fallback, enable `strict-ct`:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["strict-ct"] }
+sanitization = { version = "1.2.5", features = ["strict-ct"] }
 ```
 
 `strict-ct` currently accepts x86_64 and AArch64 non-Miri builds, where the
@@ -1424,7 +1490,7 @@ register clearing boundary after cryptographic code:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["register-scrub"] }
+sanitization = { version = "1.2.5", features = ["register-scrub"] }
 ```
 
 ```rust
@@ -1450,7 +1516,7 @@ Enable `split-secret` for fixed-size N-of-N XOR split storage:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["split-secret"] }
+sanitization = { version = "1.2.5", features = ["split-secret"] }
 ```
 
 ```rust
@@ -1483,7 +1549,7 @@ surface for hardware-backed secret providers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.4", features = ["hardware-secrets"] }
+sanitization = { version = "1.2.5", features = ["hardware-secrets"] }
 ```
 
 ```rust
@@ -1536,9 +1602,9 @@ buffer libraries:
 
 ```toml
 [dependencies]
-sanitization-arrayvec = "1.2.4"
-sanitization-bytes = "1.2.4"
-sanitization-crypto-interop = { version = "1.2.4", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-arrayvec = "1.2.5"
+sanitization-bytes = "1.2.5"
+sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ```rust
@@ -1574,7 +1640,7 @@ RAII scratch-buffer cleanup:
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "1.2.4", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ```rust
@@ -1622,9 +1688,13 @@ the first mismatching byte.
 | Many same-size fixed keys with pooled canary checks | `SecretPool<N, SLOTS>` with `canary-check` |
 | Dynamic secret bytes | `SecretVec` with `alloc` |
 | Untrusted dynamic secret input with a public size limit | `BoundedSecretVec<MAX>` with `alloc` and `serde` |
-| Dynamic bytes with platform guard pages | `GuardedSecretVec` with `guard-pages` |
-| Guarded dynamic bytes with in-region corruption checks | `GuardedSecretVec` with `guard-pages` and `canary-check` |
 | Secret UTF-8 text | `SecretString` with `alloc` |
+| Untrusted secret UTF-8 input with a public byte limit | `BoundedSecretString<MAX>` with `alloc` and `serde` |
+| Secret UTF-8 text that should avoid swap/pagefiles | `LockedSecretString` with `memory-lock` |
+| Dynamic bytes with platform guard pages | `GuardedSecretVec` with `guard-pages` |
+| Secret UTF-8 text with platform guard pages | `GuardedSecretString` with `guard-pages` |
+| Guarded dynamic bytes with in-region corruption checks | `GuardedSecretVec` with `guard-pages` and `canary-check` |
+| Guarded secret UTF-8 text with in-region corruption checks | `GuardedSecretString` with `guard-pages` and `canary-check` |
 | Secret scalar such as `u64` | `Secret<u64>` |
 | Standard compound value | `Secret<T>` where `T: SecureSanitize` |
 | One-time access secret | `ReadOnceSecret<T>` |

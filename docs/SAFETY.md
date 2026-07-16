@@ -403,6 +403,15 @@ replacement, the old allocation is cleared first. In all cases, the transferred
 allocation becomes owned by the secret container, so its full capacity is
 covered by later clear/drop operations.
 
+`SecretString::from_secret_vec` validates UTF-8 and transfers the existing
+`SecretVec` allocation with `mem::take`; `SecretString::into_secret_vec`
+performs the inverse transfer. Neither conversion reallocates. Invalid byte
+input is explicitly cleared before `Utf8Error` is returned.
+
+`BoundedSecretString<MAX>` delegates storage and clearing to `SecretString`.
+Length checks use UTF-8 byte length. Owned strings or existing secret
+containers that fail the limit are cleared before the error is returned.
+
 `SecretString::from_chars`, `try_from_chars`, `replace_from_chars`, and
 `try_replace_from_chars` generate valid UTF-8 by accepting `char` values. Each
 character is encoded through a four-byte stack buffer, copied into the secret
@@ -414,6 +423,14 @@ bytes are cleared if the generator returns an error or unwinds.
 `SecretString::try_with_secret_mut` exposes mutable text as `&mut str` rather
 than mutable bytes. This keeps UTF-8 validity enforced by safe Rust while still
 allowing in-place text edits through closure-scoped access.
+
+`LockedSecretString` and `GuardedSecretString` contain the corresponding byte
+container directly. They introduce no raw-pointer operations of their own.
+Construction from an existing mapped byte container validates UTF-8 before
+wrapping it and clears invalid input. Safe mutable exposure is limited to
+`&mut str`, so the UTF-8 invariant cannot be invalidated through the wrapper.
+Their checked canary access validates mapping integrity first and reports
+invalid payload UTF-8 separately.
 
 ## Non-Goals
 
@@ -431,10 +448,13 @@ inside capacity.
 
 ## Thread Safety
 
-`LockedSecretBytes<N>` and `GuardedSecretVec` explicitly implement `Send`
+`LockedSecretBytes<N>`, `LockedSecretVec`, and `GuardedSecretVec` explicitly
+implement `Send`
 because each value exclusively owns its private platform mapping. Moving the
 Rust value to another thread moves only pointer metadata; it does not move or
 copy the mapped secret bytes. Mutation and clearing still require `&mut self`.
+The locked and guarded text wrappers inherit these properties from their
+contained byte mappings.
 
 These mapped containers intentionally do not implement `Sync`. Concurrent
 shared access should be provided by caller-owned synchronization such as
