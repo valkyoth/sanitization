@@ -8,7 +8,7 @@ Checkpoint: `CP-01`
 
 This checkpoint separates the core crate implementation before any 2.0
 behavioral or API changes. Public paths, feature selection, target selection,
-drop behavior, and unsafe invariants remain unchanged.
+drop behavior, and unsafe invariants are intended to remain unchanged.
 
 ## Module Map
 
@@ -39,8 +39,9 @@ The source-level public declaration inventory differs only because:
 - rustfmt folded four previously multi-line `SecretPool` method declarations
   onto one line.
 
-The semantic public surface is unchanged. The normalized declaration verifier
-accounts only for those structural differences.
+The semantic public surface is unchanged. The normalized declaration inventory
+accounts only for those structural differences. It is a structural diagnostic,
+not a claim that regular-expression matching proves semantic equivalence.
 
 The package file list for `sanitization` now contains the module files above.
 All other workspace package file lists remain identical to the 1.2.5 baseline.
@@ -48,6 +49,25 @@ All other workspace package file lists remain identical to the 1.2.5 baseline.
 The unsafe source inventory remains exactly 125 normalized lines across the
 workspace, including 122 in the core crate and three compile-time derive error
 messages. Unsafe code was moved, not added.
+
+The complete reviewed Rust source snapshot is pinned by this SHA-256 digest:
+
+```text
+df37c4d9e38ee8904830d404446400907415e4e5994848e110c7bd4ad033a5ce
+```
+
+Before the CP-01 PASS report exists, the checkpoint verifier hashes the current
+`crates/sanitization/src/**/*.rs` files. After acceptance, it hashes the source
+at the committed report's immutable `Reviewed-Through` commit. Untracked or
+working-tree report content cannot select the historical mode. This keeps the
+historical CP-01 evidence enforceable without preventing later checkpoints from
+changing the implementation. The baseline declaration, unsafe-inventory, and
+package-list comparisons run while CP-01 is under review; after acceptance, the
+exact source snapshot subsumes those comparisons for the historical checkpoint.
+
+The digest pins the code that was reviewed; it does not independently establish
+semantic equivalence. That conclusion depends on review of the exact snapshot
+plus the API, cfg, package, test, codegen, Kani, and cross-target evidence.
 
 Private symbols necessarily acquired new module-qualified names. In
 particular, `sanitization::wipe::volatile_wipe` is now
@@ -58,7 +78,7 @@ checks.
 
 ## Verification
 
-Run the checkpoint-specific structural comparison:
+Run the checkpoint-specific source-snapshot and structural comparison:
 
 ```bash
 scripts/verify-2.0-module-split.py

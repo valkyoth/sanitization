@@ -220,7 +220,9 @@ Deliverables:
 - preserve public paths, cfg behavior, feature behavior, unsafe invariants, and
   target support;
 - compare API snapshots, package lists, codegen, tests, and unsafe inventory
-  against `CP-00`.
+  against `CP-00`;
+- pin the complete Rust source snapshot reviewed for CP-01 and enforce that
+  historical snapshot from the repository-wide check path.
 
 Pentest focus:
 
@@ -234,6 +236,7 @@ Exit criteria:
 
 - no intentional API or behavior change;
 - baseline comparisons explain every mechanical difference;
+- the complete reviewed Rust source matches the pinned CP-01 digest;
 - the `CP-01` PASS report is committed alone.
 
 ### `CP-02`: Sanitization And Storage Contracts

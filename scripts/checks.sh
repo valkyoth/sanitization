@@ -49,6 +49,7 @@ scripts/test-release-readiness.sh
 scripts/test-2.0-checkpoint.sh
 scripts/validate-current-2.0-checkpoint.sh
 scripts/capture-2.0-baseline.py --check
+scripts/verify-2.0-module-split.py
 scripts/evidence-report.py >/dev/null
 
 target_installed() {
