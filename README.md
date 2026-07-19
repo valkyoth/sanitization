@@ -241,6 +241,10 @@ struct Credentials {
 }
 ```
 
+`SecureSanitizeOnDrop` is restricted to `Unpin` structs and sanitizes fields
+directly. For generic drop structs, declare `T: SecureSanitize + Unpin` on the
+struct itself. Pinned secret owners require a reviewed pin-aware manual design.
+
 Enum derives are rejected. Safe generated code cannot reach inactive enum
 representation bytes after variant transitions. Model secret storage with a
 stable struct layout and keep public state in a separate tag.

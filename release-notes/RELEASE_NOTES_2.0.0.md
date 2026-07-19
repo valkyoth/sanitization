@@ -14,6 +14,11 @@ The `sanitization-bytes` companion now requires patched `bytes 1.11.1` or
 newer, preventing fresh downstream lockfiles from resolving versions affected
 by `RUSTSEC-2026-0007`.
 
+`SecureSanitizeOnDrop` and `secure_drop_struct!` now require `Unpin` owners and
+sanitize fields directly. Generated destructors no longer hand an unrestricted
+`&mut Self` to manual sanitizers, preventing structural-pinning violations and
+recursive drop through whole-value replacement.
+
 Wrapping an existing `bytes::BytesMut` now immediately volatile-clears its
 spare capacity so historical bytes from pre-wrap truncation do not survive.
 

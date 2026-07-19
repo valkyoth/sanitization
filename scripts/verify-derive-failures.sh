@@ -271,6 +271,39 @@ struct Bad<T> {
 }'
 
 run_expected_failure \
+    "pinned-sanitize-on-drop-rejected" \
+    '"derive"' \
+    "Unpin" \
+    'use core::marker::PhantomPinned;
+use sanitization::{SecureSanitize, SecureSanitizeOnDrop};
+
+#[derive(SecureSanitize, SecureSanitizeOnDrop)]
+struct Bad {
+    secret: [u8; 4],
+    #[sanitization(skip, reason = "pinning marker owns no secret storage")]
+    pinned: PhantomPinned,
+}'
+
+run_expected_failure \
+    "pinned-secure-drop-struct-rejected" \
+    '' \
+    "Unpin" \
+    'use core::marker::PhantomPinned;
+use sanitization::{secure_drop_struct, SecureSanitize};
+
+struct PinnedField(PhantomPinned);
+
+impl SecureSanitize for PinnedField {
+    fn secure_sanitize(&mut self) {}
+}
+
+secure_drop_struct! {
+    struct Bad {
+        pinned: PinnedField,
+    }
+}'
+
+run_expected_failure \
     "malformed-skip-rejected" \
     '"derive"' \
     'expected `,`' \

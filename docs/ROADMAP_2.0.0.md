@@ -646,6 +646,9 @@ Add compile-pass and compile-fail coverage for:
 
 - named, tuple, and unit structs;
 - generics and struct-level `Drop` bounds;
+- `SecureSanitizeOnDrop` rejection for `!Unpin` structs;
+- direct field sanitization that cannot recurse through a manual whole-value
+  sanitizer;
 - `PhantomData`;
 - crate-path override;
 - enum rejection for every derive, including `SecureSanitizeOnDrop` paired with

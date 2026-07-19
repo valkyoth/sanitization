@@ -33,7 +33,10 @@ explicit deployment responsibility matrix. The final remediation also adds a
 typed `MaybeUninit<T>` wipe path and routes ArrayVec spare-capacity cleanup
 through it, eliminating references to uninitialized byte values. It also
 raises the `sanitization-bytes` dependency floor to patched `bytes 1.11.1` and
-enforces that published requirement in the companion-boundary gate. It
+enforces that published requirement in the companion-boundary gate. Final
+derive hardening requires `SecureSanitizeOnDrop` and `secure_drop_struct!`
+owners to be `Unpin` and makes their destructors sanitize fields directly,
+closing structural-pinning and recursive whole-value sanitizer paths. It
 therefore requires another full-range review before a permanent report can be
 accepted.
 

@@ -50,9 +50,12 @@ output field must be constructed.
 
 The pass suite covers named, tuple, and unit structs, enum acknowledgement,
 `PhantomData`, crate-path substitution, generic CT derives, and
-`SecureSanitizeOnDrop` with a struct-level generic bound.
+`SecureSanitizeOnDrop` with struct-level `SecureSanitize + Unpin` generic
+bounds. Generated drop code requires the complete struct to be `Unpin` and
+sanitizes fields directly rather than invoking a potentially manual
+whole-value sanitizer.
 
 The downstream compile-failure suite covers CT enum rejection, skipped CT
 selection fields, unacknowledged enums, missing and malformed skip reasons,
 duplicate options, invalid enum acknowledgement, unions, and missing generic
-drop bounds.
+drop bounds. It also rejects `!Unpin` derive and `secure_drop_struct!` inputs.

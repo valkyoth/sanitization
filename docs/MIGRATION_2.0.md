@@ -164,7 +164,10 @@ Constant-time derives reject enums and unions. `ConditionallySelectable`
 rejects skipped fields because every output field must be constructed. The old
 `strict-enum-derive` feature was removed because fail-closed diagnostics are now
 unconditional. Generic `SecureSanitizeOnDrop` structs still need sanitizable
-type bounds on the struct declaration.
+and `Unpin` type bounds on the struct declaration. The generated destructor
+requires the complete struct to be `Unpin` and sanitizes non-skipped fields
+directly; it does not call a manual whole-value sanitizer. Address-sensitive
+`!Unpin` types need a reviewed pin-aware manual implementation.
 
 ## Wipe API
 

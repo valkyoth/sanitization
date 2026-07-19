@@ -51,6 +51,8 @@ impl std::error::Error for LengthError {}
 ///   secret-bearing allocation capacity;
 /// - clear secret-bearing storage before releasing, replacing, or transferring
 ///   that storage; and
+/// - when called from a destructor path, never trigger destruction of that
+///   same value while its sanitization call is still active;
 /// - document external allocations, shared storage, historical copies,
 ///   representation padding, allocator metadata, platform copies, or other
 ///   secret-bearing state that it cannot reach.
@@ -447,6 +449,9 @@ macro_rules! secure_sanitize_struct {
 ///
 /// This macro owns the type's [`Drop`] implementation. Use
 /// [`secure_sanitize_struct!`] instead when custom drop behavior is required.
+/// The generated destructor requires the declared struct to implement
+/// [`Unpin`](core::marker::Unpin) and sanitizes fields directly rather than
+/// calling a whole-value sanitizer.
 ///
 /// This macro intentionally supports named-field structs without generics or
 /// `where` clauses. For generic structs, implement [`SecureSanitize`] and
@@ -486,7 +491,11 @@ macro_rules! secure_drop_struct {
         impl Drop for $name {
             #[inline]
             fn drop(&mut self) {
-                $crate::SecureSanitize::secure_sanitize(self);
+                fn require_drop_contract<T: ?Sized + $crate::SecureSanitize + ::core::marker::Unpin>() {}
+                require_drop_contract::<Self>();
+                $(
+                    $crate::SecureSanitize::secure_sanitize(&mut self.$field);
+                )*
             }
         }
     };

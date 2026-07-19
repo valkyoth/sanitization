@@ -79,8 +79,21 @@ struct DropSecret {
 }
 
 #[derive(SecureSanitize, SecureSanitizeOnDrop)]
-struct GenericDropSecret<T: SecureSanitize> {
+struct GenericDropSecret<T: SecureSanitize + Unpin> {
     inner: T,
+}
+
+#[derive(SecureSanitizeOnDrop)]
+struct ManualWholeValueSanitizer {
+    key: DropProbe,
+}
+
+impl SecureSanitize for ManualWholeValueSanitizer {
+    fn secure_sanitize(&mut self) {
+        MANUAL_WHOLE_SANITIZER_CALLED.store(true, Ordering::SeqCst);
+        let old = core::mem::replace(self, Self { key: DropProbe(0) });
+        drop(old);
+    }
 }
 
 enum ReplaceMaterial {
@@ -98,6 +111,7 @@ impl SecureSanitize for ReplaceMaterial {
 
 static DROP_PROBE_SANITIZED: AtomicBool = AtomicBool::new(false);
 static DROP_PROBE_DROPPED_ZEROED: AtomicBool = AtomicBool::new(false);
+static MANUAL_WHOLE_SANITIZER_CALLED: AtomicBool = AtomicBool::new(false);
 static DROP_PROBE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 struct DropProbe(u8);
@@ -202,6 +216,20 @@ fn derive_secure_sanitize_on_drop_supports_struct_level_generic_bounds() {
         assert_eq!(secret.inner.0, 11);
     }
 
+    assert!(DROP_PROBE_SANITIZED.load(Ordering::SeqCst));
+    assert!(DROP_PROBE_DROPPED_ZEROED.load(Ordering::SeqCst));
+}
+
+#[test]
+fn derive_secure_sanitize_on_drop_does_not_call_manual_whole_value_sanitizer() {
+    let _guard = DROP_PROBE_LOCK.lock().unwrap();
+    DROP_PROBE_SANITIZED.store(false, Ordering::SeqCst);
+    DROP_PROBE_DROPPED_ZEROED.store(false, Ordering::SeqCst);
+    MANUAL_WHOLE_SANITIZER_CALLED.store(false, Ordering::SeqCst);
+
+    drop(ManualWholeValueSanitizer { key: DropProbe(13) });
+
+    assert!(!MANUAL_WHOLE_SANITIZER_CALLED.load(Ordering::SeqCst));
     assert!(DROP_PROBE_SANITIZED.load(Ordering::SeqCst));
     assert!(DROP_PROBE_DROPPED_ZEROED.load(Ordering::SeqCst));
 }

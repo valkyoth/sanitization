@@ -77,15 +77,19 @@ Duplicate, malformed, empty, and misplaced helper options are rejected.
 ## Generic `SecureSanitizeOnDrop`
 
 For structs with type parameters that hold sanitizable data, put the
-`SecureSanitize` bound on the struct declaration:
+`SecureSanitize + Unpin` bounds on the struct declaration:
 
 ```rust
 use sanitization::{SecureSanitize, SecureSanitizeOnDrop};
 
 #[derive(SecureSanitize, SecureSanitizeOnDrop)]
-struct Wrapper<T: SecureSanitize> {
+struct Wrapper<T: SecureSanitize + Unpin> {
     inner: T,
 }
 ```
 
 The generated `Drop` impl cannot add a stricter bound than the struct itself.
+It requires the complete struct to be `Unpin` because a destructor may receive
+a logically pinned value. The destructor sanitizes non-skipped fields directly
+and never invokes a manual whole-value `SecureSanitize` implementation, which
+prevents self-replacement from recursively entering `Drop`.

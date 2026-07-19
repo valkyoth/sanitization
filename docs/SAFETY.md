@@ -19,9 +19,19 @@ implementations carry security obligations.
 cleared. Implementations must be idempotent, avoid allocation and avoid
 panicking where reasonably possible, leave the value valid to sanitize and
 drop again, clear reachable secret-bearing capacity, and clear storage before
-releasing or replacing it. Implementations must document copies, shared or
+releasing or replacing it. When called from a destructor path, an
+implementation must not trigger destruction of that same value while the
+sanitization call is active. Implementations must document copies, shared or
 external storage, padding, allocator metadata, platform copies, or historical
 allocations they cannot reach.
+
+`SecureSanitizeOnDrop` and `secure_drop_struct!` require their complete struct
+to implement `Unpin`. Their generated destructors sanitize each non-skipped
+field directly instead of passing `&mut Self` to a whole-value sanitizer. This
+prevents generated code from violating structural pinning and avoids recursive
+drop through a manual sanitizer that replaces `Self`. Address-sensitive
+`!Unpin` owners require a reviewed pin-aware manual sanitization and destructor
+design.
 
 `StableSharedSecretStorage` asserts that safe operations supplied by a type and
 reachable through `&self` cannot release, transfer, replace, or defer release

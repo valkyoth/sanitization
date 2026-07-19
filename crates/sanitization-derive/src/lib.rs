@@ -31,7 +31,14 @@ pub fn derive_secure_sanitize(input: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Derive `Drop` by calling `sanitization::SecureSanitize::secure_sanitize`.
+/// Derive `Drop` by sanitizing each non-skipped struct field directly.
+///
+/// The generated destructor requires `Self: Unpin`. A destructor may run for
+/// a pinned value, so generated code cannot safely pass an unrestricted
+/// `&mut Self` to an arbitrary whole-value sanitizer for a structurally pinned
+/// type. Direct field sanitization also avoids invoking a manual
+/// `SecureSanitize` implementation that replaces `Self` and recursively
+/// enters its destructor.
 ///
 /// Enums are rejected even when they have a manual `SecureSanitize`
 /// implementation. Calling that implementation at final drop cannot clear
@@ -42,19 +49,20 @@ pub fn derive_secure_sanitize(input: TokenStream) -> TokenStream {
 /// # Generics
 ///
 /// For structs with type parameters that hold sanitizable data, the parameter
-/// must carry the `SecureSanitize` bound at the type declaration:
+/// must carry `SecureSanitize + Unpin` bounds at the type declaration:
 ///
 /// ```ignore
 /// use sanitization::SecureSanitize;
 ///
 /// #[derive(SecureSanitize, SecureSanitizeOnDrop)]
-/// struct Wrapper<T: SecureSanitize> {
+/// struct Wrapper<T: SecureSanitize + Unpin> {
 ///     inner: T,
 /// }
 /// ```
 ///
 /// This is a Rust `Drop` restriction: the generated `Drop` impl cannot add a
-/// stricter `T: SecureSanitize` bound than the struct declaration itself.
+/// stricter `T: SecureSanitize + Unpin` bounds than the struct declaration
+/// itself.
 #[proc_macro_derive(SecureSanitizeOnDrop, attributes(sanitization))]
 pub fn derive_secure_sanitize_on_drop(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -152,8 +160,8 @@ fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
     validate_field_options(&input.data)?;
     let crate_path = crate_path(&options);
 
-    match &input.data {
-        Data::Struct(_) => {}
+    let body = match &input.data {
+        Data::Struct(data) => expand_struct_body(data, &crate_path)?,
         Data::Enum(_) => {
             return Err(Error::new_spanned(
                 input,
@@ -166,7 +174,7 @@ fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
                 "SecureSanitizeOnDrop cannot be derived for unions",
             ))
         }
-    }
+    };
 
     let name = &input.ident;
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
@@ -175,7 +183,9 @@ fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
         impl #impl_generics Drop for #name #type_generics #where_clause {
             #[inline]
             fn drop(&mut self) {
-                #crate_path::SecureSanitize::secure_sanitize(self);
+                fn require_drop_contract<T: ?Sized + #crate_path::SecureSanitize + ::core::marker::Unpin>() {}
+                require_drop_contract::<Self>();
+                #body
             }
         }
     })
