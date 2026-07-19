@@ -29,6 +29,6 @@
   },
   "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
   "schema_version": 1,
-  "source_checkpoint": "e8b4f7d479061b7ccd1c45b83294c0aa292e79d7",
+  "source_checkpoint": "3018a656c0cc8e71f75dee606e40238184e8906a",
   "tool": "cargo-public-api 0.52.0"
 }

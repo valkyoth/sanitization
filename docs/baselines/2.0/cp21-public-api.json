@@ -835,7 +835,7 @@
     "crates/sanitization/src/mapped/memory_lock_native.rs": "baa100ff337de606392c284676b5cdaa6a12f9604a67217434dca43446bb1d01",
     "crates/sanitization/src/mapped/memory_lock_wasm.rs": "cf72fa2698ca14677df97a8f5b6e1ffd47caf21da825dd87b64fc2c8057cc692",
     "crates/sanitization/src/mapped/protection.rs": "95c16204549617feae9ea3a9a4504f41f01692f77d5c224b9a851a3f134e157a",
-    "crates/sanitization/src/owned.rs": "32c976d9842f9d1b815b11349a2aeb78add1fae961f7bb1eb884065134993e5e",
+    "crates/sanitization/src/owned.rs": "8187195c84ee73b7cf8613153fdd2e1009a8bef281d9deabfeb406e78a5259bc",
     "crates/sanitization/src/platform.rs": "8e3b36360956f83373466db1baa588a7accce3b6f6b469dbf2d0fdffbdf44c31",
     "crates/sanitization/src/tests.rs": "4ae023148f3516b25e63bbddaf734057a802b41bab6092f9d38ac4c9fcfd5574",
     "crates/sanitization/src/wipe.rs": "25c195ebf721e57b417859245102214316e88163caf5ef3fd31e112e965d1469",
