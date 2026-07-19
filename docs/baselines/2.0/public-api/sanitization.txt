@@ -551,6 +551,7 @@ pub fn sanitization::wipe::string(&mut alloc::string::String)
 pub fn sanitization::wipe::string_multi_pass(&mut alloc::string::String)
 pub fn sanitization::wipe::vec(&mut alloc::vec::Vec<u8>)
 pub fn sanitization::wipe::vec_multi_pass(&mut alloc::vec::Vec<u8>)
+pub macro sanitization::define_secret_storage_policy!
 pub macro sanitization::secure_drop_struct!
 pub macro sanitization::secure_sanitize_struct!
 pub enum sanitization::BoundedSecretStringError
@@ -729,6 +730,25 @@ pub sanitization::SplitSecretError::TrivialMask
 impl core::error::Error for sanitization::SplitSecretError
 impl core::fmt::Display for sanitization::SplitSecretError
 pub fn sanitization::SplitSecretError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct sanitization::AllowlistedSecret<T: sanitization::SecureSanitize, P>
+impl<T, P> sanitization::AllowlistedSecret<T, P> where T: sanitization::SecureSanitize, P: sanitization::SecretStoragePolicy<T>
+pub fn sanitization::AllowlistedSecret<T, P>::into_cleared(self)
+pub const fn sanitization::AllowlistedSecret<T, P>::new(T) -> Self
+pub const fn sanitization::AllowlistedSecret<T, P>::policy_rationale() -> &'static str
+impl<T, P> sanitization::AllowlistedSecret<T, P> where T: sanitization::StableMutableSecretStorage, P: sanitization::SecretStoragePolicy<T>
+pub fn sanitization::AllowlistedSecret<T, P>::with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut T) -> R) -> R
+impl<T, P> sanitization::AllowlistedSecret<T, P> where T: sanitization::StableSharedSecretStorage, P: sanitization::SecretStoragePolicy<T>
+pub fn sanitization::AllowlistedSecret<T, P>::with_secret<R>(&self, impl core::ops::function::FnOnce(&T) -> R) -> R
+impl<T, P> core::default::Default for sanitization::AllowlistedSecret<T, P> where T: sanitization::SecureSanitize + core::default::Default, P: sanitization::SecretStoragePolicy<T>
+pub fn sanitization::AllowlistedSecret<T, P>::default() -> Self
+impl<T, P> sanitization::StableMutableSecretStorage for sanitization::AllowlistedSecret<T, P> where T: sanitization::StableMutableSecretStorage, P: sanitization::SecretStoragePolicy<T>
+impl<T, P> sanitization::StableSharedSecretStorage for sanitization::AllowlistedSecret<T, P> where T: sanitization::StableSharedSecretStorage, P: sanitization::SecretStoragePolicy<T>
+impl<T: sanitization::SecureSanitize, P> core::fmt::Debug for sanitization::AllowlistedSecret<T, P>
+pub fn sanitization::AllowlistedSecret<T, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<T: sanitization::SecureSanitize, P> core::ops::drop::Drop for sanitization::AllowlistedSecret<T, P>
+pub fn sanitization::AllowlistedSecret<T, P>::drop(&mut self)
+impl<T: sanitization::SecureSanitize, P> sanitization::SecureSanitize for sanitization::AllowlistedSecret<T, P>
+pub fn sanitization::AllowlistedSecret<T, P>::secure_sanitize(&mut self)
 pub struct sanitization::AlreadyConsumedError
 impl core::error::Error for sanitization::AlreadyConsumedError
 impl core::fmt::Display for sanitization::AlreadyConsumedError
@@ -1674,6 +1694,8 @@ pub trait sanitization::SecretIntegrityResultExt<T, E>
 pub fn sanitization::SecretIntegrityResultExt::flatten_secret_integrity(self) -> sanitization::SecretIntegrityResult<T, E>
 impl<T, E> sanitization::SecretIntegrityResultExt<T, E> for core::result::Result<core::result::Result<T, E>, sanitization::CanaryCorruptedError>
 pub fn core::result::Result<core::result::Result<T, E>, sanitization::CanaryCorruptedError>::flatten_secret_integrity(self) -> sanitization::SecretIntegrityResult<T, E>
+pub trait sanitization::SecretStoragePolicy<T: sanitization::SecureSanitize>
+pub const sanitization::SecretStoragePolicy::RATIONALE: &'static str
 pub trait sanitization::SecureSanitize
 pub fn sanitization::SecureSanitize::secure_sanitize(&mut self)
 impl sanitization::SecureSanitize for ()
@@ -1758,6 +1780,8 @@ impl<T: sanitization::SecureSanitize + ?core::marker::Sized> sanitization::Secur
 pub fn alloc::boxed::Box<T>::secure_sanitize(&mut self)
 impl<T: sanitization::SecureSanitize, E: sanitization::SecureSanitize> sanitization::SecureSanitize for core::result::Result<T, E>
 pub fn core::result::Result<T, E>::secure_sanitize(&mut self)
+impl<T: sanitization::SecureSanitize, P> sanitization::SecureSanitize for sanitization::AllowlistedSecret<T, P>
+pub fn sanitization::AllowlistedSecret<T, P>::secure_sanitize(&mut self)
 impl<T: sanitization::SecureSanitize, const N: usize> sanitization::SecureSanitize for [T; N]
 pub fn [T; N]::secure_sanitize(&mut self)
 impl<T: sanitization::SecureSanitize> sanitization::SecureSanitize for [T]
@@ -1824,6 +1848,7 @@ impl<A: sanitization::StableMutableSecretStorage, B: sanitization::StableMutable
 impl<A: sanitization::StableMutableSecretStorage, B: sanitization::StableMutableSecretStorage, C: sanitization::StableMutableSecretStorage> sanitization::StableMutableSecretStorage for (A, B, C)
 impl<A: sanitization::StableMutableSecretStorage, B: sanitization::StableMutableSecretStorage> sanitization::StableMutableSecretStorage for (A, B)
 impl<A: sanitization::StableMutableSecretStorage> sanitization::StableMutableSecretStorage for (A)
+impl<T, P> sanitization::StableMutableSecretStorage for sanitization::AllowlistedSecret<T, P> where T: sanitization::StableMutableSecretStorage, P: sanitization::SecretStoragePolicy<T>
 impl<T: sanitization::StableMutableSecretStorage, const N: usize> sanitization::StableMutableSecretStorage for [T; N]
 impl<T: sanitization::StableMutableSecretStorage> sanitization::StableMutableSecretStorage for [T]
 impl<T: sanitization::StableMutableSecretStorage> sanitization::StableMutableSecretStorage for sanitization::ConsumeOnceSecret<T>
@@ -1866,6 +1891,7 @@ impl<A: sanitization::StableSharedSecretStorage, B: sanitization::StableSharedSe
 impl<A: sanitization::StableSharedSecretStorage, B: sanitization::StableSharedSecretStorage, C: sanitization::StableSharedSecretStorage> sanitization::StableSharedSecretStorage for (A, B, C)
 impl<A: sanitization::StableSharedSecretStorage, B: sanitization::StableSharedSecretStorage> sanitization::StableSharedSecretStorage for (A, B)
 impl<A: sanitization::StableSharedSecretStorage> sanitization::StableSharedSecretStorage for (A)
+impl<T, P> sanitization::StableSharedSecretStorage for sanitization::AllowlistedSecret<T, P> where T: sanitization::StableSharedSecretStorage, P: sanitization::SecretStoragePolicy<T>
 impl<T: sanitization::StableSharedSecretStorage, const N: usize> sanitization::StableSharedSecretStorage for [T; N]
 impl<T: sanitization::StableSharedSecretStorage> sanitization::StableSharedSecretStorage for [T]
 impl<T: sanitization::StableSharedSecretStorage> sanitization::StableSharedSecretStorage for sanitization::ConsumeOnceSecret<T>
