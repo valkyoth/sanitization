@@ -3,8 +3,8 @@
   "packages": {
     "sanitization": {
       "file": "sanitization.txt",
-      "lines": 1915,
-      "sha256": "85d9ba5fa24f080dbfdb2e9a87dc1331e4f602d64faf8276f01db8deee0a2926"
+      "lines": 1920,
+      "sha256": "959e7001e5a0eb81583bc30535aca1565ce5e07607440a6510c05d1d597d959e"
     },
     "sanitization-arrayvec": {
       "file": "sanitization-arrayvec.txt",
@@ -29,6 +29,6 @@
   },
   "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
   "schema_version": 1,
-  "source_checkpoint": "2283894b127d1f39535812f0f9b4fb71e6a982a7",
+  "source_checkpoint": "5757e954b7fb7f0d4c7d06cfdc15963478288bfe",
   "tool": "cargo-public-api 0.52.0"
 }

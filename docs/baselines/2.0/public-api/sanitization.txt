@@ -1271,7 +1271,12 @@ pub sanitization::ProtectionReport::memory_lock: sanitization::ProtectionState
 pub sanitization::ProtectionReport::page_granule: usize
 pub sanitization::ProtectionReport::requested_bytes: usize
 impl sanitization::ProtectionReport
-pub fn sanitization::ProtectionReport::all_requested_controls_established(&self, sanitization::ProtectionRequest) -> bool
+pub const fn sanitization::ProtectionReport::all_requested_controls_established(&self, sanitization::ProtectionRequest) -> bool
+pub fn sanitization::ProtectionReport::failed_or_unsupported_controls(&self) -> impl core::iter::traits::iterator::Iterator<Item = sanitization::ProtectionControl>
+pub const fn sanitization::ProtectionReport::guard_pages_established(&self) -> bool
+pub const fn sanitization::ProtectionReport::is_degraded(&self) -> bool
+pub const fn sanitization::ProtectionReport::memory_is_locked(&self) -> bool
+pub const fn sanitization::ProtectionReport::satisfies(&self, sanitization::ProtectionRequest) -> bool
 pub struct sanitization::ProtectionRequest
 pub sanitization::ProtectionRequest::cache_policy: sanitization::Requirement
 pub sanitization::ProtectionRequest::canary: sanitization::Requirement
