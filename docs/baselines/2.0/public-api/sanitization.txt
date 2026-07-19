@@ -564,6 +564,12 @@ impl core::error::Error for sanitization::BoundedSecretStringError
 pub fn sanitization::BoundedSecretStringError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Display for sanitization::BoundedSecretStringError
 pub fn sanitization::BoundedSecretStringError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum sanitization::CleanupState
+pub sanitization::CleanupState::Completed
+pub sanitization::CleanupState::Failed(sanitization::GuardPageError)
+pub sanitization::CleanupState::NotNeeded
+impl sanitization::CleanupState
+pub const fn sanitization::CleanupState::failure(self) -> core::option::Option<sanitization::GuardPageError>
 pub enum sanitization::ExpiringSecretError
 pub sanitization::ExpiringSecretError::Expired(sanitization::SecretExpiredError)
 pub sanitization::ExpiringSecretError::Length(sanitization::LengthError)
@@ -884,6 +890,25 @@ impl core::fmt::Display for sanitization::CanaryCorruptedError
 pub fn sanitization::CanaryCorruptedError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::convert::From<sanitization::CanaryCorruptedError> for sanitization::SecretIntegrityError<E>
 pub fn sanitization::SecretIntegrityError<E>::from(sanitization::CanaryCorruptedError) -> Self
+pub struct sanitization::CleanupError
+impl sanitization::CleanupError
+pub const fn sanitization::CleanupError::errno(self) -> i32
+pub const fn sanitization::CleanupError::operation(self) -> sanitization::GuardPageOperation
+pub const fn sanitization::CleanupError::report(self) -> sanitization::CleanupReport
+impl core::error::Error for sanitization::CleanupError
+pub fn sanitization::CleanupError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Display for sanitization::CleanupError
+pub fn sanitization::CleanupError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct sanitization::CleanupReport
+pub sanitization::CleanupReport::normalization: sanitization::CleanupState
+pub sanitization::CleanupReport::unlock: sanitization::CleanupState
+pub sanitization::CleanupReport::unmap: sanitization::CleanupState
+impl sanitization::CleanupReport
+pub const fn sanitization::CleanupReport::completed(self) -> bool
+pub const fn sanitization::CleanupReport::first_failure(self) -> core::option::Option<sanitization::GuardPageError>
+pub const fn sanitization::CleanupReport::normalization_failed(self) -> bool
+pub const fn sanitization::CleanupReport::unlock_failed(self) -> bool
+pub const fn sanitization::CleanupReport::unmap_failed(self) -> bool
 pub struct sanitization::ConsumeOnceSecret<T: sanitization::SecureSanitize>
 impl<T: sanitization::SecureSanitize> sanitization::ConsumeOnceSecret<T>
 pub fn sanitization::ConsumeOnceSecret<T>::into_cleared(self)
@@ -1354,6 +1379,7 @@ pub const fn sanitization::SealedSecretBytes<N>::len(&self) -> usize
 pub fn sanitization::SealedSecretBytes<N>::protection_report(&self) -> &sanitization::ProtectionReport
 pub fn sanitization::SealedSecretBytes<N>::protection_request(&self) -> sanitization::ProtectionRequest
 pub fn sanitization::SealedSecretBytes<N>::try_clear_secret(&mut self) -> core::result::Result<(), sanitization::SealedSecretAccessError>
+pub fn sanitization::SealedSecretBytes<N>::try_close(&mut self) -> core::result::Result<(), sanitization::CleanupError>
 pub fn sanitization::SealedSecretBytes<N>::try_constant_time_eq(&mut self, &[u8; N]) -> core::result::Result<bool, sanitization::SealedSecretAccessError>
 pub fn sanitization::SealedSecretBytes<N>::try_secure_sanitize(&mut self) -> core::result::Result<(), sanitization::SealedSecretAccessError>
 pub fn sanitization::SealedSecretBytes<N>::try_with_secret<R>(&mut self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::SealedSecretAccessError>

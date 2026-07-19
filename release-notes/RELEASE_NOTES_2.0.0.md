@@ -100,6 +100,9 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
   poisoning/retirement after unsafe transition failures, and multi-page fault
   recovery tests. This remains a reviewed optional facility with documented
   platform limits, not an infallible secrecy guarantee.
+- Added `SealedSecretBytes::try_close()` with structured page-normalization,
+  unlock, and unmap outcomes. Failed mapping release remains poisoned and
+  retryable; `Drop` uses the same path as a final best-effort fallback.
 - Reworked cache eviction and SIMD/vector scrubbing to report supported,
   executed, limited, and unsupported outcomes instead of implying universal
   hardware coverage.

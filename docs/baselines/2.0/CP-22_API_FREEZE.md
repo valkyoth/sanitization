@@ -87,9 +87,10 @@ derive and macro-policy restrictions required compile-failure regression tests.
 The latest finding remediation adds allocation-aware dynamic constructors,
 operation-specific mapped-initialization errors, checked-only pool allocation,
 production slot quarantine telemetry, shared dynamic allocation/generation
-errors, and bounded byte/text copy constructors. These are corrections to
-unreleased fallibility and integrity guarantees, and both source and semantic
-snapshots must be refreshed before the next freeze review.
+errors, bounded byte/text copy constructors, and observable page-sealed cleanup
+with retry after failed mapping release. These are corrections to unreleased
+fallibility and integrity guarantees, and both source and semantic snapshots
+must be refreshed before the next freeze review.
 These changes refine unreleased 2.0 contracts rather than silently modifying a
 published API.
 

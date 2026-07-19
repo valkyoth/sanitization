@@ -348,6 +348,11 @@ has separate target assumptions, failure modes, and residual risks. The
 [advanced usage guide](docs/ADVANCED_USAGE.md) provides short recipes and links
 to the normative documents.
 
+Page-sealed callers that must observe final mapping cleanup should call
+`SealedSecretBytes::try_close()` before drop. It reports page normalization,
+unlock, and unmap failures without exposing bytes, addresses, or canary values;
+`Drop` remains the final best-effort fallback.
+
 ## Feature And Platform Reference
 
 The default feature set is empty. The major opt-in groups are:

@@ -601,15 +601,19 @@ Invariant:
   mapping. It attempts unlock and unmap only. Successful release marks the
   value retired; failed release leaves it poisoned and `Drop` retries only
   unlock and unmap.
+- `try_close()` exposes the same normalization, clear, unlock, and unmap path
+  used by `Drop`. Its report contains only operation names and platform error
+  codes. Failed unmap leaves the mapping poisoned and retryable; successful
+  unmap retires the value even if an earlier cleanup operation failed.
 - Default constructors require Linux `MADV_WIPEONFORK`. Fork-policy syscalls
   are independent of memory locking because `madvise` does not require
   `mlock`. Windows process creation does not clone the address space. Other
   fork-capable targets fail the default constructor and require an explicit
   lower-assurance protection request.
-- Drop normally makes a sealed page writable, then delegates volatile clear,
-  unlock, and unmap to `GuardedSecretVec`. If making the page writable fails,
-  Drop can only attempt unlock and unmap; it cannot truthfully guarantee a
-  volatile clear of an inaccessible page.
+- Drop uses the same per-page normalization, volatile clear, unlock, and unmap
+  helper as `try_close()`, but necessarily discards its report. If making every
+  page writable fails, Drop can only attempt unlock and unmap; it cannot
+  truthfully guarantee a volatile clear of an inaccessible page.
 - Because making a sealed page writable is fallible, this type exposes
   `try_secure_sanitize()` and does not implement infallible sanitization,
   zeroize-on-drop, or stable-storage marker traits.

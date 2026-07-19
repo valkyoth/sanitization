@@ -83,9 +83,21 @@ let mut key = SealedSecretBytes::<32>::from_array([7; 32])?;
 let first = key.try_with_secret(|bytes| bytes[0])?;
 assert_eq!(first, 7);
 assert!(key.is_sealed());
+key.try_close()?;
+assert!(key.is_retired());
 # Ok::<(), Box<dyn std::error::Error>>(())
 # }
 ```
+
+`try_close()` makes final cleanup observable. Its `CleanupReport` records page
+normalization, memory unlock, and unmap outcomes using only public operation
+names and platform error codes. If unmap fails, the value remains poisoned,
+rejects secret access, and may retry `try_close()`. If unmap succeeds after an
+earlier cleanup error, the value is retired because no live mapping remains.
+Applications may record `CleanupError::operation()` and `errno()`, but must not
+add secret bytes, mapping addresses, or canary values to telemetry. `Drop`
+calls the same cleanup path as a final best-effort fallback and cannot report
+its result.
 
 Fork policy, partial protection transitions, signal handlers, process abort,
 and privileged remapping require particular review. See

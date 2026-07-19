@@ -3896,6 +3896,88 @@ fn sealed_secret_bytes_remains_poisoned_after_normalization_and_unmap_failures()
 
 #[cfg(all(
     feature = "page-seal",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn sealed_secret_explicit_close_reports_failures_and_supports_retry() {
+    const N: usize = 128 * 1024;
+    let mut secret = SealedSecretBytes::<N>::zeroed().unwrap();
+    secret
+        .try_with_secret_mut(|bytes| {
+            bytes[0] = 0xAA;
+            bytes[N - 1] = 0x55;
+        })
+        .unwrap();
+
+    secret.fail_normalization_page_for_test(1);
+    secret.fail_next_unmap_for_test();
+    let error = secret.try_close().unwrap_err();
+    let report = error.report();
+    assert_eq!(error.operation(), GuardPageOperation::Protect);
+    assert_eq!(error.errno(), 0);
+    assert!(report.normalization_failed());
+    assert!(report.unmap_failed());
+    assert!(secret.is_poisoned());
+    assert_eq!(
+        secret.try_with_secret(|_| ()),
+        Err(SealedSecretAccessError::Poisoned)
+    );
+
+    secret.try_close().unwrap();
+    assert!(secret.is_retired());
+    assert_eq!(
+        secret.try_with_secret(|_| ()),
+        Err(SealedSecretAccessError::Retired)
+    );
+    assert_eq!(secret.try_close(), Ok(()));
+}
+
+#[cfg(all(
+    feature = "page-seal",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn sealed_secret_explicit_close_retires_mapping() {
+    let mut secret = SealedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+    secret.try_close().unwrap();
+
+    assert!(secret.is_retired());
+    assert_eq!(
+        secret.try_with_secret(|_| ()),
+        Err(SealedSecretAccessError::Retired)
+    );
+}
+
+#[cfg(all(
+    feature = "page-seal",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn sealed_secret_explicit_close_reports_unmap_failure() {
+    let mut secret = SealedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+    secret.fail_next_unmap_for_test();
+
+    let error = secret.try_close().unwrap_err();
+    assert_eq!(error.operation(), GuardPageOperation::Unmap);
+    assert!(matches!(
+        error.report().normalization,
+        CleanupState::Completed
+    ));
+    assert!(error.report().unmap_failed());
+    assert!(secret.is_poisoned());
+
+    secret.try_close().unwrap();
+    assert!(secret.is_retired());
+}
+
+#[cfg(all(
+    feature = "page-seal",
     feature = "canary-check",
     feature = "std",
     target_os = "linux",

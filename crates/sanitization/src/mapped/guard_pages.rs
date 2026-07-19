@@ -316,6 +316,144 @@ impl fmt::Display for GuardPageError {
 #[cfg(feature = "std")]
 impl std::error::Error for GuardPageError {}
 
+/// Outcome of one explicit page-sealed cleanup operation.
+#[cfg(feature = "page-seal")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CleanupState {
+    /// The operation did not apply to this mapping.
+    NotNeeded,
+    /// The operation completed successfully.
+    Completed,
+    /// The operation failed. The error contains only the public operation and
+    /// platform error code.
+    Failed(GuardPageError),
+}
+
+#[cfg(feature = "page-seal")]
+impl CleanupState {
+    /// Return the public operation failure, when one occurred.
+    #[must_use]
+    #[inline]
+    pub const fn failure(self) -> Option<GuardPageError> {
+        match self {
+            Self::Failed(error) => Some(error),
+            Self::NotNeeded | Self::Completed => None,
+        }
+    }
+}
+
+/// Observable result of explicit page-sealed mapping cleanup.
+///
+/// This report contains no secret bytes, mapping addresses, or canary values.
+#[cfg(feature = "page-seal")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CleanupReport {
+    /// Outcome of normalizing every data page to writable protection before
+    /// clearing.
+    pub normalization: CleanupState,
+    /// Outcome of releasing the operating-system memory lock.
+    pub unlock: CleanupState,
+    /// Outcome of releasing the guarded mapping.
+    pub unmap: CleanupState,
+}
+
+#[cfg(feature = "page-seal")]
+impl CleanupReport {
+    /// Return true when every required cleanup operation completed.
+    #[must_use]
+    #[inline]
+    pub const fn completed(self) -> bool {
+        !self.normalization_failed() && !self.unlock_failed() && !self.unmap_failed()
+    }
+
+    /// Return true when page-protection normalization failed.
+    #[must_use]
+    #[inline]
+    pub const fn normalization_failed(self) -> bool {
+        matches!(self.normalization, CleanupState::Failed(_))
+    }
+
+    /// Return true when memory unlocking failed.
+    #[must_use]
+    #[inline]
+    pub const fn unlock_failed(self) -> bool {
+        matches!(self.unlock, CleanupState::Failed(_))
+    }
+
+    /// Return true when mapping release failed.
+    #[must_use]
+    #[inline]
+    pub const fn unmap_failed(self) -> bool {
+        matches!(self.unmap, CleanupState::Failed(_))
+    }
+
+    /// Return the first failed operation in normalization, unlock, unmap
+    /// order.
+    #[must_use]
+    #[inline]
+    pub const fn first_failure(self) -> Option<GuardPageError> {
+        if let Some(error) = self.normalization.failure() {
+            return Some(error);
+        }
+        if let Some(error) = self.unlock.failure() {
+            return Some(error);
+        }
+        self.unmap.failure()
+    }
+}
+
+/// Error returned when explicit page-sealed cleanup is incomplete.
+#[cfg(feature = "page-seal")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CleanupError {
+    failure: GuardPageError,
+    report: CleanupReport,
+}
+
+#[cfg(feature = "page-seal")]
+impl CleanupError {
+    fn from_report(report: CleanupReport) -> Option<Self> {
+        report
+            .first_failure()
+            .map(|failure| Self { failure, report })
+    }
+
+    /// Outcomes of every cleanup operation that was attempted.
+    #[must_use]
+    #[inline]
+    pub const fn report(self) -> CleanupReport {
+        self.report
+    }
+
+    /// Operation associated with the first cleanup failure.
+    #[must_use]
+    #[inline]
+    pub const fn operation(self) -> GuardPageOperation {
+        self.failure.operation
+    }
+
+    /// Platform error code associated with the first cleanup failure.
+    #[must_use]
+    #[inline]
+    pub const fn errno(self) -> i32 {
+        self.failure.errno
+    }
+}
+
+#[cfg(feature = "page-seal")]
+impl fmt::Display for CleanupError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "page-sealed cleanup failed: {}", self.failure)
+    }
+}
+
+#[cfg(all(feature = "page-seal", feature = "std"))]
+impl std::error::Error for CleanupError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.failure)
+    }
+}
+
 impl From<GuardPageError> for SecretIntegrityError<GuardPageError> {
     #[inline]
     fn from(error: GuardPageError) -> Self {
@@ -1459,6 +1597,35 @@ impl<const N: usize> SealedSecretBytes<N> {
         self.try_clear_secret()
     }
 
+    /// Clear and release the page-sealed mapping with observable cleanup
+    /// results.
+    ///
+    /// The value rejects all later secret access as soon as cleanup begins.
+    /// When mapping release fails, the value remains poisoned and this method
+    /// may be retried. Successful mapping release retires the value even if an
+    /// earlier normalization or unlock operation reported failure, because no
+    /// live mapping remains to retry. [`Drop`] invokes the same cleanup path as
+    /// a final best-effort fallback.
+    ///
+    /// Returned diagnostics contain only operation names and platform error
+    /// codes. Applications must not add secret bytes, mapping addresses, or
+    /// canary values to cleanup telemetry.
+    pub fn try_close(&mut self) -> Result<(), CleanupError> {
+        if self.state == SealedState::Retired {
+            return Ok(());
+        }
+
+        let report = self.cleanup_mapping();
+        if report.completed() {
+            Ok(())
+        } else {
+            match CleanupError::from_report(report) {
+                Some(error) => Err(error),
+                None => Ok(()),
+            }
+        }
+    }
+
     fn begin_access(&mut self) -> Result<(), SealedSecretAccessError> {
         match self.state {
             SealedState::Sealed => {}
@@ -1541,6 +1708,18 @@ impl<const N: usize> SealedSecretBytes<N> {
     }
 
     fn retire_after_transition_failure(&mut self) {
+        let _ = self.cleanup_mapping();
+    }
+
+    fn cleanup_mapping(&mut self) -> CleanupReport {
+        if self.state == SealedState::Retired {
+            return CleanupReport {
+                normalization: CleanupState::NotNeeded,
+                unlock: CleanupState::NotNeeded,
+                unmap: CleanupState::NotNeeded,
+            };
+        }
+
         self.state = SealedState::Poisoned;
         #[cfg(test)]
         let normalization = match self.fail_normalization_page.take() {
@@ -1564,12 +1743,24 @@ impl<const N: usize> SealedSecretBytes<N> {
         );
 
         if normalization.is_ok() {
-            self.reset_zeroed_payload();
+            crate::wipe_backend::erase(self.inner.data.as_ptr(), self.inner.writable_len);
         }
+
         #[cfg(feature = "memory-lock")]
-        if self.inner.locked {
-            let _ = unlock_mapping(self.inner.data, self.inner.writable_len);
-        }
+        let unlock = if self.inner.locked {
+            match unlock_mapping(self.inner.data, self.inner.writable_len) {
+                Ok(()) => {
+                    self.inner.locked = false;
+                    CleanupState::Completed
+                }
+                Err(error) => CleanupState::Failed(error),
+            }
+        } else {
+            CleanupState::NotNeeded
+        };
+        #[cfg(not(feature = "memory-lock"))]
+        let unlock = CleanupState::NotNeeded;
+
         #[cfg(test)]
         let unmap = if core::mem::take(&mut self.fail_next_unmap) {
             Err(GuardPageError {
@@ -1584,6 +1775,18 @@ impl<const N: usize> SealedSecretBytes<N> {
 
         if unmap.is_ok() {
             self.state = SealedState::Retired;
+        }
+
+        CleanupReport {
+            normalization: match normalization {
+                Ok(()) => CleanupState::Completed,
+                Err(error) => CleanupState::Failed(error),
+            },
+            unlock,
+            unmap: match unmap {
+                Ok(()) => CleanupState::Completed,
+                Err(error) => CleanupState::Failed(error),
+            },
         }
     }
 
@@ -1696,38 +1899,7 @@ impl<const N: usize> Drop for SealedAccessGuard<'_, N> {
 #[cfg(feature = "page-seal")]
 impl<const N: usize> Drop for SealedSecretBytes<N> {
     fn drop(&mut self) {
-        match self.state {
-            SealedState::Sealed => {
-                if protect_data(self.inner.data, self.inner.writable_len).is_ok() {
-                    self.state = SealedState::Exposed;
-                    // SAFETY: the page is writable again and `inner` has not
-                    // previously been dropped.
-                    unsafe { ManuallyDrop::drop(&mut self.inner) };
-                } else {
-                    self.state = SealedState::Poisoned;
-                    #[cfg(feature = "memory-lock")]
-                    if self.inner.locked {
-                        let _ = unlock_mapping(self.inner.data, self.inner.writable_len);
-                    }
-                    let _ = unmap_guarded(self.inner.base, self.inner.map_len);
-                    self.state = SealedState::Retired;
-                }
-            }
-            SealedState::Exposed => {
-                // SAFETY: the page is writable and `inner` remains live.
-                unsafe { ManuallyDrop::drop(&mut self.inner) };
-                self.state = SealedState::Retired;
-            }
-            SealedState::Poisoned => {
-                #[cfg(feature = "memory-lock")]
-                if self.inner.locked {
-                    let _ = unlock_mapping(self.inner.data, self.inner.writable_len);
-                }
-                let _ = unmap_guarded(self.inner.base, self.inner.map_len);
-                self.state = SealedState::Retired;
-            }
-            SealedState::Retired => {}
-        }
+        let _ = self.cleanup_mapping();
     }
 }
 

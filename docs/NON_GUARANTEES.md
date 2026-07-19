@@ -166,6 +166,12 @@ does not attempt a wipe through uncertain page protections. An unmap failure
 may consequently retain an inaccessible or partially protected mapping until
 process exit, without exposing it again through safe APIs.
 
+`try_close()` makes these cleanup outcomes observable and retryable while the
+mapping remains live. It does not make the operating-system operations
+infallible, guarantee that a failed normalization was later wiped, or recover a
+mapping after unmap has succeeded. `Drop` cannot return the report and remains
+best effort.
+
 Linux default constructors require wipe-on-fork. Fork-capable targets without
 a reviewed equivalent do not claim that a page-sealed access window is
 fork-safe; callers can only select ordinary inheritance through an explicit

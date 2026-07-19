@@ -159,7 +159,9 @@ pub use guard_pages::{
     ),
     not(miri)
 ))]
-pub use guard_pages::{SealedSecretAccessError, SealedSecretBytes};
+pub use guard_pages::{
+    CleanupError, CleanupReport, CleanupState, SealedSecretAccessError, SealedSecretBytes,
+};
 
 /// Error returned when checked secret-text exposure detects corruption or
 /// invalid UTF-8.

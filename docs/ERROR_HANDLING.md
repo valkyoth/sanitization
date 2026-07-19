@@ -184,3 +184,18 @@ for a process-level response policy, crash-dump controls, or monitoring.
 Cache-flush errors remain separate from integrity errors because cache eviction
 is an optional post-use mitigation with target-specific availability. Do not
 erase that distinction merely to shorten a call site.
+
+## Explicit Page-Sealed Cleanup
+
+`Drop` cannot report page normalization, unlock, or unmap failures.
+`SealedSecretBytes::try_close()` is the checked finalization boundary for
+applications that require observable cleanup. It returns `CleanupError` with a
+`CleanupReport`; the report contains only operation classifications and
+platform error codes.
+
+An unmap failure leaves the value poisoned, rejects later secret access, and
+permits another `try_close()` attempt. Successful unmap retires the value even
+when normalization or unlock reported an error because no mapping remains to
+retry. Applications can treat any error as a security event or invoke a
+reviewed fail-stop policy. `Drop` still invokes the same cleanup path when
+explicit close was omitted or failed.
