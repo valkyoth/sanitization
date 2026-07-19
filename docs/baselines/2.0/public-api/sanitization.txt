@@ -81,21 +81,6 @@ pub type sanitization::ct::Choice::Output = sanitization::ct::Choice
 pub fn sanitization::ct::Choice::not(self) -> Self::Output
 impl sanitization::ct::ConditionallySelectable for sanitization::ct::Choice
 pub fn sanitization::ct::Choice::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
-pub struct sanitization::ct::CtOption<T>
-impl<T> sanitization::ct::CtOption<T>
-pub fn sanitization::ct::CtOption<T>::and<U>(self, sanitization::ct::CtOption<U>) -> sanitization::ct::CtOption<U>
-pub fn sanitization::ct::CtOption<T>::declassify(self, &'static str) -> core::option::Option<T>
-pub fn sanitization::ct::CtOption<T>::is_none(&self) -> sanitization::ct::Choice
-pub const fn sanitization::ct::CtOption<T>::is_some(&self) -> sanitization::ct::Choice
-pub fn sanitization::ct::CtOption<T>::map<U>(self, impl core::ops::function::FnOnce(T) -> U) -> sanitization::ct::CtOption<U>
-pub const fn sanitization::ct::CtOption<T>::new(T, sanitization::ct::Choice) -> Self
-pub const fn sanitization::ct::CtOption<T>::none(T) -> Self
-pub fn sanitization::ct::CtOption<T>::or(self, Self) -> Self where T: sanitization::ct::ConditionallySelectable
-pub const fn sanitization::ct::CtOption<T>::some(T) -> Self
-pub fn sanitization::ct::CtOption<T>::unwrap_or(&self, &T) -> T where T: sanitization::ct::ConditionallySelectable
-pub const fn sanitization::ct::CtOption<T>::value(&self) -> &T
-impl<T> sanitization::ct::ConditionallySelectable for sanitization::ct::CtOption<T> where T: sanitization::ct::ConditionallySelectable
-pub fn sanitization::ct::CtOption<T>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
 pub struct sanitization::ct::CtOrdering
 impl sanitization::ct::CtOrdering
 pub const sanitization::ct::CtOrdering::EQUAL: Self
@@ -108,19 +93,6 @@ pub const fn sanitization::ct::CtOrdering::is_less(&self) -> sanitization::ct::C
 pub const fn sanitization::ct::CtOrdering::new(sanitization::ct::Choice, sanitization::ct::Choice, sanitization::ct::Choice) -> Self
 impl core::fmt::Debug for sanitization::ct::CtOrdering
 pub fn sanitization::ct::CtOrdering::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct sanitization::ct::CtResult<T, E>
-impl<T, E> sanitization::ct::CtResult<T, E>
-pub fn sanitization::ct::CtResult<T, E>::declassify(self, &'static str) -> core::result::Result<T, E>
-pub const fn sanitization::ct::CtResult<T, E>::error(&self) -> &E
-pub fn sanitization::ct::CtResult<T, E>::is_err(&self) -> sanitization::ct::Choice
-pub const fn sanitization::ct::CtResult<T, E>::is_ok(&self) -> sanitization::ct::Choice
-pub fn sanitization::ct::CtResult<T, E>::map<U>(self, impl core::ops::function::FnOnce(T) -> U) -> sanitization::ct::CtResult<U, E>
-pub fn sanitization::ct::CtResult<T, E>::map_err<F>(self, impl core::ops::function::FnOnce(E) -> F) -> sanitization::ct::CtResult<T, F>
-pub const fn sanitization::ct::CtResult<T, E>::new(T, E, sanitization::ct::Choice) -> Self
-pub fn sanitization::ct::CtResult<T, E>::unwrap_or(&self, &T) -> T where T: sanitization::ct::ConditionallySelectable
-pub const fn sanitization::ct::CtResult<T, E>::value(&self) -> &T
-impl<T, E> sanitization::ct::ConditionallySelectable for sanitization::ct::CtResult<T, E> where T: sanitization::ct::ConditionallySelectable, E: sanitization::ct::ConditionallySelectable
-pub fn sanitization::ct::CtResult<T, E>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
 #[repr(transparent)] pub struct sanitization::ct::Mask<T>
 impl sanitization::ct::Mask<u128>
 pub fn sanitization::ct::Mask<u128>::from_choice(sanitization::ct::Choice) -> Self
@@ -138,6 +110,34 @@ impl<T: core::marker::Copy> sanitization::ct::Mask<T>
 pub fn sanitization::ct::Mask<T>::declassify(self, &'static str) -> T
 impl<T: core::fmt::Debug> core::fmt::Debug for sanitization::ct::Mask<T>
 pub fn sanitization::ct::Mask<T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct sanitization::ct::PublicCtOption<T>
+impl<T> sanitization::ct::PublicCtOption<T>
+pub fn sanitization::ct::PublicCtOption<T>::and<U>(self, sanitization::ct::PublicCtOption<U>) -> sanitization::ct::PublicCtOption<U>
+pub fn sanitization::ct::PublicCtOption<T>::declassify(self, &'static str) -> core::option::Option<T>
+pub fn sanitization::ct::PublicCtOption<T>::is_none(&self) -> sanitization::ct::Choice
+pub const fn sanitization::ct::PublicCtOption<T>::is_some(&self) -> sanitization::ct::Choice
+pub fn sanitization::ct::PublicCtOption<T>::map<U>(self, impl core::ops::function::FnOnce(T) -> U) -> sanitization::ct::PublicCtOption<U>
+pub const fn sanitization::ct::PublicCtOption<T>::new(T, sanitization::ct::Choice) -> Self
+pub const fn sanitization::ct::PublicCtOption<T>::none(T) -> Self
+pub fn sanitization::ct::PublicCtOption<T>::or(self, Self) -> Self where T: sanitization::ct::ConditionallySelectable
+pub const fn sanitization::ct::PublicCtOption<T>::some(T) -> Self
+pub fn sanitization::ct::PublicCtOption<T>::unwrap_or(&self, &T) -> T where T: sanitization::ct::ConditionallySelectable
+pub const fn sanitization::ct::PublicCtOption<T>::value(&self) -> &T
+impl<T> sanitization::ct::ConditionallySelectable for sanitization::ct::PublicCtOption<T> where T: sanitization::ct::ConditionallySelectable
+pub fn sanitization::ct::PublicCtOption<T>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
+pub struct sanitization::ct::PublicCtResult<T, E>
+impl<T, E> sanitization::ct::PublicCtResult<T, E>
+pub fn sanitization::ct::PublicCtResult<T, E>::declassify(self, &'static str) -> core::result::Result<T, E>
+pub const fn sanitization::ct::PublicCtResult<T, E>::error(&self) -> &E
+pub fn sanitization::ct::PublicCtResult<T, E>::is_err(&self) -> sanitization::ct::Choice
+pub const fn sanitization::ct::PublicCtResult<T, E>::is_ok(&self) -> sanitization::ct::Choice
+pub fn sanitization::ct::PublicCtResult<T, E>::map<U>(self, impl core::ops::function::FnOnce(T) -> U) -> sanitization::ct::PublicCtResult<U, E>
+pub fn sanitization::ct::PublicCtResult<T, E>::map_err<F>(self, impl core::ops::function::FnOnce(E) -> F) -> sanitization::ct::PublicCtResult<T, F>
+pub const fn sanitization::ct::PublicCtResult<T, E>::new(T, E, sanitization::ct::Choice) -> Self
+pub fn sanitization::ct::PublicCtResult<T, E>::unwrap_or(&self, &T) -> T where T: sanitization::ct::ConditionallySelectable
+pub const fn sanitization::ct::PublicCtResult<T, E>::value(&self) -> &T
+impl<T, E> sanitization::ct::ConditionallySelectable for sanitization::ct::PublicCtResult<T, E> where T: sanitization::ct::ConditionallySelectable, E: sanitization::ct::ConditionallySelectable
+pub fn sanitization::ct::PublicCtResult<T, E>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
 #[repr(transparent)] pub struct sanitization::ct::PublicValue<T>(_)
 impl<T> sanitization::ct::PublicValue<T>
 pub const fn sanitization::ct::PublicValue<T>::expose(&self) -> &T
@@ -260,8 +260,8 @@ impl sanitization::ct::ConditionallySelectable for u8
 pub fn u8::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
 impl sanitization::ct::ConditionallySelectable for usize
 pub fn usize::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
-impl<T, E> sanitization::ct::ConditionallySelectable for sanitization::ct::CtResult<T, E> where T: sanitization::ct::ConditionallySelectable, E: sanitization::ct::ConditionallySelectable
-pub fn sanitization::ct::CtResult<T, E>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
+impl<T, E> sanitization::ct::ConditionallySelectable for sanitization::ct::PublicCtResult<T, E> where T: sanitization::ct::ConditionallySelectable, E: sanitization::ct::ConditionallySelectable
+pub fn sanitization::ct::PublicCtResult<T, E>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
 impl<T, E> sanitization::ct::ConditionallySelectable for sanitization::ct::SecretCtResult<sanitization::ct::PublicValue<T>, sanitization::ct::PublicValue<E>> where T: sanitization::ct::ConditionallySelectable, E: sanitization::ct::ConditionallySelectable
 pub fn sanitization::ct::SecretCtResult<sanitization::ct::PublicValue<T>, sanitization::ct::PublicValue<E>>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
 impl<T, E> sanitization::ct::ConditionallySelectable for sanitization::ct::SecretCtResult<sanitization::ct::PublicValue<T>, sanitization::ct::SecretValue<E>> where T: sanitization::ct::ConditionallySelectable, E: sanitization::ct::ConditionallySelectable + sanitization::SecureSanitize
@@ -270,8 +270,8 @@ impl<T, E> sanitization::ct::ConditionallySelectable for sanitization::ct::Secre
 pub fn sanitization::ct::SecretCtResult<sanitization::ct::SecretValue<T>, sanitization::ct::PublicValue<E>>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
 impl<T, E> sanitization::ct::ConditionallySelectable for sanitization::ct::SecretCtResult<sanitization::ct::SecretValue<T>, sanitization::ct::SecretValue<E>> where T: sanitization::ct::ConditionallySelectable + sanitization::SecureSanitize, E: sanitization::ct::ConditionallySelectable + sanitization::SecureSanitize
 pub fn sanitization::ct::SecretCtResult<sanitization::ct::SecretValue<T>, sanitization::ct::SecretValue<E>>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
-impl<T> sanitization::ct::ConditionallySelectable for sanitization::ct::CtOption<T> where T: sanitization::ct::ConditionallySelectable
-pub fn sanitization::ct::CtOption<T>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
+impl<T> sanitization::ct::ConditionallySelectable for sanitization::ct::PublicCtOption<T> where T: sanitization::ct::ConditionallySelectable
+pub fn sanitization::ct::PublicCtOption<T>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
 impl<T> sanitization::ct::ConditionallySelectable for sanitization::ct::SecretCtOption<sanitization::ct::PublicValue<T>> where T: sanitization::ct::ConditionallySelectable
 pub fn sanitization::ct::SecretCtOption<sanitization::ct::PublicValue<T>>::conditional_select(&Self, &Self, sanitization::ct::Choice) -> Self
 impl<T> sanitization::ct::ConditionallySelectable for sanitization::ct::SecretCtOption<sanitization::ct::SecretValue<T>> where T: sanitization::SecureSanitize + sanitization::ct::ConditionallySelectable
@@ -887,9 +887,9 @@ pub fn sanitization::ExpiringSecretBytes<N>::replace_from_fn(&mut self, impl cor
 pub fn sanitization::ExpiringSecretBytes<N>::replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::LengthError>
 pub fn sanitization::ExpiringSecretBytes<N>::secure_clear(&mut self)
 pub fn sanitization::ExpiringSecretBytes<N>::try_constant_time_eq(&mut self, &[u8]) -> core::result::Result<bool, sanitization::SecretExpiredError>
-pub fn sanitization::ExpiringSecretBytes<N>::try_copy_to_slice(&mut self, &mut [u8]) -> core::result::Result<(), sanitization::ExpiringSecretError>
+pub fn sanitization::ExpiringSecretBytes<N>::try_export_secret_copy<R>(&mut self, &'static str, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::SecretExpiredError>
+pub fn sanitization::ExpiringSecretBytes<N>::try_export_to_slice(&mut self, &'static str, &mut [u8]) -> core::result::Result<(), sanitization::ExpiringSecretError>
 pub fn sanitization::ExpiringSecretBytes<N>::try_expose_secret<R>(&mut self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::SecretExpiredError>
-pub fn sanitization::ExpiringSecretBytes<N>::try_expose_secret_copy<R>(&mut self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::SecretExpiredError>
 pub fn sanitization::ExpiringSecretBytes<N>::try_from_fn<E>(core::time::Duration, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<Self, E>
 pub fn sanitization::ExpiringSecretBytes<N>::try_replace_from_fn<E>(&mut self, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), E>
 pub fn sanitization::ExpiringSecretBytes<N>::zeroed(core::time::Duration) -> Self
@@ -1231,9 +1231,9 @@ pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::replace_from_fn(&mut se
 pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::LengthError>
 pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::secure_clear(&mut self)
 pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::try_constant_time_eq(&mut self, &[u8]) -> core::result::Result<bool, sanitization::SecretExpiredError>
-pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::try_copy_to_slice(&mut self, &mut [u8]) -> core::result::Result<(), sanitization::ExpiringSecretError>
+pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::try_export_secret_copy<R>(&mut self, &'static str, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::SecretExpiredError>
+pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::try_export_to_slice(&mut self, &'static str, &mut [u8]) -> core::result::Result<(), sanitization::ExpiringSecretError>
 pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::try_expose_secret<R>(&mut self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::SecretExpiredError>
-pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::try_expose_secret_copy<R>(&mut self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::SecretExpiredError>
 pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::try_from_fn<E>(C, u64, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<Self, E>
 pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::try_replace_from_fn<E>(&mut self, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), E>
 pub fn sanitization::MonotonicExpiringSecretBytes<N, C>::zeroed(C, u64) -> Self
@@ -1386,16 +1386,16 @@ impl<const N: usize> sanitization::SecretBytes<N>
 pub fn sanitization::SecretBytes<N>::constant_time_eq(&self, &[u8]) -> bool
 pub fn sanitization::SecretBytes<N>::constant_time_eq_secret(&self, &Self) -> bool
 pub fn sanitization::SecretBytes<N>::copy_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::LengthError>
-pub fn sanitization::SecretBytes<N>::copy_to_slice(&self, &mut [u8]) -> core::result::Result<(), sanitization::LengthError>
 pub fn sanitization::SecretBytes<N>::derive<const M: usize>(&self, impl core::ops::function::FnOnce(&[u8; N], &mut [u8; M])) -> sanitization::SecretBytes<M>
+pub fn sanitization::SecretBytes<N>::export_byte(&self, &'static str, usize) -> core::option::Option<u8>
+pub fn sanitization::SecretBytes<N>::export_secret_copy<R>(&self, &'static str, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> R
+pub fn sanitization::SecretBytes<N>::export_to_slice(&self, &'static str, &mut [u8]) -> core::result::Result<(), sanitization::LengthError>
 pub fn sanitization::SecretBytes<N>::expose_secret<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> R
-pub fn sanitization::SecretBytes<N>::expose_secret_copy<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> R
 pub fn sanitization::SecretBytes<N>::from_array([u8; N]) -> Self
 pub fn sanitization::SecretBytes<N>::from_fn(impl core::ops::function::FnMut(usize) -> u8) -> Self
 pub fn sanitization::SecretBytes<N>::into_cleared(self)
 pub const fn sanitization::SecretBytes<N>::is_empty(&self) -> bool
 pub const fn sanitization::SecretBytes<N>::len(&self) -> usize
-pub fn sanitization::SecretBytes<N>::read_byte(&self, usize) -> core::option::Option<u8>
 pub fn sanitization::SecretBytes<N>::replace_from_array(&mut self, [u8; N])
 pub fn sanitization::SecretBytes<N>::replace_from_fn(&mut self, impl core::ops::function::FnMut(usize) -> u8)
 pub fn sanitization::SecretBytes<N>::secure_clear(&mut self)
@@ -1902,6 +1902,7 @@ impl<const N: usize, const SLOTS: usize> sanitization::StableSharedSecretStorage
 impl<const N: usize> sanitization::StableSharedSecretStorage for sanitization::ExpiringSecretBytes<N>
 impl<const N: usize> sanitization::StableSharedSecretStorage for sanitization::LockedSecretBytes<N>
 impl<const N: usize> sanitization::StableSharedSecretStorage for sanitization::SecretBytes<N>
+pub fn sanitization::sanitize_then_abort<T: sanitization::SecureSanitize + ?core::marker::Sized>(&mut T) -> never
 pub fn sanitization::secure_replace<T: sanitization::SecureSanitize>(&mut T, T)
 pub type sanitization::LockedSecretBytesCheckedCopyError = sanitization::SecretIntegrityError<sanitization::LengthError>
 pub type sanitization::SecretIntegrityResult<T, E> = core::result::Result<T, sanitization::SecretIntegrityError<E>>

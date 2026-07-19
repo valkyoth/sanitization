@@ -3,8 +3,8 @@
   "packages": {
     "sanitization": {
       "file": "sanitization.txt",
-      "lines": 1907,
-      "sha256": "c270889dff082968a53963ce016696a20cd0cedb4e27368fde72c5dd4a1975e0"
+      "lines": 1908,
+      "sha256": "3d1eca7483d780eb92622ecafafcc1a58954f178ba70d2c9477b07a654392849"
     },
     "sanitization-arrayvec": {
       "file": "sanitization-arrayvec.txt",
