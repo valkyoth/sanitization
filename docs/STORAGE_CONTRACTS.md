@@ -121,9 +121,9 @@ assert_eq!(
 );
 ```
 
-Every exact type requires a rationale containing non-whitespace text; empty and
-ASCII-whitespace-only literals are rejected at compile time. Construction and
-exposure require `P: SecretStoragePolicy<T>`, and exposure independently
+Every exact type requires a non-empty rationale that is not solely ASCII
+whitespace. Those invalid literals are rejected at compile time. Construction
+and exposure require `P: SecretStoragePolicy<T>`, and exposure independently
 retains the shared or mutable stability bound. A newly introduced marker
 implementation is therefore not accepted until the central policy adds that
 exact type.

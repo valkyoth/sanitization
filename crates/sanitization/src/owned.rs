@@ -253,9 +253,9 @@ pub trait SecretStoragePolicy<T: SecureSanitize> {
 /// Define an application-owned concrete-type allow-list for
 /// [`AllowlistedSecret`].
 ///
-/// Each entry requires a literal rationale containing non-whitespace text. The
-/// generated policy is an uninhabited marker type and implements
-/// [`SecretStoragePolicy<T>`] only for the listed exact types.
+/// Each entry requires a non-empty literal rationale that is not solely ASCII
+/// whitespace. The generated policy is an uninhabited marker type and
+/// implements [`SecretStoragePolicy<T>`] only for the listed exact types.
 ///
 /// ```
 /// use sanitization::{
@@ -320,7 +320,7 @@ macro_rules! define_secret_storage_policy {
                 }
                 assert!(
                     has_content,
-                    "secret storage policy rationale must contain non-whitespace text",
+                    "secret storage policy rationale must not be empty or ASCII-whitespace-only",
                 );
             };
 

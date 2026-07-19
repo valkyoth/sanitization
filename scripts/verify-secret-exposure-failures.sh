@@ -122,7 +122,7 @@ pub fn construct() {
 run_expected_failure \
     "storage-policy-empty-rationale-rejected" \
     '"std"' \
-    'secret storage policy rationale must contain non-whitespace text' \
+    'secret storage policy rationale must not be empty or ASCII-whitespace-only' \
     'use sanitization::{define_secret_storage_policy, SecretBytes};
 
 define_secret_storage_policy! {
@@ -134,7 +134,7 @@ define_secret_storage_policy! {
 run_expected_failure \
     "storage-policy-whitespace-rationale-rejected" \
     '"std"' \
-    'secret storage policy rationale must contain non-whitespace text' \
+    'secret storage policy rationale must not be empty or ASCII-whitespace-only' \
     'use sanitization::{define_secret_storage_policy, SecretBytes};
 
 define_secret_storage_policy! {
