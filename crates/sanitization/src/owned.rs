@@ -234,7 +234,7 @@ pub trait StableMutableSecretStorage: StableSharedSecretStorage {}
 /// concrete storage types. Dependencies cannot name a non-public policy. A
 /// public policy may be implementable by a dependency for a storage type that
 /// dependency owns under Rust's orphan rules. Prefer
-/// [`define_secret_storage_policy!`] with no visibility or `pub(crate)` so
+/// [`crate::define_secret_storage_policy!`] with no visibility or `pub(crate)` so
 /// every approval stays local and carries a review rationale in one searchable
 /// declaration.
 ///
