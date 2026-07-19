@@ -1,6 +1,6 @@
 # CP-23 Release Preparation
 
-CP-23 starts from the accepted CP-22 implementation state:
+CP-23 originally started from the then-accepted CP-22 implementation state:
 
 ```text
 b41c1cb8e0622eb8637261a1b62b47ba66a03183
@@ -15,10 +15,14 @@ The checkpoint may change only:
 - package archive validation; and
 - publication tooling and checkpoint state.
 
-It must not change library source, public declarations, feature definitions,
-unsafe boundaries, runtime behavior, or the CP-21 semantic API snapshots.
+That restriction was explicitly reopened when later security findings and
+approved 2.0 API corrections required source changes. Those changes must not be
+represented as covered by the original CP-22 review. Public API changes require
+refreshed semantic snapshots; behavioral macro restrictions require dedicated
+compile-failure evidence.
 
-The CP-23 review range begins at the commit above and ends at the final CP-23
-implementation or remediation commit. After acceptance, the permanent
-`security/pentest/v2.0.0.md` report is committed alone and names that exact
-accepted commit as `Reviewed-Commit`.
+The final CP-23 candidate is the exact commit immediately preceding the
+permanent pentest report. After all implementation, remediation, documentation,
+and merge work is complete, review that candidate again. Then commit
+`security/pentest/v2.0.0.md` alone with that exact parent as `Reviewed-Commit`.
+Any later change invalidates the report and requires another close-out review.

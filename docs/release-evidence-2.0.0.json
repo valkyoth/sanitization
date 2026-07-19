@@ -216,8 +216,8 @@
   ],
   "notes": [
     "Artifact digests are the SHA-256 values reported by the GitHub Actions artifact API.",
-    "The implementation commit includes the leakage class-scheduling correction and is the accepted CP-22 behavior baseline.",
-    "CP-23 changes only release metadata, documentation, package validation, and publication tooling.",
-    "The final v2.0.0 pentest report is committed separately after CP-23 acceptance."
+    "The recorded implementation commit and artifact digests are historical CP-22 evidence, not the final candidate after the freeze was reopened.",
+    "The final main-branch candidate must replace this draft evidence after all implementation, remediation, documentation, and merge work is complete.",
+    "The final v2.0.0 pentest report is committed separately and names its immediate parent as Reviewed-Commit."
   ]
 }

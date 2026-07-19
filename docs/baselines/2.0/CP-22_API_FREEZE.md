@@ -11,8 +11,13 @@ intentional compatibility boundary from `v1.2.5` to `2.0.0`.
 - `cargo-semver-checks`: 0.49.0
 - `cargo-public-api`: 0.52.0
 
-The CP-22 dependency-only update pins `syn` 2.0.119 for the derive crate. It
-does not alter generated or runtime API behavior.
+The original CP-22 checkpoint pinned `syn` 2.0.119 for the derive crate without
+changing generated or runtime API behavior. Later finding remediation and
+reviewed 2.0 ergonomics work explicitly reopened this freeze. The semantic
+snapshots were recaptured through the source checkpoint recorded in
+`public-api/metadata.json`; subsequent derive diagnostics and policy-rationale
+validation do not change the rustdoc API surface and are covered by dedicated
+compile-failure gates.
 
 ## Semver Results
 
@@ -66,16 +71,21 @@ security guarantee. New major concepts remain prohibited after CP-21; only
 finding remediation, documentation corrections, tests, and release metadata
 may change before the final release.
 
-The final pre-release review found that `Wipe` was documented as sealed while
-its declaration remained downstream-implementable. The release candidate now
-adds the intended private sealed supertrait and refreshes both API snapshots.
-This is a deliberate restriction of an unreleased 2.0 extension point, not an
-addition of a new concept after the freeze.
+The original pre-release review found that `Wipe` was documented as sealed
+while its declaration remained downstream-implementable. The release candidate
+added the intended private sealed supertrait and refreshed both API snapshots.
+Later review findings and approved ergonomics corrections also reopened the
+freeze. Each public API change required a matching snapshot refresh; behavioral
+derive and macro-policy restrictions required compile-failure regression tests.
+These changes refine unreleased 2.0 contracts rather than silently modifying a
+published API.
 
 ## Independent Close-Out
 
-This document records the reproducible API and semver portion of CP-22. The
-independent CP-22 review covered the full CP-00 through CP-22 implementation
-range and was accepted with no open finding contradicting the documented
-guarantees. CP-23 may change only coordinated release metadata,
-documentation, package validation, and publication tooling.
+This document records the reproducible API and semver portion of the original
+CP-22 checkpoint. Its independent review covered the CP-00 through CP-22 range,
+but it is not the final 2.0 security report after the freeze was reopened. The
+final candidate must receive a fresh full-range close-out review. The permanent
+`security/pentest/v2.0.0.md` must be committed alone, name its immediate parent
+as `Reviewed-Commit`, and remain unchanged by later source or documentation
+commits before tagging.

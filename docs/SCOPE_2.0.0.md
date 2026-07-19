@@ -69,5 +69,10 @@ After CP-22 acceptance:
 - every post-freeze source or feature change must update the semantic API
   snapshot and repeat the close-out review.
 
+The original freeze was later explicitly reopened for finding remediation and
+approved 2.0 API corrections. The rules above apply again once the final
+candidate is refrozen: refreshed snapshots do not replace the required final
+full-range review and immediate-parent pentest report.
+
 Deferred work may target a later 2.x minor or a separately reviewed companion
 crate. It is not a hidden release blocker for 2.0.0.
