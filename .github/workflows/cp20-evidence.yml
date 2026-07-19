@@ -139,6 +139,7 @@ jobs:
             --leakage-summary "target/cp20/${{ matrix.label }}/leakage/summary.json"
 
       - name: Upload leakage evidence
+        if: ${{ always() }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: cp20-leakage-${{ matrix.label }}

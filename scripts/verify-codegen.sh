@@ -28,18 +28,12 @@ cargo rustc \
     --manifest-path tools/direct-exposure-codegen/Cargo.toml \
     --release \
     -- \
+    -C extra-filename=-verify-codegen \
     --emit=llvm-ir
 
 ir_file="target/release/deps/sanitization-verify-codegen.ll"
 asm_file="target/release/deps/sanitization-verify-codegen.s"
-exposure_ir="$(
-    find tools/direct-exposure-codegen/target/release/deps \
-        -maxdepth 1 \
-        -type f \
-        -name 'direct_exposure_codegen-*.ll' \
-        -print \
-        -quit
-)"
+exposure_ir="tools/direct-exposure-codegen/target/release/deps/direct_exposure_codegen-verify-codegen.ll"
 
 if [[ ! -f "${ir_file}" ]]; then
     echo "no sanitization LLVM IR file found" >&2
@@ -249,12 +243,12 @@ if [[ "${host}" == x86_64-* ]]; then
 
     echo "verified x86_64 architecture-specific codegen in ${asm_file}"
 elif [[ "${host}" == aarch64-* ]]; then
-    if ! grep -Eq 'eor[[:space:]]+v0\.16b' "${asm_file}"; then
+    if ! grep -Eq 'eor[[:space:]]+v0\.16b|eor\.16b[[:space:]]+v0([[:space:],]|$)' "${asm_file}"; then
         echo "AArch64 V0 register scrub instruction missing from assembly" >&2
         exit 1
     fi
 
-    if ! grep -Eq 'eor[[:space:]]+v31\.16b' "${asm_file}"; then
+    if ! grep -Eq 'eor[[:space:]]+v31\.16b|eor\.16b[[:space:]]+v31([[:space:],]|$)' "${asm_file}"; then
         echo "AArch64 V31 register scrub instruction missing from assembly" >&2
         exit 1
     fi

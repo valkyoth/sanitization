@@ -97,6 +97,21 @@ def validate_report(
         fail(f"leakage case mismatch; missing={missing}, extra={extra}")
 
 
+def failed_cases(report: dict[str, object]) -> list[dict[str, object]]:
+    cases = report.get("cases")
+    if not isinstance(cases, list):
+        return []
+    return [
+        {
+            "name": case.get("name"),
+            "welch_t_abs": case.get("welch_t_abs"),
+            "threshold": case.get("threshold"),
+        }
+        for case in cases
+        if isinstance(case, dict) and case.get("passed") is not True
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -111,8 +126,13 @@ def main() -> int:
         help="comma-separated decimal or 0x-prefixed u64 values",
     )
     args = parser.parse_args()
-    if args.samples < 2 or args.inner < 1 or args.warmup < 0:
-        fail("samples, inner, and warmup must describe a non-empty run")
+    if (
+        args.samples < 2
+        or args.inner < 1
+        or args.warmup < 0
+        or args.threshold <= 0
+    ):
+        fail("samples, inner, warmup, and threshold must describe a valid run")
 
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -172,6 +192,8 @@ def main() -> int:
                     "seed": seed,
                     "passed": result.returncode == 0 and report.get("passed") is True,
                     "max_welch_t_abs": max_t,
+                    "process_exit_code": result.returncode,
+                    "failed_cases": failed_cases(report),
                     "report": str(report_path.relative_to(output_dir)),
                     "sha256": sha256(report_path),
                 }
@@ -199,6 +221,25 @@ def main() -> int:
     summary_path = output_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(summary_path)
+    if not passed:
+        for run in runs:
+            if run["passed"] is True:
+                continue
+            print(
+                "collect-leakage-evidence: "
+                f"FAILED variant={run['variant']} seed={run['seed']} "
+                f"exit={run['process_exit_code']} "
+                f"max_welch_t_abs={run['max_welch_t_abs']:.6f}",
+                file=sys.stderr,
+            )
+            for case in run["failed_cases"]:
+                print(
+                    "collect-leakage-evidence:   "
+                    f"case={case['name']} "
+                    f"welch_t_abs={float(case['welch_t_abs']):.6f} "
+                    f"threshold={float(case['threshold']):.6f}",
+                    file=sys.stderr,
+                )
     return 0 if passed else 1
 
 
