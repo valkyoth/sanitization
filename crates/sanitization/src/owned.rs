@@ -511,12 +511,6 @@ fn next_secret_capacity(current: usize, required: usize) -> usize {
 }
 
 #[cfg(feature = "alloc")]
-#[inline]
-fn max_utf8_capacity(char_count: usize) -> usize {
-    char_count.saturating_mul(MAX_UTF8_CHAR_BYTES)
-}
-
-#[cfg(feature = "alloc")]
 const MAX_UTF8_CHAR_BYTES: usize = 4;
 
 impl<T: SecureSanitize> SecureSanitize for [T] {
@@ -3008,10 +3002,12 @@ impl ct::ConstantTimeEq<[u8]> for SecretBoxBytes {
     }
 }
 
-/// Error returned when bounded fixed-allocation secret construction fails.
+/// Error returned when fallible dynamic secret allocation fails.
+///
+/// Public lengths and configured maxima are not treated as secret data.
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
-pub enum SecretBoxBytesBuildError {
+pub enum SecretAllocationError {
     /// The requested public length exceeded the caller's maximum.
     TooLong {
         /// Maximum accepted length.
@@ -3019,45 +3015,67 @@ pub enum SecretBoxBytesBuildError {
         /// Rejected requested length.
         actual: usize,
     },
+    /// Arithmetic for the required allocation capacity overflowed.
+    CapacityOverflow,
     /// The allocator could not reserve the requested storage.
     Allocation(alloc::collections::TryReserveError),
 }
 
 #[cfg(feature = "alloc")]
-impl fmt::Display for SecretBoxBytesBuildError {
+impl From<alloc::collections::TryReserveError> for SecretAllocationError {
+    #[inline]
+    fn from(error: alloc::collections::TryReserveError) -> Self {
+        Self::Allocation(error)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl fmt::Display for SecretAllocationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TooLong { maximum, actual } => write!(
                 formatter,
                 "secret length exceeds limit: maximum {maximum} bytes, got {actual} bytes"
             ),
+            Self::CapacityOverflow => formatter.write_str("secret capacity calculation overflowed"),
             Self::Allocation(error) => write!(formatter, "secret allocation failed: {error}"),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for SecretBoxBytesBuildError {
+impl std::error::Error for SecretAllocationError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::TooLong { .. } => None,
+            Self::TooLong { .. } | Self::CapacityOverflow => None,
             Self::Allocation(error) => Some(error),
         }
     }
 }
 
-/// Error returned by bounded fallible byte generation.
+/// Error returned by fallible dynamic secret generation.
+///
+/// Partially generated storage remains owned by a clear-on-drop value on every
+/// error path.
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
-pub enum SecretBoxBytesGenerateError<E> {
+pub enum SecretGenerateError<E> {
     /// Allocation or public-length validation failed.
-    Build(SecretBoxBytesBuildError),
-    /// The caller's byte generator failed.
+    Build(SecretAllocationError),
+    /// The caller's generator failed.
     Generate(E),
 }
 
 #[cfg(feature = "alloc")]
-impl<E: fmt::Display> fmt::Display for SecretBoxBytesGenerateError<E> {
+impl<E> From<SecretAllocationError> for SecretGenerateError<E> {
+    #[inline]
+    fn from(error: SecretAllocationError) -> Self {
+        Self::Build(error)
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<E: fmt::Display> fmt::Display for SecretGenerateError<E> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Build(error) => error.fmt(formatter),
@@ -3067,7 +3085,7 @@ impl<E: fmt::Display> fmt::Display for SecretBoxBytesGenerateError<E> {
 }
 
 #[cfg(feature = "std")]
-impl<E> std::error::Error for SecretBoxBytesGenerateError<E>
+impl<E> std::error::Error for SecretGenerateError<E>
 where
     E: std::error::Error + 'static,
 {
@@ -3079,57 +3097,13 @@ where
     }
 }
 
-/// Error returned by fallible dynamic secret construction.
-///
-/// The public length and configured maximum are not treated as secret data.
-/// Partially generated secret storage remains owned by a clear-on-drop value
-/// on every error path.
+/// Compatibility name for fixed-allocation build failures.
 #[cfg(feature = "alloc")]
-#[derive(Debug)]
-pub enum SecretBuildError<E> {
-    /// The requested public length exceeded the caller's maximum.
-    TooLong {
-        /// Rejected requested length.
-        requested: usize,
-        /// Maximum accepted length.
-        maximum: usize,
-    },
-    /// Arithmetic for the required allocation capacity overflowed.
-    CapacityOverflow,
-    /// The allocator could not reserve the requested storage.
-    Allocation(alloc::collections::TryReserveError),
-    /// The caller-provided generator failed.
-    Generator(E),
-}
+pub type SecretBoxBytesBuildError = SecretAllocationError;
 
+/// Compatibility name for fixed-allocation generation failures.
 #[cfg(feature = "alloc")]
-impl<E: fmt::Display> fmt::Display for SecretBuildError<E> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TooLong { requested, maximum } => write!(
-                formatter,
-                "secret length exceeds limit: maximum {maximum}, got {requested}"
-            ),
-            Self::CapacityOverflow => formatter.write_str("secret capacity calculation overflowed"),
-            Self::Allocation(error) => write!(formatter, "secret allocation failed: {error}"),
-            Self::Generator(error) => write!(formatter, "secret generation failed: {error}"),
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl<E> std::error::Error for SecretBuildError<E>
-where
-    E: std::error::Error + 'static,
-{
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Allocation(error) => Some(error),
-            Self::Generator(error) => Some(error),
-            Self::TooLong { .. } | Self::CapacityOverflow => None,
-        }
-    }
-}
+pub type SecretBoxBytesGenerateError<E> = SecretGenerateError<E>;
 
 /// Heap-allocated secret bytes with clear-on-drop behavior.
 ///
@@ -3182,6 +3156,9 @@ impl SecretVec {
     }
 
     /// Create an empty secret vector with at least the requested capacity.
+    ///
+    /// `capacity` must be trusted and bounded. Allocation failure may abort;
+    /// use [`SecretVec::try_with_capacity`] when it must be reported.
     #[must_use]
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
@@ -3194,17 +3171,44 @@ impl SecretVec {
     /// allocation failure instead of panicking or invoking the allocation
     /// error handler.
     #[inline]
-    pub fn try_with_capacity(capacity: usize) -> Result<Self, alloc::collections::TryReserveError> {
+    pub fn try_with_capacity(capacity: usize) -> Result<Self, SecretAllocationError> {
         let mut inner = Vec::new();
-        inner.try_reserve_exact(capacity)?;
+        inner
+            .try_reserve_exact(capacity)
+            .map_err(SecretAllocationError::Allocation)?;
         Ok(Self::new(inner))
     }
 
     /// Create a secret vector by copying bytes from a slice.
+    ///
+    /// The public length must be trusted and bounded. Use
+    /// [`SecretVec::try_from_slice_bounded`] at untrusted boundaries.
     #[must_use]
     #[inline]
     pub fn from_slice(bytes: &[u8]) -> Self {
         Self::new(Vec::from(bytes))
+    }
+
+    /// Copy a slice after enforcing a public byte-length ceiling and using
+    /// fallible allocation.
+    ///
+    /// Length validation happens before allocation. The borrowed source is not
+    /// cleared by this method.
+    #[inline]
+    pub fn try_from_slice_bounded(
+        bytes: &[u8],
+        maximum: usize,
+    ) -> Result<Self, SecretAllocationError> {
+        if bytes.len() > maximum {
+            return Err(SecretAllocationError::TooLong {
+                maximum,
+                actual: bytes.len(),
+            });
+        }
+
+        let mut secret = Self::try_with_capacity(bytes.len())?;
+        secret.inner.extend_from_slice(bytes);
+        Ok(secret)
     }
 
     /// Create a secret vector by generating each byte directly into a
@@ -3212,6 +3216,7 @@ impl SecretVec {
     ///
     /// If `make_byte` panics, any bytes generated before the panic are still
     /// owned by a `SecretVec` local and are cleared during unwinding.
+    /// `len` must be trusted and bounded; allocation failure may abort.
     #[must_use]
     #[inline]
     pub fn from_fn(len: usize, mut make_byte: impl FnMut(usize) -> u8) -> Self {
@@ -3228,16 +3233,19 @@ impl SecretVec {
     /// generator.
     ///
     /// If `make_byte` returns an error, any bytes generated before the error
-    /// are cleared before the error is returned.
+    /// are cleared before the error is returned. This method reports both
+    /// allocation failure through `SecretGenerateError::Build` and generator
+    /// failure through `SecretGenerateError::Generate`. It does not enforce an
+    /// application maximum; use [`SecretVec::try_from_fn_bounded`] when needed.
     #[inline]
     pub fn try_from_fn<E>(
         len: usize,
         mut make_byte: impl FnMut(usize) -> Result<u8, E>,
-    ) -> Result<Self, SecretBuildError<E>> {
-        let mut secret = Self::try_with_capacity(len).map_err(SecretBuildError::Allocation)?;
+    ) -> Result<Self, SecretGenerateError<E>> {
+        let mut secret = Self::try_with_capacity(len).map_err(SecretGenerateError::Build)?;
         let mut index = 0;
         while index < len {
-            let byte = make_byte(index).map_err(SecretBuildError::Generator)?;
+            let byte = make_byte(index).map_err(SecretGenerateError::Generate)?;
             secret.inner.push(byte);
             index += 1;
         }
@@ -3253,12 +3261,12 @@ impl SecretVec {
         len: usize,
         maximum: usize,
         make_byte: impl FnMut(usize) -> Result<u8, E>,
-    ) -> Result<Self, SecretBuildError<E>> {
+    ) -> Result<Self, SecretGenerateError<E>> {
         if len > maximum {
-            return Err(SecretBuildError::TooLong {
-                requested: len,
+            return Err(SecretGenerateError::Build(SecretAllocationError::TooLong {
                 maximum,
-            });
+                actual: len,
+            }));
         }
         Self::try_from_fn(len, make_byte)
     }
@@ -3361,7 +3369,7 @@ impl SecretVec {
         &mut self,
         len: usize,
         make_byte: impl FnMut(usize) -> Result<u8, E>,
-    ) -> Result<(), SecretBuildError<E>> {
+    ) -> Result<(), SecretGenerateError<E>> {
         let mut replacement = Self::try_from_fn(len, make_byte)?;
         self.clear_secret();
         core::mem::swap(&mut self.inner, &mut replacement.inner);
@@ -3761,6 +3769,9 @@ impl SecretString {
     }
 
     /// Create an empty secret string with at least the requested byte capacity.
+    ///
+    /// `capacity` must be trusted and bounded. Allocation failure may abort;
+    /// use [`SecretString::try_with_capacity`] when it must be reported.
     #[must_use]
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
@@ -3775,13 +3786,18 @@ impl SecretString {
     /// or allocation failure instead of panicking or invoking the allocation
     /// error handler.
     #[inline]
-    pub fn try_with_capacity(capacity: usize) -> Result<Self, alloc::collections::TryReserveError> {
+    pub fn try_with_capacity(capacity: usize) -> Result<Self, SecretAllocationError> {
         let mut inner = Vec::new();
-        inner.try_reserve_exact(capacity)?;
+        inner
+            .try_reserve_exact(capacity)
+            .map_err(SecretAllocationError::Allocation)?;
         Ok(Self { inner })
     }
 
     /// Create a secret string by copying from a string slice.
+    ///
+    /// The public byte length must be trusted and bounded. Use
+    /// [`SecretString::try_from_secret_str_bounded`] at untrusted boundaries.
     #[must_use]
     #[inline]
     pub fn from_secret_str(text: &str) -> Self {
@@ -3790,15 +3806,42 @@ impl SecretString {
         }
     }
 
+    /// Copy UTF-8 text after enforcing a public byte-length ceiling and using
+    /// fallible allocation.
+    ///
+    /// Length validation happens before allocation. The borrowed source is not
+    /// cleared by this method.
+    #[inline]
+    pub fn try_from_secret_str_bounded(
+        text: &str,
+        maximum_bytes: usize,
+    ) -> Result<Self, SecretAllocationError> {
+        if text.len() > maximum_bytes {
+            return Err(SecretAllocationError::TooLong {
+                maximum: maximum_bytes,
+                actual: text.len(),
+            });
+        }
+
+        let mut secret = Self::try_with_capacity(text.len())?;
+        secret.inner.extend_from_slice(text.as_bytes());
+        Ok(secret)
+    }
+
     /// Create a secret string by generating UTF-8 scalar values directly.
     ///
     /// `char_count` is the number of generated `char` values, not the final
     /// byte length. Each generated character is encoded into the secret heap
     /// allocation and the small stack encoding buffer is immediately cleared.
+    /// `char_count` must be trusted and bounded; capacity overflow panics and
+    /// allocation failure may abort.
     #[must_use]
     #[inline]
     pub fn from_chars(char_count: usize, mut make_char: impl FnMut(usize) -> char) -> Self {
-        let mut secret = Self::with_capacity(max_utf8_capacity(char_count));
+        let capacity = char_count
+            .checked_mul(MAX_UTF8_CHAR_BYTES)
+            .expect("secret UTF-8 capacity calculation overflowed");
+        let mut secret = Self::with_capacity(capacity);
         let mut index = 0;
         while index < char_count {
             secret.push_secret_char(make_char(index));
@@ -3811,41 +3854,54 @@ impl SecretString {
     /// directly.
     ///
     /// If `make_char` returns an error, any text generated before the error is
-    /// cleared before the error is returned.
+    /// cleared before the error is returned. This method reports both build
+    /// failure through `SecretGenerateError::Build` and generator failure
+    /// through `SecretGenerateError::Generate`. It does not enforce an
+    /// application maximum; use [`SecretString::try_from_chars_bounded`] when
+    /// needed.
     #[inline]
     pub fn try_from_chars<E>(
         char_count: usize,
         mut make_char: impl FnMut(usize) -> Result<char, E>,
-    ) -> Result<Self, SecretBuildError<E>> {
-        let capacity = char_count
-            .checked_mul(MAX_UTF8_CHAR_BYTES)
-            .ok_or(SecretBuildError::CapacityOverflow)?;
-        let mut secret = Self::try_with_capacity(capacity).map_err(SecretBuildError::Allocation)?;
+    ) -> Result<Self, SecretGenerateError<E>> {
+        let capacity =
+            char_count
+                .checked_mul(MAX_UTF8_CHAR_BYTES)
+                .ok_or(SecretGenerateError::Build(
+                    SecretAllocationError::CapacityOverflow,
+                ))?;
+        let mut secret = Self::try_with_capacity(capacity).map_err(SecretGenerateError::Build)?;
         let mut index = 0;
         while index < char_count {
-            let character = make_char(index).map_err(SecretBuildError::Generator)?;
+            let character = make_char(index).map_err(SecretGenerateError::Generate)?;
             secret.push_secret_char(character);
             index += 1;
         }
         Ok(secret)
     }
 
-    /// Create secret UTF-8 text with a caller-enforced scalar-value ceiling.
+    /// Create secret UTF-8 text with a caller-enforced byte-capacity ceiling.
     ///
-    /// `maximum` and `char_count` are counts of generated Unicode scalar
-    /// values. The worst-case UTF-8 byte capacity is calculated with checked
-    /// arithmetic before allocation or generator execution.
+    /// The worst-case UTF-8 byte capacity is calculated with checked arithmetic
+    /// and compared with `maximum_bytes` before allocation or generator
+    /// execution.
     #[inline]
     pub fn try_from_chars_bounded<E>(
         char_count: usize,
-        maximum: usize,
+        maximum_bytes: usize,
         make_char: impl FnMut(usize) -> Result<char, E>,
-    ) -> Result<Self, SecretBuildError<E>> {
-        if char_count > maximum {
-            return Err(SecretBuildError::TooLong {
-                requested: char_count,
-                maximum,
-            });
+    ) -> Result<Self, SecretGenerateError<E>> {
+        let capacity =
+            char_count
+                .checked_mul(MAX_UTF8_CHAR_BYTES)
+                .ok_or(SecretGenerateError::Build(
+                    SecretAllocationError::CapacityOverflow,
+                ))?;
+        if capacity > maximum_bytes {
+            return Err(SecretGenerateError::Build(SecretAllocationError::TooLong {
+                maximum: maximum_bytes,
+                actual: capacity,
+            }));
         }
         Self::try_from_chars(char_count, make_char)
     }
@@ -3969,7 +4025,7 @@ impl SecretString {
         &mut self,
         char_count: usize,
         make_char: impl FnMut(usize) -> Result<char, E>,
-    ) -> Result<(), SecretBuildError<E>> {
+    ) -> Result<(), SecretGenerateError<E>> {
         let mut replacement = Self::try_from_chars(char_count, make_char)?;
         self.clear_secret();
         core::mem::swap(&mut self.inner, &mut replacement.inner);

@@ -4,7 +4,7 @@
     "sanitization": {
       "file": "sanitization.txt",
       "lines": 1975,
-      "sha256": "aa050bae0385d68bcefc03c458f55d3882ca575bbb3e59756313568eca40aff6"
+      "sha256": "ed835a3fcc79dbac26a13620940f2ce4a4916078336b1d57ed4fe65b8814a962"
     },
     "sanitization-arrayvec": {
       "file": "sanitization-arrayvec.txt",

@@ -193,9 +193,10 @@ calls its visitor; a parser may already have allocated or copied the input.
 Infallible dynamic constructors retain ordinary Rust allocation behavior and
 may panic on capacity overflow or invoke the allocation error handler. They are
 not an untrusted-length boundary. Use `try_with_capacity`, `try_from_fn`, or
-`try_from_chars` for allocation errors, and use the corresponding bounded
-generator constructor when an application maximum must be enforced before any
-allocation or callback execution.
+`try_from_chars` for allocation errors. Use `try_from_slice_bounded`,
+`try_from_secret_str_bounded`, or the corresponding bounded generator when an
+application byte maximum must be enforced before any allocation or callback
+execution.
 
 Moving an owned `String` into `SecretString` transfers that allocation without
 copying, but it cannot clear JSON input buffers, parser scratch allocations, or

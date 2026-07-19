@@ -35,6 +35,10 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
   capacity arithmetic and allocation. Added bounded generator constructors
   that reject application-defined public maxima before allocation or callback
   execution.
+- Added shared `SecretAllocationError` and `SecretGenerateError<E>`
+  classifications plus bounded slice and UTF-8 string copy constructors.
+  Bounded character generation now checks worst-case UTF-8 bytes with checked
+  arithmetic against an explicit byte ceiling.
 - Renamed `ReadOnceSecret<T>` to `ConsumeOnceSecret<T>`. Its single scoped
   shared access is claimed atomically and cleared on normal return, returned
   errors, and panic unwinding.

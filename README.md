@@ -181,7 +181,7 @@ let generated = SecretVec::try_from_fn_bounded(32, 4096, |index| {
     Ok::<u8, &'static str>(index as u8)
 })?;
 assert_eq!(generated.len(), 32);
-# Ok::<(), sanitization::SecretBuildError<&'static str>>(())
+# Ok::<(), sanitization::SecretGenerateError<&'static str>>(())
 ```
 
 Choose deliberately:
@@ -191,9 +191,13 @@ Choose deliberately:
   allocations before releasing them.
 - bounded variants reject public lengths above `MAX`, including during serde
   ingestion.
-- `try_with_capacity`, `try_from_fn`, and `try_from_chars` report allocation
-  or capacity failure; the `*_bounded` generators additionally reject a
-  caller-defined public maximum before allocation or callback execution.
+- `try_with_capacity` returns `SecretAllocationError`; generated constructors
+  return `SecretGenerateError<E>` so allocation and generator failures remain
+  distinct.
+- `try_from_slice_bounded` and `try_from_secret_str_bounded` enforce public byte
+  limits before allocation. `try_from_fn_bounded` does the same for byte count;
+  `try_from_chars_bounded` checks worst-case UTF-8 byte capacity with checked
+  arithmetic before allocation or callback execution.
 - infallible `with_capacity`, `from_fn`, and `from_chars` are for trusted,
   already-bounded public sizes and retain ordinary allocation panic/abort
   behavior.

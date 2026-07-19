@@ -20,15 +20,17 @@ Libraries should normally map them into their own domain error at the boundary.
 
 `SecretVec::try_with_capacity` and `SecretString::try_with_capacity` use
 `Vec::try_reserve_exact`, so capacity overflow and allocator refusal are
-returned as `TryReserveError`. Their `try_from_fn` and `try_from_chars`
-constructors return `SecretBuildError<E>`, which distinguishes allocation,
-UTF-8 capacity arithmetic, public length policy, and generator failures.
+returned as `SecretAllocationError::Allocation`. The same error type reports
+`TooLong` and explicit checked-arithmetic `CapacityOverflow` failures. Their
+`try_from_fn` and `try_from_chars` constructors return
+`SecretGenerateError<E>`, separating `Build(SecretAllocationError)` from
+`Generate(E)`.
 
-Use `try_from_fn_bounded(len, maximum, ...)` or
-`try_from_chars_bounded(char_count, maximum, ...)` when a length can cross a
-trust boundary. The limit is checked before allocation and before invoking the
-generator. The string limit is a count of Unicode scalar values; worst-case
-UTF-8 byte capacity is calculated with checked multiplication.
+Use `try_from_slice_bounded`, `try_from_secret_str_bounded`,
+`try_from_fn_bounded`, or `try_from_chars_bounded` when a length can cross a
+trust boundary. The byte limit is checked before allocation and before invoking
+a generator. String generation calculates worst-case UTF-8 byte capacity with
+checked multiplication and compares that capacity with `maximum_bytes`.
 
 The infallible `with_capacity`, `from_fn`, and `from_chars` constructors remain
 available for trusted, already-bounded public sizes. Like standard allocation

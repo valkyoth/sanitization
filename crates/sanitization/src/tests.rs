@@ -2789,7 +2789,7 @@ fn secret_vec_can_initialize_from_fallible_fn() {
             }
         })
         .err(),
-        Some(SecretBuildError::Generator("generation failed"))
+        Some(SecretGenerateError::Generate("generation failed"))
     ));
 
     secret.clear_secret();
@@ -2805,18 +2805,30 @@ fn dynamic_secret_fallible_construction_reports_limits_and_capacity_failures() {
             calls.set(calls.get() + 1);
             Ok::<u8, &'static str>(index as u8)
         }),
-        Err(SecretBuildError::TooLong {
-            requested: 5,
-            maximum: 4
-        })
+        Err(SecretGenerateError::Build(SecretAllocationError::TooLong {
+            maximum: 4,
+            actual: 5
+        }))
     ));
     assert_eq!(calls.get(), 0);
 
     assert!(SecretVec::try_with_capacity(usize::MAX).is_err());
     assert!(matches!(
         SecretVec::try_from_fn(usize::MAX, |_| Ok::<u8, &'static str>(0)),
-        Err(SecretBuildError::Allocation(_))
+        Err(SecretGenerateError::Build(
+            SecretAllocationError::Allocation(_)
+        ))
     ));
+
+    assert!(matches!(
+        SecretVec::try_from_slice_bounded(&[1, 2, 3, 4], 3),
+        Err(SecretAllocationError::TooLong {
+            maximum: 3,
+            actual: 4
+        })
+    ));
+    let bounded_bytes = SecretVec::try_from_slice_bounded(&[1, 2, 3, 4], 4).unwrap();
+    assert!(bounded_bytes.constant_time_eq(&[1, 2, 3, 4]));
 
     let char_calls = core::cell::Cell::new(0);
     assert!(matches!(
@@ -2824,19 +2836,36 @@ fn dynamic_secret_fallible_construction_reports_limits_and_capacity_failures() {
             char_calls.set(char_calls.get() + 1);
             Ok::<char, &'static str>(if index == 0 { 'a' } else { 'b' })
         }),
-        Err(SecretBuildError::TooLong {
-            requested: 3,
-            maximum: 2
-        })
+        Err(SecretGenerateError::Build(SecretAllocationError::TooLong {
+            maximum: 2,
+            actual: 12
+        }))
     ));
     assert_eq!(char_calls.get(), 0);
 
     let overflowing_count = usize::MAX / 4 + 1;
+    let overflow_calls = core::cell::Cell::new(0);
     assert!(matches!(
-        SecretString::try_from_chars(overflowing_count, |_| Ok::<char, &'static str>('x')),
-        Err(SecretBuildError::CapacityOverflow)
+        SecretString::try_from_chars(overflowing_count, |_| {
+            overflow_calls.set(overflow_calls.get() + 1);
+            Ok::<char, &'static str>('x')
+        }),
+        Err(SecretGenerateError::Build(
+            SecretAllocationError::CapacityOverflow
+        ))
     ));
+    assert_eq!(overflow_calls.get(), 0);
     assert!(SecretString::try_with_capacity(usize::MAX).is_err());
+
+    assert!(matches!(
+        SecretString::try_from_secret_str_bounded("secret", 5),
+        Err(SecretAllocationError::TooLong {
+            maximum: 5,
+            actual: 6
+        })
+    ));
+    let bounded_text = SecretString::try_from_secret_str_bounded("secret", 6).unwrap();
+    assert!(bounded_text.constant_time_eq("secret"));
 }
 
 #[cfg(feature = "alloc")]
@@ -2912,7 +2941,7 @@ fn secret_vec_try_replace_from_fn_preserves_old_secret_on_error() {
                 }
             })
             .err(),
-        Some(SecretBuildError::Generator("generation failed"))
+        Some(SecretGenerateError::Generate("generation failed"))
     ));
     assert!(secret.constant_time_eq(&[7, 8, 9]));
 
@@ -3027,7 +3056,7 @@ fn secret_string_can_initialize_from_chars() {
             }
         })
         .err(),
-        Some(SecretBuildError::Generator("generation failed"))
+        Some(SecretGenerateError::Generate("generation failed"))
     ));
 
     secret.clear_secret();
@@ -3056,7 +3085,7 @@ fn secret_string_can_replace_from_chars() {
                 }
             })
             .err(),
-        Some(SecretBuildError::Generator("generation failed"))
+        Some(SecretGenerateError::Generate("generation failed"))
     ));
     assert!(secret.constant_time_eq("key"));
 

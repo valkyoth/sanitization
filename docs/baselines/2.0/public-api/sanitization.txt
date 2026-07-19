@@ -705,33 +705,29 @@ impl core::error::Error for sanitization::SealedSecretAccessError
 pub fn sanitization::SealedSecretAccessError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Display for sanitization::SealedSecretAccessError
 pub fn sanitization::SealedSecretAccessError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub enum sanitization::SecretBoxBytesBuildError
-pub sanitization::SecretBoxBytesBuildError::Allocation(alloc::collections::TryReserveError)
-pub sanitization::SecretBoxBytesBuildError::TooLong
-pub sanitization::SecretBoxBytesBuildError::TooLong::actual: usize
-pub sanitization::SecretBoxBytesBuildError::TooLong::maximum: usize
-impl core::error::Error for sanitization::SecretBoxBytesBuildError
-pub fn sanitization::SecretBoxBytesBuildError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl core::fmt::Display for sanitization::SecretBoxBytesBuildError
-pub fn sanitization::SecretBoxBytesBuildError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub enum sanitization::SecretBoxBytesGenerateError<E>
-pub sanitization::SecretBoxBytesGenerateError::Build(sanitization::SecretBoxBytesBuildError)
-pub sanitization::SecretBoxBytesGenerateError::Generate(E)
-impl<E: core::fmt::Display> core::fmt::Display for sanitization::SecretBoxBytesGenerateError<E>
-pub fn sanitization::SecretBoxBytesGenerateError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::error::Error for sanitization::SecretBoxBytesGenerateError<E> where E: core::error::Error + 'static
-pub fn sanitization::SecretBoxBytesGenerateError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-pub enum sanitization::SecretBuildError<E>
-pub sanitization::SecretBuildError::Allocation(alloc::collections::TryReserveError)
-pub sanitization::SecretBuildError::CapacityOverflow
-pub sanitization::SecretBuildError::Generator(E)
-pub sanitization::SecretBuildError::TooLong
-pub sanitization::SecretBuildError::TooLong::maximum: usize
-pub sanitization::SecretBuildError::TooLong::requested: usize
-impl<E: core::fmt::Display> core::fmt::Display for sanitization::SecretBuildError<E>
-pub fn sanitization::SecretBuildError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::error::Error for sanitization::SecretBuildError<E> where E: core::error::Error + 'static
-pub fn sanitization::SecretBuildError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+pub enum sanitization::SecretAllocationError
+pub sanitization::SecretAllocationError::Allocation(alloc::collections::TryReserveError)
+pub sanitization::SecretAllocationError::CapacityOverflow
+pub sanitization::SecretAllocationError::TooLong
+pub sanitization::SecretAllocationError::TooLong::actual: usize
+pub sanitization::SecretAllocationError::TooLong::maximum: usize
+impl core::convert::From<alloc::collections::TryReserveError> for sanitization::SecretAllocationError
+pub fn sanitization::SecretAllocationError::from(alloc::collections::TryReserveError) -> Self
+impl core::error::Error for sanitization::SecretAllocationError
+pub fn sanitization::SecretAllocationError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Display for sanitization::SecretAllocationError
+pub fn sanitization::SecretAllocationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<sanitization::SecretAllocationError> for sanitization::SecretGenerateError<E>
+pub fn sanitization::SecretGenerateError<E>::from(sanitization::SecretAllocationError) -> Self
+pub enum sanitization::SecretGenerateError<E>
+pub sanitization::SecretGenerateError::Build(sanitization::SecretAllocationError)
+pub sanitization::SecretGenerateError::Generate(E)
+impl<E: core::fmt::Display> core::fmt::Display for sanitization::SecretGenerateError<E>
+pub fn sanitization::SecretGenerateError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<sanitization::SecretAllocationError> for sanitization::SecretGenerateError<E>
+pub fn sanitization::SecretGenerateError<E>::from(sanitization::SecretAllocationError) -> Self
+impl<E> core::error::Error for sanitization::SecretGenerateError<E> where E: core::error::Error + 'static
+pub fn sanitization::SecretGenerateError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 pub enum sanitization::SecretIntegrityError<E>
 pub sanitization::SecretIntegrityError::Canary(sanitization::CanaryCorruptedError)
 pub sanitization::SecretIntegrityError::Operation(E)
@@ -1617,10 +1613,11 @@ pub fn sanitization::SecretString::push_str(&mut self, &str)
 pub fn sanitization::SecretString::replace_from_chars(&mut self, usize, impl core::ops::function::FnMut(usize) -> char)
 pub fn sanitization::SecretString::replace_from_secret_str(&mut self, &str)
 pub fn sanitization::SecretString::replace_from_string(&mut self, alloc::string::String)
-pub fn sanitization::SecretString::try_from_chars<E>(usize, impl core::ops::function::FnMut(usize) -> core::result::Result<char, E>) -> core::result::Result<Self, sanitization::SecretBuildError<E>>
-pub fn sanitization::SecretString::try_from_chars_bounded<E>(usize, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<char, E>) -> core::result::Result<Self, sanitization::SecretBuildError<E>>
-pub fn sanitization::SecretString::try_replace_from_chars<E>(&mut self, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<char, E>) -> core::result::Result<(), sanitization::SecretBuildError<E>>
-pub fn sanitization::SecretString::try_with_capacity(usize) -> core::result::Result<Self, alloc::collections::TryReserveError>
+pub fn sanitization::SecretString::try_from_chars<E>(usize, impl core::ops::function::FnMut(usize) -> core::result::Result<char, E>) -> core::result::Result<Self, sanitization::SecretGenerateError<E>>
+pub fn sanitization::SecretString::try_from_chars_bounded<E>(usize, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<char, E>) -> core::result::Result<Self, sanitization::SecretGenerateError<E>>
+pub fn sanitization::SecretString::try_from_secret_str_bounded(&str, usize) -> core::result::Result<Self, sanitization::SecretAllocationError>
+pub fn sanitization::SecretString::try_replace_from_chars<E>(&mut self, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<char, E>) -> core::result::Result<(), sanitization::SecretGenerateError<E>>
+pub fn sanitization::SecretString::try_with_capacity(usize) -> core::result::Result<Self, sanitization::SecretAllocationError>
 pub fn sanitization::SecretString::try_with_secret<R>(&self, impl core::ops::function::FnOnce(&str) -> R) -> core::result::Result<R, core::str::error::Utf8Error>
 pub fn sanitization::SecretString::try_with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut str) -> R) -> core::result::Result<R, core::str::error::Utf8Error>
 pub fn sanitization::SecretString::with_capacity(usize) -> Self
@@ -1683,11 +1680,12 @@ pub const fn sanitization::SecretVec::new(alloc::vec::Vec<u8>) -> Self
 pub fn sanitization::SecretVec::replace_from_fn(&mut self, usize, impl core::ops::function::FnMut(usize) -> u8)
 pub fn sanitization::SecretVec::replace_from_slice(&mut self, &[u8])
 pub fn sanitization::SecretVec::replace_from_vec(&mut self, alloc::vec::Vec<u8>)
-pub fn sanitization::SecretVec::try_from_fn<E>(usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<Self, sanitization::SecretBuildError<E>>
-pub fn sanitization::SecretVec::try_from_fn_bounded<E>(usize, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<Self, sanitization::SecretBuildError<E>>
+pub fn sanitization::SecretVec::try_from_fn<E>(usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<Self, sanitization::SecretGenerateError<E>>
+pub fn sanitization::SecretVec::try_from_fn_bounded<E>(usize, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<Self, sanitization::SecretGenerateError<E>>
+pub fn sanitization::SecretVec::try_from_slice_bounded(&[u8], usize) -> core::result::Result<Self, sanitization::SecretAllocationError>
 pub fn sanitization::SecretVec::try_into_secret_string(self) -> core::result::Result<sanitization::SecretString, core::str::error::Utf8Error>
-pub fn sanitization::SecretVec::try_replace_from_fn<E>(&mut self, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::SecretBuildError<E>>
-pub fn sanitization::SecretVec::try_with_capacity(usize) -> core::result::Result<Self, alloc::collections::TryReserveError>
+pub fn sanitization::SecretVec::try_replace_from_fn<E>(&mut self, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::SecretGenerateError<E>>
+pub fn sanitization::SecretVec::try_with_capacity(usize) -> core::result::Result<Self, sanitization::SecretAllocationError>
 pub fn sanitization::SecretVec::with_capacity(usize) -> Self
 pub fn sanitization::SecretVec::with_secret<R>(&self, impl core::ops::function::FnOnce(&[u8]) -> R) -> R
 pub fn sanitization::SecretVec::with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8]) -> R) -> R
@@ -1972,4 +1970,6 @@ pub fn sanitization::secure_replace<T: sanitization::SecureSanitize>(&mut T, T)
 pub type sanitization::IntegrityResult<T> = core::result::Result<T, sanitization::CanaryCorruptedError>
 pub type sanitization::LockedSecretBytesCheckedCopyError = sanitization::SecretIntegrityError<sanitization::LengthError>
 pub type sanitization::MappedResult<T, E> = core::result::Result<T, sanitization::SecretIntegrityError<E>>
+pub type sanitization::SecretBoxBytesBuildError = sanitization::SecretAllocationError
+pub type sanitization::SecretBoxBytesGenerateError<E> = sanitization::SecretGenerateError<E>
 pub type sanitization::SecretIntegrityResult<T, E> = sanitization::MappedResult<T, E>

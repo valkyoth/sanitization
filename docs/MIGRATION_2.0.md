@@ -209,16 +209,21 @@ than only forwarding the caller's generator error:
 
 | 1.x signature | 2.0 signature |
 | --- | --- |
-| `SecretVec::try_from_fn(...) -> Result<Self, E>` | `Result<Self, SecretBuildError<E>>` |
-| `SecretVec::try_replace_from_fn(...) -> Result<(), E>` | `Result<(), SecretBuildError<E>>` |
-| `SecretString::try_from_chars(...) -> Result<Self, E>` | `Result<Self, SecretBuildError<E>>` |
-| `SecretString::try_replace_from_chars(...) -> Result<(), E>` | `Result<(), SecretBuildError<E>>` |
+| `SecretVec::try_from_fn(...) -> Result<Self, E>` | `Result<Self, SecretGenerateError<E>>` |
+| `SecretVec::try_replace_from_fn(...) -> Result<(), E>` | `Result<(), SecretGenerateError<E>>` |
+| `SecretString::try_from_chars(...) -> Result<Self, E>` | `Result<Self, SecretGenerateError<E>>` |
+| `SecretString::try_replace_from_chars(...) -> Result<(), E>` | `Result<(), SecretGenerateError<E>>` |
 
-Use `try_with_capacity` when only fallible reservation is needed. Use
-`try_from_fn_bounded` or `try_from_chars_bounded` when a public input length
-must be rejected against an application maximum before allocation and callback
-execution. Existing infallible constructors remain appropriate only for
-trusted, already-bounded sizes.
+Use `try_with_capacity` when only fallible reservation is needed; it returns
+`SecretAllocationError`. Use `try_from_slice_bounded`,
+`try_from_secret_str_bounded`, `try_from_fn_bounded`, or
+`try_from_chars_bounded` when a public input length must be rejected against an
+application maximum before allocation and callback execution.
+
+`SecretString::try_from_chars_bounded` takes a maximum UTF-8 byte capacity, not
+a maximum scalar count. It checks `char_count * 4` with checked arithmetic
+before allocation or generator execution. Existing infallible constructors
+remain appropriate only for trusted, already-bounded sizes.
 
 ## ArrayVec Companion
 
