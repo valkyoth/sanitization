@@ -35,7 +35,20 @@ def main() -> int:
         source = Path(temporary) / "lib.rs"
 
         source.write_text(
-            "fn checked(pool: &Pool) { let _slot = pool.try_allocate()?; }\n",
+            "fn checked(pool: &Pool) -> Result<(), Error> {\n"
+            "    let _slot = pool.try_allocate()?;\n"
+            "    Ok(())\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        result = run(source)
+        if result.returncode != 0:
+            raise AssertionError(result.stderr)
+
+        source.write_text(
+            "fn checked(pool: &Pool) {\n"
+            "    let _slot = pool.try_allocate().expect(\"allocation checked\");\n"
+            "}\n",
             encoding="utf-8",
         )
         result = run(source)
@@ -46,7 +59,25 @@ def main() -> int:
             "fn lossy(pool: &Pool) { let _ = pool.try_allocate(); }\n",
             encoding="utf-8",
         )
-        require_failure(result=run(source), text="discarding a try_* result")
+        require_failure(result=run(source), text="underscore name")
+
+        source.write_text(
+            "fn lossy(pool: &Pool) { let _ignored = pool.try_allocate(); }\n",
+            encoding="utf-8",
+        )
+        require_failure(result=run(source), text="underscore name")
+
+        source.write_text(
+            "fn lossy(pool: &Pool) { drop(pool.try_allocate()); }\n",
+            encoding="utf-8",
+        )
+        require_failure(result=run(source), text="dropping a try_* result")
+
+        source.write_text(
+            "fn lossy(pool: &Pool) { pool.try_allocate().ok(); }\n",
+            encoding="utf-8",
+        )
+        require_failure(result=run(source), text="with .ok() discards its error")
 
         source.write_text(
             "fn lossy(pool: &Pool) { let _slot = pool.allocate(); }\n",

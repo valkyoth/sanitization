@@ -47,17 +47,22 @@ the scanned roots, exemptions, generated source, and policy-file ownership.
 
 ## Fail-Closed Initialization Gate
 
-`scripts/lint-fail-closed-initialization.py` rejects discarded `try_*` results
-and calls to the lossy pool `allocate()` helper in production roots. This keeps
-allocation, CSPRNG, generator, length, and integrity failures observable rather
-than collapsing them into ignored results or apparent exhaustion. The core
-check excludes the crate's fault-injection test module; downstream projects
-should point it at production source only.
+`scripts/lint-fail-closed-initialization.py` rejects `try_*` results discarded
+through `drop(...)`, `.ok()`, or an unhandled underscore binding, and calls to
+the lossy pool `allocate()` helper in production roots. This keeps allocation,
+CSPRNG, generator, length, and integrity failures observable rather than
+collapsing them into ignored results or apparent exhaustion. Rust's `Result`
+is already `must_use`; the source gate addresses explicit warning-suppression
+forms that `must_use` cannot prevent. The core check excludes the crate's
+fault-injection test module; downstream projects should point it at every
+production source root that can initialize hardened storage.
 
 `scripts/test-fail-closed-initialization-lint.py` verifies accepted checked
 propagation and fail-closed behavior for both prohibited forms. The gate is
 lexical and conservative, so human review remains responsible for aliases,
-macro expansion, and unsafe or generated code.
+re-exports, macro expansion, data flow after an ordinary named binding, and
+unsafe or generated code. An AST-aware compiler plugin may complement this
+gate downstream, but is not required by the dependency-free core workflow.
 
 ## Path-Specific Codegen
 

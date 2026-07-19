@@ -14,12 +14,12 @@
     },
     {
       "name": "fail-closed-initialization-lint",
-      "claim": "Production secret-storage source does not discard try_* initialization results or call the lossy pool allocate() shape.",
+      "claim": "Production secret-storage source does not discard try_* initialization results through explicit drop, .ok(), or unhandled underscore bindings, or call the lossy pool allocate() shape.",
       "command": "scripts/lint-fail-closed-initialization.py --root crates/sanitization/src --exclude-file crates/sanitization/src/tests.rs"
     },
     {
       "name": "fail-closed-initialization-lint-fixtures",
-      "claim": "The initialization lint accepts checked propagation and rejects discarded try_* results and lossy pool allocation.",
+      "claim": "The initialization lint accepts checked propagation and rejects explicit drop, .ok(), unhandled underscore bindings, and lossy pool allocation.",
       "command": "scripts/test-fail-closed-initialization-lint.py"
     },
     {

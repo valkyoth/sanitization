@@ -9,10 +9,11 @@ import sys
 from pathlib import Path
 
 
-DISCARDED_TRY = re.compile(
-    r"\blet\s+_\s*=\s*(?:(?!;)[\s\S]){0,1024}?"
-    r"(?:\.|::)\s*try_[A-Za-z_][A-Za-z0-9_]*\s*\("
-)
+TRY_CALL = re.compile(r"(?:\.|::)\s*try_[A-Za-z_][A-Za-z0-9_]*\s*\(")
+IGNORED_BINDING = re.compile(r"\blet\s+_[A-Za-z0-9_]*\s*(?::[^=;]+)?=")
+EXPLICIT_DROP = re.compile(r"(?:\b|::)drop\s*\(")
+ERROR_DISCARD = re.compile(r"^\s*\.\s*ok\s*\(")
+FAIL_STOP = re.compile(r"^\s*\.\s*(?:expect|unwrap)\s*\(")
 LOSSY_ALLOCATE = re.compile(r"\.\s*allocate\s*\(")
 SKIPPED_DIRECTORIES = {".git", "target", "vendor"}
 
@@ -142,6 +143,70 @@ def line_number(source: str, offset: int) -> int:
     return source.count("\n", 0, offset) + 1
 
 
+def matching_parenthesis(source: str, opening: int) -> int | None:
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "(":
+            depth += 1
+        elif source[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def statement_start(source: str, offset: int) -> int:
+    return max(
+        source.rfind(";", 0, offset),
+        source.rfind("{", 0, offset),
+        source.rfind("}", 0, offset),
+    ) + 1
+
+
+def suppressed_try_results(source: str) -> list[tuple[int, str]]:
+    failures: list[tuple[int, str]] = []
+    for call in TRY_CALL.finditer(source):
+        opening = source.find("(", call.start(), call.end())
+        closing = matching_parenthesis(source, opening)
+        if closing is None:
+            continue
+
+        end = source.find(";", closing + 1)
+        end = len(source) if end == -1 else end
+        prefix = source[statement_start(source, call.start()) : call.start()]
+        suffix = source[closing + 1 : end]
+
+        if ERROR_DISCARD.match(suffix):
+            failures.append(
+                (
+                    call.start(),
+                    "converting a try_* result with .ok() discards its error",
+                )
+            )
+            continue
+
+        if EXPLICIT_DROP.search(prefix) and suffix.strip().startswith(")"):
+            failures.append(
+                (
+                    call.start(),
+                    "dropping a try_* result suppresses initialization failure",
+                )
+            )
+            continue
+
+        error_is_handled = "?" in suffix or FAIL_STOP.match(suffix)
+        if IGNORED_BINDING.search(prefix) and not error_is_handled:
+            failures.append(
+                (
+                    call.start(),
+                    "binding an unhandled try_* result to an underscore name "
+                    "suppresses its error",
+                )
+            )
+
+    return failures
+
+
 def main() -> int:
     args = parse_args()
     excluded = {normalized(path) for path in args.exclude_file}
@@ -154,10 +219,9 @@ def main() -> int:
     failures: list[str] = []
     for path in files:
         source = strip_comments_and_literals(path.read_text(encoding="utf-8"))
-        for match in DISCARDED_TRY.finditer(source):
+        for offset, message in suppressed_try_results(source):
             failures.append(
-                f"{relative(path)}:{line_number(source, match.start())}: "
-                "discarding a try_* result can suppress initialization failure"
+                f"{relative(path)}:{line_number(source, offset)}: {message}"
             )
         for match in LOSSY_ALLOCATE.finditer(source):
             failures.append(

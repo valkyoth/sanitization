@@ -152,8 +152,10 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
   call sites must use meaningful direct literals rather than dynamic or
   placeholder labels; human review remains authoritative.
 - Added a fail-closed initialization lint that rejects discarded `try_*`
-  results and lossy pool allocation in production source, with negative
-  fixtures for both classes.
+  results through explicit `drop`, `.ok()`, or unhandled underscore bindings,
+  plus lossy pool allocation in production source. Negative fixtures cover
+  each suppression form while checked propagation and fail-stop handling remain
+  accepted.
 - Added a deployment-hardening responsibility matrix covering abort behavior,
   private policy gates, native protection reports, privileged attackers, WASM,
   canary response, swap/hibernation, and explicit cleanup.

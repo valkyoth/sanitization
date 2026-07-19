@@ -104,10 +104,16 @@ Prefer generation directly into final locked storage through `from_fill`,
 buffers under clear-on-drop ownership, avoid `Clone`, `to_vec`, and formatting,
 and keep exposure closures short.
 
-The repository's `lint-fail-closed-initialization.py` gate rejects discarded
-`try_*` results and lossy pool `allocate()` calls in production source. Pool
-exhaustion, allocation/RNG failure, length mismatch, generator failure, and
-integrity failure remain distinct outcomes.
+The repository's `lint-fail-closed-initialization.py` gate rejects `try_*`
+results discarded through `drop(...)`, `.ok()`, or unhandled underscore
+bindings, plus lossy pool `allocate()` calls in production source. Run it over
+every application root that initializes hardened storage. Pool exhaustion,
+allocation/RNG failure, length mismatch, generator failure, and integrity
+failure remain distinct outcomes.
+
+This remains a dependency-free lexical gate. Aliases, re-exports, macros,
+generated code, and later data flow from an ordinary named binding require
+human review or an application-selected AST-aware lint.
 
 Page-sealed storage provides `try_close()` for observable cleanup. If explicit
 cleanup fails, the value remains poisoned and access is rejected; the caller
