@@ -2,6 +2,7 @@
 
 This document defines the named feature profiles introduced for sanitization
 2.0 and the ownership boundary between the core crate and its companions.
+For the complete feature inventory, see [`FEATURES.md`](FEATURES.md).
 
 ## Capability, Policy, And Result
 

@@ -111,6 +111,8 @@ protection outcomes more explicit and fail-closed.
 - Added reason-bearing high-level CT helpers for final fixed equality, fixed
   ordering, and public-length equality decisions while retaining low-level
   `Choice` and `CtOrdering` composition APIs.
+- Replaced the monolithic README with a three-level user journey, a concise
+  type-selection table, small recipes, and separate feature/advanced guides.
 - Sealed `wipe::Wipe` to its audited built-in implementations and added a
   downstream compile-fail guard against no-op `WipeOnDrop<T>` implementations.
 - Added concise checked-error composition through `IntegrityResult`,

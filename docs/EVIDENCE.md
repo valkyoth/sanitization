@@ -247,7 +247,11 @@ or compiler/toolchain versions.
 
 Permanent documentation that constrains the claims:
 
-- `README.md`: API examples, feature table, target behavior, release checks;
+- `README.md`: progressive API examples, type selection, target behavior, and
+  release checks;
+- `docs/FEATURES.md`: complete opt-in capability, named-profile, and companion
+  crate reference;
+- `docs/ADVANCED_USAGE.md`: level-3 custom policy and native hardening recipes;
 - `docs/GUARANTEES.md`: the positive claims for secret ownership, clearing,
   locked/guarded storage, and native data-oblivious primitives;
 - `docs/NON_GUARANTEES.md`: timing, runtime, platform, caller-code, serialization,

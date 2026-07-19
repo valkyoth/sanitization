@@ -2,6 +2,8 @@
 
 ## 2.0.0
 
+- Reworked the README into progressive essential, protected, and advanced
+  levels, with separate feature and advanced-usage references.
 - Added reason-bearing `declassified_eq_fixed`, `declassified_cmp_fixed`, and
   `declassified_eq_public_len` final-decision helpers, with fail-closed reason
   lint coverage.

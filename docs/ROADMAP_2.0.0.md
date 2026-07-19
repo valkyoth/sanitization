@@ -1229,7 +1229,8 @@ Add:
   included;
 - target-specific evidence manifests for the release candidates.
 
-The README decision table must distinguish:
+The README's concise decision table, together with `docs/FEATURES.md` and
+`docs/ADVANCED_USAGE.md`, must distinguish:
 
 - current-value sanitization;
 - stable shared and stable mutable storage;
