@@ -202,6 +202,24 @@ The old `sanitize_bytes_best_effort` name has no weaker 2.0 replacement.
 `volatile_sanitize_*_multi_pass` helper maps to the corresponding
 `wipe::*_multi_pass` helper.
 
+## Dynamic Allocation Errors
+
+Fallible dynamic generation now includes allocation and capacity errors rather
+than only forwarding the caller's generator error:
+
+| 1.x signature | 2.0 signature |
+| --- | --- |
+| `SecretVec::try_from_fn(...) -> Result<Self, E>` | `Result<Self, SecretBuildError<E>>` |
+| `SecretVec::try_replace_from_fn(...) -> Result<(), E>` | `Result<(), SecretBuildError<E>>` |
+| `SecretString::try_from_chars(...) -> Result<Self, E>` | `Result<Self, SecretBuildError<E>>` |
+| `SecretString::try_replace_from_chars(...) -> Result<(), E>` | `Result<(), SecretBuildError<E>>` |
+
+Use `try_with_capacity` when only fallible reservation is needed. Use
+`try_from_fn_bounded` or `try_from_chars_bounded` when a public input length
+must be rejected against an application maximum before allocation and callback
+execution. Existing infallible constructors remain appropriate only for
+trusted, already-bounded sizes.
+
 ## ArrayVec Companion
 
 `SecretArrayVec::from_arrayvec` is no longer `const`. Construction now clears
@@ -302,6 +320,14 @@ capacity, UTF-8, mapping, or cache-flush reason. Propagate the returned
 Handle `CanaryCorruptedError` or `SecretIntegrityError<E>` explicitly. Use an
 `*_or_panic` helper only when aborting the current control flow is an intentional
 deployment policy.
+
+Mapped initialization now uses `MappedSecretInitializationError<E>` where an
+operation can fail during platform setup, canary verification, or caller input
+generation. In particular, `LockedSecretBytes::from_array` and the
+`SecretPool::try_allocate_from_*` helpers no longer suppress canary or CSPRNG
+failure. For checked pool initialization, `Ok(None)` now means only exhaustion.
+The non-`try` `allocate*` conveniences continue to collapse setup failures to
+`None` and should not be used where those states require different policy.
 
 When an exposure closure is itself fallible, import
 `SecretIntegrityResultExt` and call `flatten_secret_integrity()` to convert

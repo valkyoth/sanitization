@@ -21,6 +21,11 @@ represented as covered by the original CP-22 review. Public API changes require
 refreshed semantic snapshots; behavioral macro restrictions require dedicated
 compile-failure evidence.
 
+The freeze was most recently reopened to prevent mapped constructors from
+suppressing CSPRNG or canary failures and to make dynamic secret generation
+report capacity and allocation failure. The refreshed candidate therefore
+requires another full-range review before a permanent report can be accepted.
+
 The final CP-23 candidate is the exact commit immediately preceding the
 permanent pentest report. After all implementation, remediation, documentation,
 and merge work is complete, review that candidate again. Then commit

@@ -15,9 +15,11 @@ The original CP-22 checkpoint pinned `syn` 2.0.119 for the derive crate without
 changing generated or runtime API behavior. Later finding remediation and
 reviewed 2.0 ergonomics work explicitly reopened this freeze. The semantic
 snapshots were recaptured through the source checkpoint recorded in
-`public-api/metadata.json`; subsequent derive diagnostics and policy-rationale
-validation do not change the rustdoc API surface and are covered by dedicated
-compile-failure gates.
+`public-api/metadata.json`. That metadata now references the source-level
+`cp21-public-api.json` hash inventory directly, avoiding a stale commit label
+when reviewed pre-release remediation refreshes both snapshots. Subsequent
+derive diagnostics and policy-rationale validation do not change the rustdoc
+API surface and are covered by dedicated compile-failure gates.
 
 Before the final main-branch review, the derive dependency stack was refreshed
 to `syn 3.0.0`, `proc-macro2 1.0.107`, and `quote 1.0.47`. This major proc-macro
@@ -82,6 +84,10 @@ added the intended private sealed supertrait and refreshed both API snapshots.
 Later review findings and approved ergonomics corrections also reopened the
 freeze. Each public API change required a matching snapshot refresh; behavioral
 derive and macro-policy restrictions required compile-failure regression tests.
+The latest finding remediation adds allocation-aware dynamic constructors and
+explicit mapped-initialization error classification. These are corrections to
+unreleased fallibility guarantees, and both source and semantic snapshots must
+be refreshed before the next freeze review.
 These changes refine unreleased 2.0 contracts rather than silently modifying a
 published API.
 

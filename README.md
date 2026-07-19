@@ -52,6 +52,7 @@ Choose the narrowest type that matches the storage requirement:
 | Growable secret bytes | `SecretVec` with `alloc` |
 | Secret UTF-8 text | `SecretString` with `alloc` |
 | Untrusted input with a public maximum | `BoundedSecretVec<MAX>` or `BoundedSecretString<MAX>` |
+| Fallible generated dynamic input | `try_from_fn_bounded` or `try_from_chars_bounded` |
 | Custom value needing current-value clearing only | `Secret<T>` where `T: SecureSanitize` |
 | Generic shared exposure with reviewed stable storage | `Secret<T>` where `T: StableSharedSecretStorage` |
 | Generic mutable exposure with reviewed stable storage | `Secret<T>` where `T: StableMutableSecretStorage` |
@@ -175,6 +176,12 @@ assert!(bytes.constant_time_eq(b"session-key-v2"));
 let mut text = SecretString::from_secret_str("bearer-token");
 text.push_str("-v2");
 assert!(text.constant_time_eq("bearer-token-v2"));
+
+let generated = SecretVec::try_from_fn_bounded(32, 4096, |index| {
+    Ok::<u8, &'static str>(index as u8)
+})?;
+assert_eq!(generated.len(), 32);
+# Ok::<(), sanitization::SecretBuildError<&'static str>>(())
 ```
 
 Choose deliberately:
@@ -184,6 +191,12 @@ Choose deliberately:
   allocations before releasing them.
 - bounded variants reject public lengths above `MAX`, including during serde
   ingestion.
+- `try_with_capacity`, `try_from_fn`, and `try_from_chars` report allocation
+  or capacity failure; the `*_bounded` generators additionally reject a
+  caller-defined public maximum before allocation or callback execution.
+- infallible `with_capacity`, `from_fn`, and `from_chars` are for trusted,
+  already-bounded public sizes and retain ordinary allocation panic/abort
+  behavior.
 - ownership-taking constructors such as `from_vec` and `from_string` avoid a
   second heap allocation but make the supplied allocation secret storage.
 

@@ -52,6 +52,10 @@
     {"legacy": "SecretString::new_volatile", "replacement": "SecretString::new", "anchor": "wipe-api"},
     {"legacy": "SecretString::with_capacity_volatile", "replacement": "SecretString::with_capacity", "anchor": "wipe-api"},
     {"legacy": "SecretString::from_secret_str_volatile", "replacement": "SecretString::from_secret_str", "anchor": "wipe-api"},
+    {"legacy": "SecretVec::try_from_fn returning E", "replacement": "SecretBuildError<E>", "anchor": "dynamic-allocation-errors"},
+    {"legacy": "SecretVec::try_replace_from_fn returning E", "replacement": "SecretBuildError<E>", "anchor": "dynamic-allocation-errors"},
+    {"legacy": "SecretString::try_from_chars returning E", "replacement": "SecretBuildError<E>", "anchor": "dynamic-allocation-errors"},
+    {"legacy": "SecretString::try_replace_from_chars returning E", "replacement": "SecretBuildError<E>", "anchor": "dynamic-allocation-errors"},
     {"legacy": "const SecretArrayVec::from_arrayvec", "replacement": "runtime SecretArrayVec::from_arrayvec", "anchor": "arrayvec-companion"},
     {"legacy": "ReadOnceSecret<T>", "replacement": "ConsumeOnceSecret<T>", "anchor": "consume-once-secrets"},
     {"legacy": "ReadOnceSecret::is_consumed", "replacement": "ConsumeOnceSecret::is_claimed", "anchor": "consume-once-secrets"},
@@ -63,6 +67,9 @@
     {"legacy": "mapped operation names without try_ and *_checked aliases", "replacement": "try_* checked operations and *_or_panic fail-stop helpers", "anchor": "mapped-storage-and-integrity"},
     {"legacy": "feature name as runtime protection claim", "replacement": "ProtectionRequest and ProtectionReport", "anchor": "mapped-storage-and-integrity"},
     {"legacy": "LockedSecretBytesCheckedCopyError enum", "replacement": "SecretIntegrityError<LengthError> alias", "anchor": "mapped-storage-and-integrity"},
+    {"legacy": "LockedSecretBytes::from_array returning MemoryLockError", "replacement": "LockedSecretBytesArrayError", "anchor": "mapped-storage-and-integrity"},
+    {"legacy": "SecretPool::try_allocate_from_slice returning LengthError", "replacement": "SecretPoolSliceError", "anchor": "mapped-storage-and-integrity"},
+    {"legacy": "SecretPool::try_allocate_from_fn returning generator E", "replacement": "SecretPoolGenerateError<E>", "anchor": "mapped-storage-and-integrity"},
     {"legacy": "MemoryLockOperation exhaustive variants", "replacement": "handle WipeOnFork and do not persist implicit discriminants", "anchor": "mapped-storage-and-integrity"},
     {"legacy": "GuardPageOperation exhaustive variants", "replacement": "handle WipeOnFork and do not persist implicit discriminants", "anchor": "mapped-storage-and-integrity"}
   ]

@@ -72,9 +72,25 @@ unsafe extern "C" {
     fn wasi_random_get(buf: *mut u8, buf_len: usize) -> u16;
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static FAIL_NEXT_FILL: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) fn fail_next_fill_for_test() {
+    FAIL_NEXT_FILL.with(|fail| fail.set(true));
+}
+
 pub(crate) fn fill(bytes: &mut [u8]) -> Result<(), i32> {
     if bytes.is_empty() {
         return Ok(());
+    }
+
+    #[cfg(test)]
+    if FAIL_NEXT_FILL.with(|fail| fail.replace(false)) {
+        const ERRNO_INJECTED_FAILURE: i32 = -3;
+        return Err(ERRNO_INJECTED_FAILURE);
     }
 
     fill_inner(bytes)

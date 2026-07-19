@@ -31,6 +31,10 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
   extra secret lifetime is visible and searchable.
 - Added `SecretBoxBytes` for fixed-allocation runtime-length secret bytes that
   never grow, reallocate, or expose their private backing allocation.
+- Made dynamic `SecretVec` and `SecretString` generation genuinely fallible for
+  capacity arithmetic and allocation. Added bounded generator constructors
+  that reject application-defined public maxima before allocation or callback
+  execution.
 - Renamed `ReadOnceSecret<T>` to `ConsumeOnceSecret<T>`. Its single scoped
   shared access is claimed atomically and cleared on normal return, returned
   errors, and panic unwinding.
@@ -81,6 +85,10 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
   canary integrity explicit per-container policy outcomes.
 - Hardened `SecretPool` with checked fixed-layout accounting, generation-bound
   canaries, failure quarantine, and efficiency reporting.
+- Preserved CSPRNG, mapping, canary-integrity, and caller-input failures through
+  `MappedSecretInitializationError`. Checked pool initialization now reserves
+  `Ok(None)` exclusively for exhaustion; explicitly documented convenience
+  allocators remain lossy by design.
 - Added opt-in `SealedSecretBytes<N>` with guard pages, fallible page sealing,
   poisoning/retirement after unsafe transition failures, and multi-page fault
   recovery tests. This remains a reviewed optional facility with documented
@@ -149,5 +157,6 @@ This release contains intentional source-breaking changes. Read
 [`docs/MIGRATION_2.0.md`](https://github.com/valkyoth/sanitization/blob/main/docs/MIGRATION_2.0.md)
 before upgrading from `1.2.5`. The migration guide covers generic storage
 bounds, direct versus copied exposure, CT declassification, derives, wipe API
-renames, ArrayVec behavior, consume-once ownership, native protection policy,
-feature profiles, and deferred experimental facilities.
+renames, fallible dynamic allocation, ArrayVec behavior, consume-once
+ownership, mapped initialization errors, native protection policy, feature
+profiles, and deferred experimental facilities.

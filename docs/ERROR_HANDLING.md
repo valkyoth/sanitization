@@ -16,6 +16,42 @@ mapping, and cache failures into one global error enum. Those errors have
 different recovery policies and not every application enables every facility.
 Libraries should normally map them into their own domain error at the boundary.
 
+## Dynamic Allocation And Generation
+
+`SecretVec::try_with_capacity` and `SecretString::try_with_capacity` use
+`Vec::try_reserve_exact`, so capacity overflow and allocator refusal are
+returned as `TryReserveError`. Their `try_from_fn` and `try_from_chars`
+constructors return `SecretBuildError<E>`, which distinguishes allocation,
+UTF-8 capacity arithmetic, public length policy, and generator failures.
+
+Use `try_from_fn_bounded(len, maximum, ...)` or
+`try_from_chars_bounded(char_count, maximum, ...)` when a length can cross a
+trust boundary. The limit is checked before allocation and before invoking the
+generator. The string limit is a count of Unicode scalar values; worst-case
+UTF-8 byte capacity is calculated with checked multiplication.
+
+The infallible `with_capacity`, `from_fn`, and `from_chars` constructors remain
+available for trusted, already-bounded public sizes. Like standard allocation
+APIs, they can panic on capacity overflow or invoke the allocation error
+handler when memory cannot be obtained.
+
+## Mapped Initialization
+
+`MappedSecretInitializationError<E>` keeps three initialization failures
+separate:
+
+- `Memory` for mapping, locking, policy, or OS-CSPRNG setup;
+- `Integrity` for canary corruption detected before initialization; and
+- `Input` for length validation or caller generator failure.
+
+`LockedSecretBytes::from_array`, `SecretPool::try_allocate_from_slice`,
+`SecretPool::try_allocate_from_array`, and
+`SecretPool::try_allocate_from_fn` preserve these classifications. For checked
+pool constructors, `Ok(None)` means only pool exhaustion. The convenience
+methods `allocate`, `allocate_from_array`, and `allocate_from_fn` intentionally
+collapse platform setup failure to `None`; do not use them where exhaustion and
+security-control failure require different responses.
+
 ## Fallible Exposure Closures
 
 A mapped byte exposure whose closure also returns `Result<T, E>` would normally

@@ -2773,7 +2773,7 @@ fn secret_vec_can_initialize_from_fallible_fn() {
 
     assert_eq!(secret.len(), 4);
     assert!(secret.constant_time_eq(&[1, 2, 3, 4]));
-    assert_eq!(
+    assert!(matches!(
         SecretVec::try_from_fn(4, |index| {
             if index == 2 {
                 Err("generation failed")
@@ -2782,11 +2782,54 @@ fn secret_vec_can_initialize_from_fallible_fn() {
             }
         })
         .err(),
-        Some("generation failed")
-    );
+        Some(SecretBuildError::Generator("generation failed"))
+    ));
 
     secret.clear_secret();
     assert!(secret.is_empty());
+}
+
+#[cfg(feature = "alloc")]
+#[test]
+fn dynamic_secret_fallible_construction_reports_limits_and_capacity_failures() {
+    let calls = core::cell::Cell::new(0);
+    assert!(matches!(
+        SecretVec::try_from_fn_bounded(5, 4, |index| {
+            calls.set(calls.get() + 1);
+            Ok::<u8, &'static str>(index as u8)
+        }),
+        Err(SecretBuildError::TooLong {
+            requested: 5,
+            maximum: 4
+        })
+    ));
+    assert_eq!(calls.get(), 0);
+
+    assert!(SecretVec::try_with_capacity(usize::MAX).is_err());
+    assert!(matches!(
+        SecretVec::try_from_fn(usize::MAX, |_| Ok::<u8, &'static str>(0)),
+        Err(SecretBuildError::Allocation(_))
+    ));
+
+    let char_calls = core::cell::Cell::new(0);
+    assert!(matches!(
+        SecretString::try_from_chars_bounded(3, 2, |index| {
+            char_calls.set(char_calls.get() + 1);
+            Ok::<char, &'static str>(if index == 0 { 'a' } else { 'b' })
+        }),
+        Err(SecretBuildError::TooLong {
+            requested: 3,
+            maximum: 2
+        })
+    ));
+    assert_eq!(char_calls.get(), 0);
+
+    let overflowing_count = usize::MAX / 4 + 1;
+    assert!(matches!(
+        SecretString::try_from_chars(overflowing_count, |_| Ok::<char, &'static str>('x')),
+        Err(SecretBuildError::CapacityOverflow)
+    ));
+    assert!(SecretString::try_with_capacity(usize::MAX).is_err());
 }
 
 #[cfg(feature = "alloc")]
@@ -2852,7 +2895,7 @@ fn secret_vec_try_replace_from_fn_preserves_old_secret_on_error() {
         .unwrap();
 
     assert!(secret.constant_time_eq(&[7, 8, 9]));
-    assert_eq!(
+    assert!(matches!(
         secret
             .try_replace_from_fn(4, |index| {
                 if index == 2 {
@@ -2862,8 +2905,8 @@ fn secret_vec_try_replace_from_fn_preserves_old_secret_on_error() {
                 }
             })
             .err(),
-        Some("generation failed")
-    );
+        Some(SecretBuildError::Generator("generation failed"))
+    ));
     assert!(secret.constant_time_eq(&[7, 8, 9]));
 
     secret.clear_secret();
@@ -2968,7 +3011,7 @@ fn secret_string_can_initialize_from_chars() {
     );
     assert_eq!(secret.len(), "sec\u{1F512}".len());
 
-    assert_eq!(
+    assert!(matches!(
         SecretString::try_from_chars(4, |index| {
             if index == 2 {
                 Err("generation failed")
@@ -2977,8 +3020,8 @@ fn secret_string_can_initialize_from_chars() {
             }
         })
         .err(),
-        Some("generation failed")
-    );
+        Some(SecretBuildError::Generator("generation failed"))
+    ));
 
     secret.clear_secret();
     assert!(secret.is_empty());
@@ -2996,7 +3039,7 @@ fn secret_string_can_replace_from_chars() {
     });
     assert!(secret.constant_time_eq("key"));
 
-    assert_eq!(
+    assert!(matches!(
         secret
             .try_replace_from_chars(4, |index| {
                 if index == 2 {
@@ -3006,8 +3049,8 @@ fn secret_string_can_replace_from_chars() {
                 }
             })
             .err(),
-        Some("generation failed")
-    );
+        Some(SecretBuildError::Generator("generation failed"))
+    ));
     assert!(secret.constant_time_eq("key"));
 
     secret
@@ -4532,7 +4575,10 @@ fn secret_pool_handles_generation_and_zero_slot_cases() {
         }
     }) {
         Ok(_) => panic!("generation should have failed"),
-        Err(error) => assert_eq!(error, "generation failed"),
+        Err(error) => assert_eq!(
+            error,
+            MappedSecretInitializationError::Input("generation failed")
+        ),
     }
     assert_eq!(pool.available_slots(), 1);
     let reused_after_error = pool
@@ -4561,6 +4607,60 @@ fn secret_pool_handles_generation_and_zero_slot_cases() {
     assert_eq!(empty.arena_report().storage_efficiency_basis_points(), None);
     let slot = empty.allocate().unwrap();
     assert!(slot.is_empty());
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    feature = "random-canary",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn mapped_initializers_preserve_injected_csprng_failures() {
+    crate::canary::fail_next_fill_for_test();
+    assert!(matches!(
+        LockedSecretBytes::<4>::from_array([1, 2, 3, 4]),
+        Err(MappedSecretInitializationError::Memory(MemoryLockError {
+            operation: MemoryLockOperation::Random,
+            errno: -3,
+        }))
+    ));
+
+    let pool = match SecretPool::<4, 1>::new() {
+        Ok(pool) => pool,
+        Err(_) => return,
+    };
+
+    crate::canary::fail_next_fill_for_test();
+    assert!(matches!(
+        pool.try_allocate_from_slice(&[1, 2, 3, 4]),
+        Err(MappedSecretInitializationError::Memory(MemoryLockError {
+            operation: MemoryLockOperation::Random,
+            errno: -3,
+        }))
+    ));
+    assert_eq!(pool.available_slots(), 1);
+
+    crate::canary::fail_next_fill_for_test();
+    assert!(matches!(
+        pool.try_allocate_from_array([1, 2, 3, 4]),
+        Err(MappedSecretInitializationError::Memory(MemoryLockError {
+            operation: MemoryLockOperation::Random,
+            errno: -3,
+        }))
+    ));
+    assert_eq!(pool.available_slots(), 1);
+
+    crate::canary::fail_next_fill_for_test();
+    assert!(matches!(
+        pool.try_allocate_from_fn(|index| Ok::<u8, &'static str>(index as u8)),
+        Err(MappedSecretInitializationError::Memory(MemoryLockError {
+            operation: MemoryLockOperation::Random,
+            errno: -3,
+        }))
+    ));
+    assert_eq!(pool.available_slots(), 1);
 }
 
 #[cfg(all(

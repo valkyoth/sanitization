@@ -97,6 +97,12 @@ fixed public length, before drop releases the allocation. Bounded constructors
 use `try_reserve_exact` before initialization so untrusted public lengths can
 return an allocation error instead of entering an infallible growth path.
 
+`SecretVec::try_with_capacity` and `SecretString::try_with_capacity` also use
+`try_reserve_exact`. Their fallible generator constructors keep partial output
+inside a clear-on-drop owner. The bounded forms validate the caller's public
+maximum before allocation or generator execution; secret-string worst-case
+UTF-8 capacity uses checked multiplication.
+
 Unsafe code is allowed only inside narrow, reviewable implementation modules:
 
 - `wipe_backend`, the default volatile clear backend;
@@ -315,8 +321,11 @@ Invariant:
   operating-system CSPRNG and stored in the Rust owner or slot metadata. The
   prefix and suffix copies remain in the locked or guarded mapping beside the
   secret bytes. Random generation failure is reported as a `Random` platform
-  operation error where the API can return one; `SecretPool` also provides
-  `try_allocate` for explicit slot-allocation error handling.
+  operation error where the API can return one. `SecretPool::try_allocate` and
+  all `try_allocate_from_*` initialization helpers preserve random generation
+  failure separately from ordinary exhaustion. The convenience `allocate*`
+  methods intentionally collapse setup failure to `None` and document that
+  reduced diagnostic contract.
 - Canary writes happen only after platform mapping setup and locking succeed.
 - On WASM, there is no platform mapping setup or locking. `canary-check`
   requires `random-canary` at compile time because deterministic inline-storage
@@ -670,6 +679,9 @@ heap allocation, and then the stack buffer is immediately cleared with the same
 volatile wipe backend used elsewhere in the crate. Fallible generation keeps
 partial text inside a clear-on-drop `SecretString` local, so generated heap
 bytes are cleared if the generator returns an error or unwinds.
+`try_from_chars` additionally reports worst-case capacity overflow and
+allocation refusal; `try_from_chars_bounded` rejects an excessive public scalar
+count before allocation or generator execution.
 
 `SecretString::try_with_secret_mut` exposes mutable text as `&mut str` rather
 than mutable bytes. This keeps UTF-8 validity enforced by safe Rust while still

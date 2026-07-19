@@ -190,6 +190,13 @@ boundaries that require a protocol-specific limit, while retaining transport
 and parser limits. The crate's limit takes effect only when the deserializer
 calls its visitor; a parser may already have allocated or copied the input.
 
+Infallible dynamic constructors retain ordinary Rust allocation behavior and
+may panic on capacity overflow or invoke the allocation error handler. They are
+not an untrusted-length boundary. Use `try_with_capacity`, `try_from_fn`, or
+`try_from_chars` for allocation errors, and use the corresponding bounded
+generator constructor when an application maximum must be enforced before any
+allocation or callback execution.
+
 Moving an owned `String` into `SecretString` transfers that allocation without
 copying, but it cannot clear JSON input buffers, parser scratch allocations, or
 other copies created before the string reaches the secret container.
