@@ -168,6 +168,8 @@ path, so the `*_volatile` constructor aliases were removed.
 
 `WipeOnDrop` is intentionally sealed to audited built-in plain-data types. It
 is not a generic representation wipe for arbitrary user-defined values.
+Downstream `Wipe` implementations fail to compile; custom structured values
+must use `SecureSanitize`, `Secret<T>`, or the derive/macro clear-on-drop paths.
 
 ```rust
 use sanitization::wipe::{self, Wipe};

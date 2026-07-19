@@ -87,4 +87,16 @@ pub fn expose() {
     });
 }'
 
+run_expected_failure \
+    "custom-wipe-implementation-rejected" \
+    '"alloc"' \
+    'sealed trait' \
+    'use sanitization::wipe::Wipe;
+
+pub struct NoOpWipe([u8; 4]);
+
+impl Wipe for NoOpWipe {
+    fn wipe(&mut self) {}
+}'
+
 printf 'generic secret exposure failure checks passed\n'

@@ -66,6 +66,12 @@ security guarantee. New major concepts remain prohibited after CP-21; only
 finding remediation, documentation corrections, tests, and release metadata
 may change before the final release.
 
+The final pre-release review found that `Wipe` was documented as sealed while
+its declaration remained downstream-implementable. The release candidate now
+adds the intended private sealed supertrait and refreshes both API snapshots.
+This is a deliberate restriction of an unreleased 2.0 extension point, not an
+addition of a new concept after the freeze.
+
 ## Independent Close-Out
 
 This document records the reproducible API and semver portion of CP-22. The

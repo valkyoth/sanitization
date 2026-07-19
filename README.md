@@ -1787,6 +1787,11 @@ let secret = WipeOnDrop::new([1_u8, 2, 3, 4]);
 assert_eq!(secret.with_secret(|bytes| bytes.len()), 4);
 ```
 
+`Wipe` is sealed to `[u8]`, `[u8; N]`, `Vec<u8>`, and `String`, so downstream
+code cannot attach `WipeOnDrop` to a no-op or weaker implementation. Custom
+structured values should implement `SecureSanitize` and use `Secret<T>` or a
+derive-generated clear-on-drop implementation instead.
+
 The 2.0 API removes the old `unsafe_wipe`, `volatile_sanitize_*`,
 `sanitize_bytes_best_effort`, and volatile-constructor aliases. They all
 selected the same backend and made the guarantee harder to understand.

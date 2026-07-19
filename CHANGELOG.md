@@ -85,6 +85,8 @@
   every committed tooling lockfile from one already-fetched advisory database.
 - Added a fail-closed CT declassification-reason lint and negative fixtures to
   reject dynamic, short, generic, and placeholder audit labels in CI.
+- Sealed `wipe::Wipe` to the audited byte slice, byte array, `Vec<u8>`, and
+  `String` implementations so `WipeOnDrop<T>` cannot wrap a downstream no-op.
 
 ## 1.2.5
 

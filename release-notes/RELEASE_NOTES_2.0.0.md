@@ -97,6 +97,8 @@ protection outcomes more explicit and fail-closed.
 - Added a CI declassification-reason lint with fail-closed fixtures. Consumer
   call sites must use meaningful direct literals rather than dynamic or
   placeholder labels; human review remains authoritative.
+- Sealed `wipe::Wipe` to its audited built-in implementations and added a
+  downstream compile-fail guard against no-op `WipeOnDrop<T>` implementations.
 
 ## Migration
 

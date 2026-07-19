@@ -18,6 +18,10 @@ CP-10 establishes one safe direct-wipe API and one private backend architecture.
 - the `Wipe` trait for supported ordinary buffers; and
 - `WipeOnDrop<T>` for explicit clear-on-drop ownership.
 
+`Wipe` has a private sealed supertrait implemented only for `[u8]`, `[u8; N]`,
+`Vec<u8>`, and `String`. Downstream code cannot provide a no-op implementation
+and then obtain a misleading `WipeOnDrop<T>` guarantee.
+
 The old `unsafe_wipe`, `volatile_sanitize_*`, best-effort aliases, volatile
 constructor aliases, and no-op `unsafe-wipe` feature were removed. Those names
 did not select distinct implementations or guarantees.

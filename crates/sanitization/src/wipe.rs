@@ -8,8 +8,16 @@
 #[cfg(feature = "alloc")]
 use alloc::{string::String, vec::Vec};
 
+mod sealed {
+    pub trait Sealed {}
+}
+
 /// Values supported by [`WipeOnDrop`].
-pub trait Wipe {
+///
+/// This trait is sealed. Only the crate's audited byte slice, byte array,
+/// `Vec<u8>`, and `String` implementations can satisfy it. Use
+/// [`crate::SecureSanitize`] for custom structured values.
+pub trait Wipe: sealed::Sealed {
     /// Clear the reachable bytes owned by this value.
     fn wipe(&mut self);
 }
@@ -83,6 +91,8 @@ pub fn string_multi_pass(text: &mut String) {
     text.clear();
 }
 
+impl sealed::Sealed for [u8] {}
+
 impl Wipe for [u8] {
     #[inline(never)]
     fn wipe(&mut self) {
@@ -90,12 +100,17 @@ impl Wipe for [u8] {
     }
 }
 
+impl<const N: usize> sealed::Sealed for [u8; N] {}
+
 impl<const N: usize> Wipe for [u8; N] {
     #[inline(never)]
     fn wipe(&mut self) {
         array(self);
     }
 }
+
+#[cfg(feature = "alloc")]
+impl sealed::Sealed for Vec<u8> {}
 
 #[cfg(feature = "alloc")]
 impl Wipe for Vec<u8> {
@@ -106,6 +121,9 @@ impl Wipe for Vec<u8> {
 }
 
 #[cfg(feature = "alloc")]
+impl sealed::Sealed for String {}
+
+#[cfg(feature = "alloc")]
 impl Wipe for String {
     #[inline(never)]
     fn wipe(&mut self) {
@@ -113,7 +131,7 @@ impl Wipe for String {
     }
 }
 
-/// Clear-on-drop wrapper for values implementing [`Wipe`].
+/// Clear-on-drop wrapper for the sealed built-in [`Wipe`] implementations.
 pub struct WipeOnDrop<T: Wipe> {
     inner: T,
 }
