@@ -84,10 +84,11 @@ added the intended private sealed supertrait and refreshed both API snapshots.
 Later review findings and approved ergonomics corrections also reopened the
 freeze. Each public API change required a matching snapshot refresh; behavioral
 derive and macro-policy restrictions required compile-failure regression tests.
-The latest finding remediation adds allocation-aware dynamic constructors and
-explicit mapped-initialization error classification. These are corrections to
-unreleased fallibility guarantees, and both source and semantic snapshots must
-be refreshed before the next freeze review.
+The latest finding remediation adds allocation-aware dynamic constructors,
+operation-specific mapped-initialization errors, checked-only pool allocation,
+and production slot quarantine telemetry. These are corrections to unreleased
+fallibility and integrity guarantees, and both source and semantic snapshots
+must be refreshed before the next freeze review.
 These changes refine unreleased 2.0 contracts rather than silently modifying a
 published API.
 

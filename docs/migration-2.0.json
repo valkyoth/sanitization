@@ -67,8 +67,11 @@
     {"legacy": "mapped operation names without try_ and *_checked aliases", "replacement": "try_* checked operations and *_or_panic fail-stop helpers", "anchor": "mapped-storage-and-integrity"},
     {"legacy": "feature name as runtime protection claim", "replacement": "ProtectionRequest and ProtectionReport", "anchor": "mapped-storage-and-integrity"},
     {"legacy": "LockedSecretBytesCheckedCopyError enum", "replacement": "SecretIntegrityError<LengthError> alias", "anchor": "mapped-storage-and-integrity"},
-    {"legacy": "LockedSecretBytes::from_array returning MemoryLockError", "replacement": "LockedSecretBytesArrayError", "anchor": "mapped-storage-and-integrity"},
-    {"legacy": "SecretPool::try_allocate_from_slice returning LengthError", "replacement": "SecretPoolSliceError", "anchor": "mapped-storage-and-integrity"},
+    {"legacy": "LockedSecretBytes::from_array returning MemoryLockError", "replacement": "LockedSecretInitError", "anchor": "mapped-storage-and-integrity"},
+    {"legacy": "SecretPool::allocate", "replacement": "SecretPool::try_allocate", "anchor": "mapped-storage-and-integrity"},
+    {"legacy": "SecretPool::allocate_from_array", "replacement": "SecretPool::try_allocate_from_array", "anchor": "mapped-storage-and-integrity"},
+    {"legacy": "SecretPool::allocate_from_fn", "replacement": "SecretPool::try_allocate_from_fn", "anchor": "mapped-storage-and-integrity"},
+    {"legacy": "SecretPool::try_allocate_from_slice returning LengthError", "replacement": "PoolInitError", "anchor": "mapped-storage-and-integrity"},
     {"legacy": "SecretPool::try_allocate_from_fn returning generator E", "replacement": "SecretPoolGenerateError<E>", "anchor": "mapped-storage-and-integrity"},
     {"legacy": "MemoryLockOperation exhaustive variants", "replacement": "handle WipeOnFork and do not persist implicit discriminants", "anchor": "mapped-storage-and-integrity"},
     {"legacy": "GuardPageOperation exhaustive variants", "replacement": "handle WipeOnFork and do not persist implicit discriminants", "anchor": "mapped-storage-and-integrity"}

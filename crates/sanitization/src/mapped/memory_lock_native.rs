@@ -285,62 +285,100 @@ impl From<MemoryLockError> for SecretIntegrityError<MemoryLockError> {
     }
 }
 
-/// Error returned while initializing mapped secret storage.
-///
-/// This keeps platform setup failures, canary-integrity failures, and
-/// caller-provided input or generator failures distinguishable.
+/// Error returned while initializing locked fixed-size secret storage.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MappedSecretInitializationError<E> {
+pub enum LockedSecretInitError {
     /// Mapping, memory policy, locking, or random-canary setup failed.
-    Memory(MemoryLockError),
+    Allocation(MemoryLockError),
     /// Canary verification failed before initialization completed.
     Integrity(CanaryCorruptedError),
-    /// Caller-provided input validation or generation failed.
-    Input(E),
 }
 
-impl<E> MappedSecretInitializationError<E> {
-    #[inline]
-    fn from_integrity(error: SecretIntegrityError<E>) -> Self {
-        match error {
-            SecretIntegrityError::Canary(error) => Self::Integrity(error),
-            SecretIntegrityError::Operation(error) => Self::Input(error),
-        }
-    }
-}
-
-impl<E: fmt::Display> fmt::Display for MappedSecretInitializationError<E> {
+impl fmt::Display for LockedSecretInitError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Memory(error) => error.fmt(formatter),
+            Self::Allocation(error) => error.fmt(formatter),
             Self::Integrity(error) => error.fmt(formatter),
-            Self::Input(error) => write!(formatter, "secret initialization failed: {error}"),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl<E> std::error::Error for MappedSecretInitializationError<E>
+impl std::error::Error for LockedSecretInitError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Allocation(error) => Some(error),
+            Self::Integrity(error) => Some(error),
+        }
+    }
+}
+
+/// Error returned while initializing a locked pool slot from bytes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PoolInitError {
+    /// The caller provided a slice with the wrong length.
+    Length(crate::LengthError),
+    /// Mapping, memory policy, or random-canary setup failed.
+    Allocation(MemoryLockError),
+    /// Canary verification failed and the affected slot was quarantined.
+    Integrity(CanaryCorruptedError),
+}
+
+impl fmt::Display for PoolInitError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Length(error) => error.fmt(formatter),
+            Self::Allocation(error) => error.fmt(formatter),
+            Self::Integrity(error) => error.fmt(formatter),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for PoolInitError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Length(error) => Some(error),
+            Self::Allocation(error) => Some(error),
+            Self::Integrity(error) => Some(error),
+        }
+    }
+}
+
+/// Error returned when initializing a pool slot with a fallible generator.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SecretPoolGenerateError<E> {
+    /// Mapping, memory policy, or random-canary setup failed.
+    Allocation(MemoryLockError),
+    /// Canary verification failed and the affected slot was quarantined.
+    Integrity(CanaryCorruptedError),
+    /// The caller-provided generator failed.
+    Generate(E),
+}
+
+impl<E: fmt::Display> fmt::Display for SecretPoolGenerateError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Allocation(error) => error.fmt(formatter),
+            Self::Integrity(error) => error.fmt(formatter),
+            Self::Generate(error) => write!(formatter, "secret generation failed: {error}"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<E> std::error::Error for SecretPoolGenerateError<E>
 where
     E: std::error::Error + 'static,
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Memory(error) => Some(error),
+            Self::Allocation(error) => Some(error),
             Self::Integrity(error) => Some(error),
-            Self::Input(error) => Some(error),
+            Self::Generate(error) => Some(error),
         }
     }
 }
-
-/// Error returned when initializing locked bytes from an owned array.
-pub type LockedSecretBytesArrayError = MappedSecretInitializationError<crate::LengthError>;
-
-/// Error returned when initializing a pool slot from a slice.
-pub type SecretPoolSliceError = MappedSecretInitializationError<crate::LengthError>;
-
-/// Error returned when initializing a pool slot with a fallible generator.
-pub type SecretPoolGenerateError<E> = MappedSecretInitializationError<E>;
 
 /// Error returned when constructing [`LockedSecretBytes`] from a slice.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -554,24 +592,34 @@ impl<const N: usize> LockedSecretBytes<N> {
         self.locked
     }
 
-    /// Allocate locked storage, copy an array into it, then clear the input
-    /// array with the crate's volatile wipe backend.
+    /// Allocate locked storage, copy an array into it, then clear this
+    /// function's owned array parameter with the crate's volatile wipe backend.
+    /// Other copies retained by the caller are outside this guarantee.
     #[inline]
-    pub fn from_array(mut bytes: [u8; N]) -> Result<Self, LockedSecretBytesArrayError> {
-        let mut secret = match Self::zeroed() {
-            Ok(secret) => secret,
-            Err(error) => {
-                crate::wipe::bytes(&mut bytes);
-                return Err(MappedSecretInitializationError::Memory(error));
-            }
-        };
+    pub fn from_array(mut bytes: [u8; N]) -> Result<Self, LockedSecretInitError> {
+        Self::from_array_buffer(&mut bytes)
+    }
 
-        let copied = secret
-            .try_copy_from_slice(&bytes)
-            .map_err(MappedSecretInitializationError::from_integrity);
-        crate::wipe::bytes(&mut bytes);
-        copied?;
-        Ok(secret)
+    #[inline]
+    fn from_array_buffer(bytes: &mut [u8; N]) -> Result<Self, LockedSecretInitError> {
+        let result = Self::zeroed()
+            .map_err(LockedSecretInitError::Allocation)
+            .and_then(|mut secret| {
+                secret
+                    .try_copy_from_array(bytes)
+                    .map_err(LockedSecretInitError::Integrity)?;
+                Ok(secret)
+            });
+        crate::wipe::bytes(bytes);
+        result
+    }
+
+    #[cfg(test)]
+    #[inline]
+    pub(crate) fn from_array_buffer_for_test(
+        bytes: &mut [u8; N],
+    ) -> Result<Self, LockedSecretInitError> {
+        Self::from_array_buffer(bytes)
     }
 
     /// Allocate locked storage and copy bytes from a same-length slice.
@@ -706,6 +754,14 @@ impl<const N: usize> LockedSecretBytes<N> {
             }));
         }
 
+        self.verify_integrity()?;
+        self.as_mut_slice().copy_from_slice(source);
+        compiler_fence(Ordering::SeqCst);
+        Ok(())
+    }
+
+    #[inline]
+    fn try_copy_from_array(&mut self, source: &[u8; N]) -> Result<(), CanaryCorruptedError> {
         self.verify_integrity()?;
         self.as_mut_slice().copy_from_slice(source);
         compiler_fence(Ordering::SeqCst);
@@ -1188,7 +1244,7 @@ impl<const N: usize> LockedSecretBytes<N> {
         Ok(N)
     }
 
-    #[cfg(all(test, feature = "canary-check", feature = "std"))]
+    #[cfg(all(test, feature = "canary-check"))]
     #[allow(dead_code)]
     #[inline]
     pub(crate) fn corrupt_prefix_canary_for_test(&mut self) {
@@ -2202,7 +2258,7 @@ impl fmt::Debug for LockedSecretVec {
 /// use sanitization::SecretPool;
 ///
 /// let pool = SecretPool::<32, 4>::new().unwrap();
-/// let slot = pool.allocate().unwrap();
+/// let slot = pool.try_allocate().unwrap().unwrap();
 /// drop(pool); // rejected: `slot` still borrows the pool
 /// drop(slot);
 /// ```
@@ -2215,8 +2271,9 @@ pub struct SecretPool<const N: usize, const SLOTS: usize> {
     report: ProtectionReport,
     used: [AtomicBool; SLOTS],
     generations: [AtomicUsize; SLOTS],
-    #[cfg(test)]
     quarantined: [AtomicBool; SLOTS],
+    #[cfg(all(test, feature = "canary-check"))]
+    fail_next_initialization_integrity: AtomicBool,
 }
 
 /// A live fixed-size secret slot allocated from a [`SecretPool`].
@@ -2279,7 +2336,6 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     pub fn new_with_protection(request: ProtectionRequest) -> Result<Self, ProtectionError> {
         let used = core::array::from_fn(|_| AtomicBool::new(false));
         let generations = core::array::from_fn(|_| AtomicUsize::new(0));
-        #[cfg(test)]
         let quarantined = core::array::from_fn(|_| AtomicBool::new(false));
         let payload_bytes = N.checked_mul(SLOTS).ok_or_else(|| {
             pre_mapping_error(request, usize::MAX, ProtectionControl::Mapping, 0, false)
@@ -2308,8 +2364,9 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
                 report,
                 used,
                 generations,
-                #[cfg(test)]
                 quarantined,
+                #[cfg(all(test, feature = "canary-check"))]
+                fail_next_initialization_integrity: AtomicBool::new(false),
             });
         }
 
@@ -2333,8 +2390,9 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
             report: setup.report,
             used,
             generations,
-            #[cfg(test)]
             quarantined,
+            #[cfg(all(test, feature = "canary-check"))]
+            fail_next_initialization_integrity: AtomicBool::new(false),
         })
     }
 
@@ -2396,7 +2454,23 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     pub fn available_slots(&self) -> usize {
         self.used
             .iter()
-            .filter(|used| !used.load(Ordering::Acquire))
+            .enumerate()
+            .filter(|(index, used)| {
+                !used.load(Ordering::Acquire) && !self.quarantined[*index].load(Ordering::Acquire)
+            })
+            .count()
+    }
+
+    /// Count slots permanently withheld after an integrity failure.
+    ///
+    /// This is public operational metadata. It does not expose mapping
+    /// addresses, canary values, or secret bytes.
+    #[must_use]
+    #[inline]
+    pub fn quarantined_slots(&self) -> usize {
+        self.quarantined
+            .iter()
+            .filter(|flag| flag.load(Ordering::Acquire))
             .count()
     }
 
@@ -2406,7 +2480,11 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     /// or release slots immediately after this method returns.
     #[must_use]
     pub fn arena_report(&self) -> SecretPoolReport {
-        let live_slots = SLOTS.saturating_sub(self.available_slots());
+        let live_slots = self
+            .used
+            .iter()
+            .filter(|flag| flag.load(Ordering::Acquire))
+            .count();
         let payload_capacity_bytes = N.saturating_mul(SLOTS);
         let reserved_bytes = self.slot_stride.saturating_mul(SLOTS);
 
@@ -2415,6 +2493,7 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
             slot_stride: self.slot_stride,
             capacity_slots: SLOTS,
             live_slots,
+            quarantined_slots: self.quarantined_slots(),
             payload_capacity_bytes,
             reserved_bytes,
             mapped_bytes: self.report.mapped_bytes,
@@ -2429,33 +2508,14 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
         }
     }
 
-    /// Allocate one unused slot from the pool.
-    ///
-    /// Returns `None` when every slot is currently allocated. The returned
-    /// slot starts zeroed if it has never been used before, or freshly
-    /// zeroed from the previous slot drop.
-    ///
-    /// With `random-canary`, operating-system CSPRNG failure is also
-    /// reported as `None`. Use [`SecretPool::try_allocate`] when the caller
-    /// needs to distinguish pool exhaustion from random-canary setup
-    /// failure.
-    #[must_use = "CSPRNG failure also returns None; use try_allocate() to distinguish failures from exhaustion"]
-    #[inline]
-    pub fn allocate(&self) -> Option<SecretPoolSlot<'_, N, SLOTS>> {
-        self.try_allocate().unwrap_or_default()
-    }
-
     /// Allocate one unused slot from the pool and report random-canary
     /// setup errors explicitly.
     ///
-    /// This is equivalent to [`SecretPool::allocate`] unless the
-    /// `random-canary` feature is enabled. With `random-canary`, operating
-    /// system CSPRNG failure is returned as [`MemoryLockError`] instead of
-    /// panicking.
+    /// `Ok(None)` means only that every non-quarantined slot is in use.
+    /// Random-canary setup failures are returned as [`MemoryLockError`].
     #[inline]
     pub fn try_allocate(&self) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, MemoryLockError> {
         for (slot_index, flag) in self.used.iter().enumerate() {
-            #[cfg(test)]
             if self.quarantined[slot_index].load(Ordering::Acquire) {
                 continue;
             }
@@ -2470,7 +2530,6 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
                         continue;
                     }
                 };
-                #[cfg(test)]
                 if self.quarantined[slot_index].load(Ordering::Acquire) {
                     flag.store(false, Ordering::Release);
                     continue;
@@ -2503,27 +2562,31 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     pub fn try_allocate_from_slice(
         &self,
         source: &[u8],
-    ) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, SecretPoolSliceError> {
+    ) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, PoolInitError> {
         if source.len() != N {
-            return Err(MappedSecretInitializationError::Input(crate::LengthError {
+            return Err(PoolInitError::Length(crate::LengthError {
                 expected: N,
                 actual: source.len(),
             }));
         }
 
-        let Some(mut slot) = self
-            .try_allocate()
-            .map_err(MappedSecretInitializationError::Memory)?
-        else {
+        let Some(mut slot) = self.try_allocate().map_err(PoolInitError::Allocation)? else {
             return Ok(None);
         };
 
+        #[cfg(feature = "canary-check")]
+        self.inject_initialization_integrity_failure_for_test(&mut slot);
+
         slot.try_copy_from_slice(source)
-            .map_err(MappedSecretInitializationError::from_integrity)?;
+            .map_err(|error| match error {
+                SecretIntegrityError::Canary(error) => PoolInitError::Integrity(error),
+                SecretIntegrityError::Operation(error) => PoolInitError::Length(error),
+            })?;
         Ok(Some(slot))
     }
 
-    /// Allocate a slot, copy an owned array into it, then clear the input.
+    /// Allocate a slot, copy an owned array into it, then clear this function's
+    /// owned array parameter. Other caller-retained copies are unaffected.
     ///
     /// `Ok(None)` means only that the pool is exhausted. Platform setup and
     /// integrity failures remain distinct errors.
@@ -2531,57 +2594,38 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     pub fn try_allocate_from_array(
         &self,
         mut bytes: [u8; N],
-    ) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, LockedSecretBytesArrayError> {
-        let result = match self
-            .try_allocate()
-            .map_err(MappedSecretInitializationError::Memory)
-        {
-            Ok(Some(mut slot)) => slot
-                .try_copy_from_slice(&bytes)
-                .map_err(MappedSecretInitializationError::from_integrity)
-                .map(|()| Some(slot)),
+    ) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, PoolInitError> {
+        self.try_allocate_from_array_buffer(&mut bytes)
+    }
+
+    #[inline]
+    fn try_allocate_from_array_buffer(
+        &self,
+        bytes: &mut [u8; N],
+    ) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, PoolInitError> {
+        let result = match self.try_allocate().map_err(PoolInitError::Allocation) {
+            Ok(Some(mut slot)) => {
+                #[cfg(feature = "canary-check")]
+                self.inject_initialization_integrity_failure_for_test(&mut slot);
+                slot.try_copy_from_array(bytes)
+                    .map_err(PoolInitError::Integrity)
+                    .map(|()| Some(slot))
+            }
             Ok(None) => Ok(None),
             Err(error) => Err(error),
         };
 
-        crate::wipe::bytes(&mut bytes);
+        crate::wipe::bytes(bytes);
         result
     }
 
-    /// Allocate a slot, copy an owned array into it, then clear the input
-    /// array with the crate's volatile wipe backend.
-    ///
-    /// This convenience method intentionally returns `None` for pool
-    /// exhaustion, platform setup failure, or canary-integrity failure. Use
-    /// [`SecretPool::try_allocate_from_array`] when those states must remain
-    /// distinguishable.
-    #[must_use = "setup or integrity failure also returns None; use try_allocate_from_array() to distinguish errors from exhaustion"]
+    #[cfg(test)]
     #[inline]
-    pub fn allocate_from_array(&self, bytes: [u8; N]) -> Option<SecretPoolSlot<'_, N, SLOTS>> {
-        let result = self.try_allocate_from_array(bytes);
-        result.ok().flatten()
-    }
-
-    /// Allocate a slot and generate each byte directly inside it.
-    ///
-    /// This convenience method intentionally returns `None` for pool
-    /// exhaustion or platform setup failure. Use
-    /// [`SecretPool::try_allocate_from_fn`] with an infallible `Ok` generator
-    /// when setup failures must remain distinguishable.
-    #[must_use = "setup failure also returns None; use try_allocate_from_fn() to distinguish errors from exhaustion"]
-    #[inline]
-    pub fn allocate_from_fn(
+    pub(crate) fn try_allocate_from_array_buffer_for_test(
         &self,
-        mut make_byte: impl FnMut(usize) -> u8,
-    ) -> Option<SecretPoolSlot<'_, N, SLOTS>> {
-        let mut slot = self.allocate()?;
-        let mut index = 0;
-        while index < N {
-            slot.as_mut_slice()[index] = make_byte(index);
-            index += 1;
-        }
-        compiler_fence(Ordering::SeqCst);
-        Some(slot)
+        bytes: &mut [u8; N],
+    ) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, PoolInitError> {
+        self.try_allocate_from_array_buffer(bytes)
     }
 
     /// Allocate a slot and fallibly generate each byte directly inside it.
@@ -2596,13 +2640,19 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     ) -> Result<Option<SecretPoolSlot<'_, N, SLOTS>>, SecretPoolGenerateError<E>> {
         let Some(mut slot) = self
             .try_allocate()
-            .map_err(MappedSecretInitializationError::Memory)?
+            .map_err(SecretPoolGenerateError::Allocation)?
         else {
             return Ok(None);
         };
 
+        #[cfg(feature = "canary-check")]
+        self.inject_initialization_integrity_failure_for_test(&mut slot);
+
         slot.try_replace_from_fallible_fn(make_byte)
-            .map_err(MappedSecretInitializationError::from_integrity)?;
+            .map_err(|error| match error {
+                SecretIntegrityError::Canary(error) => SecretPoolGenerateError::Integrity(error),
+                SecretIntegrityError::Operation(error) => SecretPoolGenerateError::Generate(error),
+            })?;
         Ok(Some(slot))
     }
 
@@ -2662,6 +2712,35 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
             return false;
         }
         true
+    }
+
+    #[cfg(all(test, feature = "canary-check"))]
+    #[inline]
+    pub(crate) fn fail_next_initialization_integrity_for_test(&self) {
+        self.fail_next_initialization_integrity
+            .store(true, Ordering::Release);
+    }
+
+    #[cfg(all(test, feature = "canary-check"))]
+    #[inline]
+    fn inject_initialization_integrity_failure_for_test(
+        &self,
+        slot: &mut SecretPoolSlot<'_, N, SLOTS>,
+    ) {
+        if self
+            .fail_next_initialization_integrity
+            .swap(false, Ordering::AcqRel)
+        {
+            slot.corrupt_prefix_canary_for_test();
+        }
+    }
+
+    #[cfg(all(not(test), feature = "canary-check"))]
+    #[inline]
+    fn inject_initialization_integrity_failure_for_test(
+        &self,
+        _slot: &mut SecretPoolSlot<'_, N, SLOTS>,
+    ) {
     }
 
     #[cfg(test)]
@@ -2789,13 +2868,16 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
         &mut self,
         mut bytes: [u8; N],
     ) -> Result<(), CanaryCorruptedError> {
-        if let Err(error) = self.verify_integrity() {
-            crate::wipe::bytes(&mut bytes);
-            return Err(error);
-        }
-        self.as_mut_slice().copy_from_slice(&bytes);
-        compiler_fence(Ordering::SeqCst);
+        let result = self.try_copy_from_array(&bytes);
         crate::wipe::bytes(&mut bytes);
+        result
+    }
+
+    #[inline]
+    fn try_copy_from_array(&mut self, source: &[u8; N]) -> Result<(), CanaryCorruptedError> {
+        self.verify_integrity()?;
+        self.as_mut_slice().copy_from_slice(source);
+        compiler_fence(Ordering::SeqCst);
         Ok(())
     }
 
@@ -3134,9 +3216,10 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
             // for this slot.
             crate::wipe_backend::erase(self.ptr.as_ptr(), self.slot_stride());
         }
+        self.pool.quarantined[self.slot_index].store(true, Ordering::Release);
     }
 
-    #[cfg(all(test, feature = "canary-check", feature = "std"))]
+    #[cfg(all(test, feature = "canary-check"))]
     #[allow(dead_code)]
     #[inline]
     pub(crate) fn corrupt_prefix_canary_for_test(&mut self) {

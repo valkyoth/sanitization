@@ -323,9 +323,8 @@ Invariant:
   secret bytes. Random generation failure is reported as a `Random` platform
   operation error where the API can return one. `SecretPool::try_allocate` and
   all `try_allocate_from_*` initialization helpers preserve random generation
-  failure separately from ordinary exhaustion. The convenience `allocate*`
-  methods intentionally collapse setup failure to `None` and document that
-  reduced diagnostic contract.
+  failure separately from ordinary exhaustion. There are no lossy pool
+  allocation convenience methods.
 - Canary writes happen only after platform mapping setup and locking succeed.
 - On WASM, there is no platform mapping setup or locking. `canary-check`
   requires `random-canary` at compile time because deterministic inline-storage
@@ -384,12 +383,13 @@ Invariant:
 - Acquire ordering on the next successful claim observes the previous release
   after clearing. The repository's Loom model checks non-overlap,
   clear-before-reuse, generation advance, and failed-setup release.
-- Test builds provide per-slot quarantine and generation fault-injection hooks.
-  Quarantined slots are skipped before and after bitmap claim, and a claim
-  abandoned during setup releases the bitmap exactly once.
-- `arena_report()` derives payload, reserved, mapped, locked, and overhead
-  counts without exposing secret bytes. Its live-slot count is a point-in-time
-  observation only.
+- Canary failure volatile-clears the affected slot and permanently quarantines
+  it for the pool's lifetime. Quarantined slots are skipped before and after
+  bitmap claim. A claim abandoned because setup or generation failed without
+  an integrity violation releases the bitmap exactly once.
+- `arena_report()` derives payload, live, quarantine, reserved, mapped, locked,
+  and overhead counts without exposing secret bytes, mapping addresses, or
+  canary values. Its live and quarantine counts are point-in-time observations.
 - Dropping the pool requires no live slots, volatile-clears the full mapping,
   then unlocks and releases it with the same platform backend as
   `LockedSecretBytes<N>`.

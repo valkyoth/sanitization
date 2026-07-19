@@ -678,8 +678,14 @@ fn ct_secret_containers_expose_native_traits() {
             Ok(pool) => pool,
             Err(_) => return,
         };
-        let pooled_left = pool.allocate_from_array([1u8, 2, 3, 4]).unwrap();
-        let pooled_same = pool.allocate_from_array([1u8, 2, 3, 4]).unwrap();
+        let pooled_left = pool
+            .try_allocate_from_array([1u8, 2, 3, 4])
+            .unwrap()
+            .unwrap();
+        let pooled_same = pool
+            .try_allocate_from_array([1u8, 2, 3, 4])
+            .unwrap()
+            .unwrap();
         assert_eq!(
             pooled_left
                 .ct_eq(&pooled_same)
@@ -1224,6 +1230,7 @@ fn secret_pool_report_calculates_public_efficiency_metadata() {
         slot_stride: 48,
         capacity_slots: 64,
         live_slots: 8,
+        quarantined_slots: 0,
         payload_capacity_bytes: 2048,
         reserved_bytes: 3072,
         mapped_bytes: 4096,
@@ -4482,8 +4489,11 @@ fn secret_pool_allocates_reuses_and_clears_slots() {
     assert!(empty_report.storage_efficiency_basis_points().is_some());
     assert!(empty_report.mapping_efficiency_basis_points().is_some());
 
-    let mut first = pool.allocate_from_array([1, 2, 3, 4]).unwrap();
-    let mut second = pool.allocate_from_fn(|index| (index as u8) + 5).unwrap();
+    let mut first = pool.try_allocate_from_array([1, 2, 3, 4]).unwrap().unwrap();
+    let mut second = pool
+        .try_allocate_from_fn(|index| Ok::<u8, core::convert::Infallible>((index as u8) + 5))
+        .unwrap()
+        .unwrap();
     let first_id = first.slot_id();
     let second_id = second.slot_id();
     let mut out = [0; 4];
@@ -4492,7 +4502,6 @@ fn secret_pool_allocates_reuses_and_clears_slots() {
     assert_ne!(first.generation(), 0);
     assert_eq!(pool.available_slots(), 0);
     assert_eq!(pool.arena_report().live_slots, 2);
-    assert!(pool.allocate().is_none());
     assert!(pool.try_allocate().unwrap().is_none());
     assert!(first.constant_time_eq_or_panic(&[1, 2, 3, 4]));
     assert!(second.try_copy_to_slice(&mut out).is_ok());
@@ -4577,27 +4586,31 @@ fn secret_pool_handles_generation_and_zero_slot_cases() {
         Ok(_) => panic!("generation should have failed"),
         Err(error) => assert_eq!(
             error,
-            MappedSecretInitializationError::Input("generation failed")
+            SecretPoolGenerateError::Generate("generation failed")
         ),
     }
     assert_eq!(pool.available_slots(), 1);
     let reused_after_error = pool
-        .allocate()
+        .try_allocate()
+        .unwrap()
         .expect("failed generation must release slot");
     assert!(reused_after_error.constant_time_eq_or_panic(&[0, 0, 0, 0]));
     drop(reused_after_error);
 
     let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = pool.allocate_from_fn(|index| {
+        let _ = pool.try_allocate_from_fn(|index| {
             if index == 2 {
                 panic!("generation panic");
             }
-            (index as u8).wrapping_add(1)
+            Ok::<u8, core::convert::Infallible>((index as u8).wrapping_add(1))
         });
     }));
     assert!(panic_result.is_err());
     assert_eq!(pool.available_slots(), 1);
-    let reused_after_panic = pool.allocate().expect("panic must release slot");
+    let reused_after_panic = pool
+        .try_allocate()
+        .unwrap()
+        .expect("panic must release slot");
     assert!(reused_after_panic.constant_time_eq_or_panic(&[0, 0, 0, 0]));
     drop(reused_after_panic);
 
@@ -4605,7 +4618,7 @@ fn secret_pool_handles_generation_and_zero_slot_cases() {
     assert!(empty.is_empty());
     assert_eq!(empty.locked_len(), 0);
     assert_eq!(empty.arena_report().storage_efficiency_basis_points(), None);
-    let slot = empty.allocate().unwrap();
+    let slot = empty.try_allocate().unwrap().unwrap();
     assert!(slot.is_empty());
 }
 
@@ -4618,14 +4631,16 @@ fn secret_pool_handles_generation_and_zero_slot_cases() {
 ))]
 #[test]
 fn mapped_initializers_preserve_injected_csprng_failures() {
+    let mut locked_input = [1, 2, 3, 4];
     crate::canary::fail_next_fill_for_test();
     assert!(matches!(
-        LockedSecretBytes::<4>::from_array([1, 2, 3, 4]),
-        Err(MappedSecretInitializationError::Memory(MemoryLockError {
+        LockedSecretBytes::<4>::from_array_buffer_for_test(&mut locked_input),
+        Err(LockedSecretInitError::Allocation(MemoryLockError {
             operation: MemoryLockOperation::Random,
             errno: -3,
         }))
     ));
+    assert_eq!(locked_input, [0; 4]);
 
     let pool = match SecretPool::<4, 1>::new() {
         Ok(pool) => pool,
@@ -4634,33 +4649,107 @@ fn mapped_initializers_preserve_injected_csprng_failures() {
 
     crate::canary::fail_next_fill_for_test();
     assert!(matches!(
+        pool.try_allocate(),
+        Err(MemoryLockError {
+            operation: MemoryLockOperation::Random,
+            errno: -3,
+        })
+    ));
+    assert_eq!(pool.available_slots(), 1);
+
+    crate::canary::fail_next_fill_for_test();
+    assert!(matches!(
         pool.try_allocate_from_slice(&[1, 2, 3, 4]),
-        Err(MappedSecretInitializationError::Memory(MemoryLockError {
+        Err(PoolInitError::Allocation(MemoryLockError {
             operation: MemoryLockOperation::Random,
             errno: -3,
         }))
     ));
     assert_eq!(pool.available_slots(), 1);
 
+    let mut pool_input = [1, 2, 3, 4];
     crate::canary::fail_next_fill_for_test();
     assert!(matches!(
-        pool.try_allocate_from_array([1, 2, 3, 4]),
-        Err(MappedSecretInitializationError::Memory(MemoryLockError {
+        pool.try_allocate_from_array_buffer_for_test(&mut pool_input),
+        Err(PoolInitError::Allocation(MemoryLockError {
             operation: MemoryLockOperation::Random,
             errno: -3,
         }))
     ));
+    assert_eq!(pool_input, [0; 4]);
     assert_eq!(pool.available_slots(), 1);
 
     crate::canary::fail_next_fill_for_test();
     assert!(matches!(
         pool.try_allocate_from_fn(|index| Ok::<u8, &'static str>(index as u8)),
-        Err(MappedSecretInitializationError::Memory(MemoryLockError {
+        Err(SecretPoolGenerateError::Allocation(MemoryLockError {
             operation: MemoryLockOperation::Random,
             errno: -3,
         }))
     ));
     assert_eq!(pool.available_slots(), 1);
+}
+
+#[cfg(all(
+    feature = "std",
+    feature = "canary-check",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn pool_initialization_integrity_failure_wipes_and_quarantines() {
+    let pool = match SecretPool::<4, 2>::new() {
+        Ok(pool) => pool,
+        Err(_) => return,
+    };
+
+    let mut input = [1, 2, 3, 4];
+    pool.fail_next_initialization_integrity_for_test();
+    assert!(matches!(
+        pool.try_allocate_from_array_buffer_for_test(&mut input),
+        Err(PoolInitError::Integrity(CanaryCorruptedError))
+    ));
+    assert_eq!(input, [0; 4]);
+    assert_eq!(pool.quarantined_slots(), 1);
+    assert_eq!(pool.available_slots(), 1);
+
+    let live = pool.try_allocate().unwrap().unwrap();
+    assert_eq!(pool.available_slots(), 0);
+    assert!(matches!(pool.try_allocate(), Ok(None)));
+    drop(live);
+    assert_eq!(pool.available_slots(), 1);
+    assert_eq!(pool.arena_report().quarantined_slots, 1);
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn owned_array_initialization_wipes_success_inputs() {
+    let mut locked_input = [1, 2, 3, 4];
+    let locked = match LockedSecretBytes::<4>::from_array_buffer_for_test(&mut locked_input) {
+        Ok(locked) => locked,
+        Err(_) => return,
+    };
+    assert_eq!(locked_input, [0; 4]);
+    drop(locked);
+
+    let pool = match SecretPool::<4, 1>::new() {
+        Ok(pool) => pool,
+        Err(_) => return,
+    };
+    let mut pool_input = [5, 6, 7, 8];
+    let slot = pool
+        .try_allocate_from_array_buffer_for_test(&mut pool_input)
+        .unwrap()
+        .unwrap();
+    assert_eq!(pool_input, [0; 4]);
+    drop(slot);
 }
 
 #[cfg(all(
@@ -4677,7 +4766,10 @@ fn secret_pool_test_quarantine_and_generation_wrap_fail_closed() {
     };
 
     assert!(pool.quarantine_slot_for_test(0, true));
-    let slot = pool.allocate().expect("unquarantined slot must allocate");
+    let slot = pool
+        .try_allocate()
+        .unwrap()
+        .expect("unquarantined slot must allocate");
     assert_eq!(slot.slot_index(), 1);
     assert!(!pool.quarantine_slot_for_test(1, true));
     drop(slot);
@@ -4687,7 +4779,10 @@ fn secret_pool_test_quarantine_and_generation_wrap_fail_closed() {
     assert!(pool.quarantine_slot_for_test(0, true));
     assert!(pool.set_slot_generation_for_test(0, usize::MAX));
     assert!(pool.quarantine_slot_for_test(0, false));
-    let wrapped = pool.allocate().expect("generation wrap must remain usable");
+    let wrapped = pool
+        .try_allocate()
+        .unwrap()
+        .expect("generation wrap must remain usable");
     assert_eq!(wrapped.slot_index(), 0);
     assert_eq!(wrapped.generation(), 1);
 }
@@ -4706,7 +4801,7 @@ fn secret_pool_slot_canaries_detect_corruption() {
         Ok(pool) => pool,
         Err(_) => return,
     };
-    let mut slot = pool.allocate_from_array([1, 2, 3, 4]).unwrap();
+    let mut slot = pool.try_allocate_from_array([1, 2, 3, 4]).unwrap().unwrap();
 
     assert_eq!(slot.verify_integrity(), Ok(()));
     assert_eq!(slot.try_expose_secret(|bytes| bytes[0]), Ok(1));
@@ -4727,6 +4822,9 @@ fn secret_pool_slot_canaries_detect_corruption() {
         slot.try_constant_time_eq(&[1, 2, 3, 4]),
         Err(CanaryCorruptedError)
     );
+    drop(slot);
+    assert_eq!(pool.quarantined_slots(), 1);
+    assert_eq!(pool.available_slots(), 0);
 }
 
 #[cfg(all(
@@ -4745,12 +4843,12 @@ fn secret_pool_deterministic_canary_rotates_when_slot_is_reused() {
         Err(_) => return,
     };
 
-    let first = pool.allocate().unwrap();
+    let first = pool.try_allocate().unwrap().unwrap();
     let first_canary = first.deterministic_canary_for_test();
     let slot_index = first.slot_index();
     drop(first);
 
-    let second = pool.allocate().unwrap();
+    let second = pool.try_allocate().unwrap().unwrap();
     assert_eq!(second.slot_index(), slot_index);
     assert_ne!(second.deterministic_canary_for_test(), first_canary);
     assert_eq!(second.verify_integrity(), Ok(()));
@@ -4777,14 +4875,14 @@ fn secret_pool_concurrent_allocation_gets_distinct_slots() {
 
     let worker = std::thread::spawn(move || {
         worker_start.wait();
-        let slot = worker_pool.allocate();
+        let slot = worker_pool.try_allocate().unwrap();
         let index = slot.as_ref().map(|slot| slot.slot_index());
         worker_finish.wait();
         index
     });
 
     start.wait();
-    let slot = pool.allocate();
+    let slot = pool.try_allocate().unwrap();
     let main_index = slot.as_ref().map(|slot| slot.slot_index());
     finish.wait();
     let worker_index = worker.join().unwrap();

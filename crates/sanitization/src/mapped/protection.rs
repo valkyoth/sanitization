@@ -164,6 +164,8 @@ pub struct SecretPoolReport {
     pub capacity_slots: usize,
     /// Slots with a live handle when the report was captured.
     pub live_slots: usize,
+    /// Slots permanently withheld after an integrity failure.
+    pub quarantined_slots: usize,
     /// Maximum secret payload bytes across all slots.
     pub payload_capacity_bytes: usize,
     /// Slot storage bytes before platform page rounding.

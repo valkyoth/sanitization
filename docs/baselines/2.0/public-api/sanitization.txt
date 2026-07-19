@@ -619,6 +619,13 @@ impl<E> core::convert::From<sanitization::MemoryLockError> for sanitization::Loc
 pub fn sanitization::LockedSecretBytesGenerateError<E>::from(sanitization::MemoryLockError) -> Self
 impl<E> core::error::Error for sanitization::LockedSecretBytesGenerateError<E> where E: core::error::Error + 'static
 pub fn sanitization::LockedSecretBytesGenerateError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+pub enum sanitization::LockedSecretInitError
+pub sanitization::LockedSecretInitError::Allocation(sanitization::MemoryLockError)
+pub sanitization::LockedSecretInitError::Integrity(sanitization::CanaryCorruptedError)
+impl core::error::Error for sanitization::LockedSecretInitError
+pub fn sanitization::LockedSecretInitError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Display for sanitization::LockedSecretInitError
+pub fn sanitization::LockedSecretInitError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum sanitization::LockedSecretVecFillError<E>
 pub sanitization::LockedSecretVecFillError::Fill(E)
 pub sanitization::LockedSecretVecFillError::Length(sanitization::LengthError)
@@ -640,14 +647,6 @@ impl<E> core::convert::From<sanitization::MemoryLockError> for sanitization::Loc
 pub fn sanitization::LockedSecretVecGenerateError<E>::from(sanitization::MemoryLockError) -> Self
 impl<E> core::error::Error for sanitization::LockedSecretVecGenerateError<E> where E: core::error::Error + 'static
 pub fn sanitization::LockedSecretVecGenerateError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-pub enum sanitization::MappedSecretInitializationError<E>
-pub sanitization::MappedSecretInitializationError::Input(E)
-pub sanitization::MappedSecretInitializationError::Integrity(sanitization::CanaryCorruptedError)
-pub sanitization::MappedSecretInitializationError::Memory(sanitization::MemoryLockError)
-impl<E: core::fmt::Display> core::fmt::Display for sanitization::MappedSecretInitializationError<E>
-pub fn sanitization::MappedSecretInitializationError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::error::Error for sanitization::MappedSecretInitializationError<E> where E: core::error::Error + 'static
-pub fn sanitization::MappedSecretInitializationError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 pub enum sanitization::MemoryLockOperation
 pub sanitization::MemoryLockOperation::DontDump
 pub sanitization::MemoryLockOperation::DontFork
@@ -658,6 +657,14 @@ pub sanitization::MemoryLockOperation::Random
 pub sanitization::MemoryLockOperation::Unlock
 pub sanitization::MemoryLockOperation::Unmap
 pub sanitization::MemoryLockOperation::WipeOnFork
+pub enum sanitization::PoolInitError
+pub sanitization::PoolInitError::Allocation(sanitization::MemoryLockError)
+pub sanitization::PoolInitError::Integrity(sanitization::CanaryCorruptedError)
+pub sanitization::PoolInitError::Length(sanitization::LengthError)
+impl core::error::Error for sanitization::PoolInitError
+pub fn sanitization::PoolInitError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Display for sanitization::PoolInitError
+pub fn sanitization::PoolInitError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum sanitization::ProtectionControl
 pub sanitization::ProtectionControl::CachePolicy
 pub sanitization::ProtectionControl::Canary
@@ -745,6 +752,14 @@ impl<E> core::convert::From<sanitization::CanaryCorruptedError> for sanitization
 pub fn sanitization::SecretIntegrityError<E>::from(sanitization::CanaryCorruptedError) -> Self
 impl<E> core::error::Error for sanitization::SecretIntegrityError<E> where E: core::error::Error + 'static
 pub fn sanitization::SecretIntegrityError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+pub enum sanitization::SecretPoolGenerateError<E>
+pub sanitization::SecretPoolGenerateError::Allocation(sanitization::MemoryLockError)
+pub sanitization::SecretPoolGenerateError::Generate(E)
+pub sanitization::SecretPoolGenerateError::Integrity(sanitization::CanaryCorruptedError)
+impl<E: core::fmt::Display> core::fmt::Display for sanitization::SecretPoolGenerateError<E>
+pub fn sanitization::SecretPoolGenerateError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::error::Error for sanitization::SecretPoolGenerateError<E> where E: core::error::Error + 'static
+pub fn sanitization::SecretPoolGenerateError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 pub enum sanitization::SecretTextIntegrityError
 pub sanitization::SecretTextIntegrityError::Canary(sanitization::CanaryCorruptedError)
 pub sanitization::SecretTextIntegrityError::Utf8(core::str::error::Utf8Error)
@@ -1076,7 +1091,7 @@ impl<const N: usize> sanitization::LockedSecretBytes<N>
 pub fn sanitization::LockedSecretBytes<N>::constant_time_eq_or_panic(&self, &[u8]) -> bool
 pub fn sanitization::LockedSecretBytes<N>::expose_secret_copy_or_panic<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> R
 pub fn sanitization::LockedSecretBytes<N>::expose_secret_or_panic<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> R
-pub fn sanitization::LockedSecretBytes<N>::from_array([u8; N]) -> core::result::Result<Self, sanitization::LockedSecretBytesArrayError>
+pub fn sanitization::LockedSecretBytes<N>::from_array([u8; N]) -> core::result::Result<Self, sanitization::LockedSecretInitError>
 pub fn sanitization::LockedSecretBytes<N>::from_fill(impl core::ops::function::FnOnce(&mut [u8; N])) -> core::result::Result<Self, sanitization::MemoryLockError>
 pub fn sanitization::LockedSecretBytes<N>::from_fn(impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<Self, sanitization::MemoryLockError>
 pub fn sanitization::LockedSecretBytes<N>::from_slice(&[u8]) -> core::result::Result<Self, sanitization::LockedSecretBytesError>
@@ -1490,9 +1505,6 @@ impl core::fmt::Display for sanitization::SecretExpiredError
 pub fn sanitization::SecretExpiredError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct sanitization::SecretPool<const N: usize, const SLOTS: usize>
 impl<const N: usize, const SLOTS: usize> sanitization::SecretPool<N, SLOTS>
-pub fn sanitization::SecretPool<N, SLOTS>::allocate(&self) -> core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>
-pub fn sanitization::SecretPool<N, SLOTS>::allocate_from_array(&self, [u8; N]) -> core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>
-pub fn sanitization::SecretPool<N, SLOTS>::allocate_from_fn(&self, impl core::ops::function::FnMut(usize) -> u8) -> core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>
 pub fn sanitization::SecretPool<N, SLOTS>::arena_report(&self) -> sanitization::SecretPoolReport
 pub fn sanitization::SecretPool<N, SLOTS>::available_slots(&self) -> usize
 pub const fn sanitization::SecretPool<N, SLOTS>::capacity_slots(&self) -> usize
@@ -1505,12 +1517,13 @@ pub fn sanitization::SecretPool<N, SLOTS>::new_hardened_native() -> core::result
 pub fn sanitization::SecretPool<N, SLOTS>::new_with_protection(sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectionError>
 pub const fn sanitization::SecretPool<N, SLOTS>::protection_report(&self) -> &sanitization::ProtectionReport
 pub const fn sanitization::SecretPool<N, SLOTS>::protection_request(&self) -> sanitization::ProtectionRequest
+pub fn sanitization::SecretPool<N, SLOTS>::quarantined_slots(&self) -> usize
 pub fn sanitization::SecretPool<N, SLOTS>::secure_clear(&mut self)
 pub const fn sanitization::SecretPool<N, SLOTS>::slot_size(&self) -> usize
 pub fn sanitization::SecretPool<N, SLOTS>::try_allocate(&self) -> core::result::Result<core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>, sanitization::MemoryLockError>
-pub fn sanitization::SecretPool<N, SLOTS>::try_allocate_from_array(&self, [u8; N]) -> core::result::Result<core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>, sanitization::LockedSecretBytesArrayError>
+pub fn sanitization::SecretPool<N, SLOTS>::try_allocate_from_array(&self, [u8; N]) -> core::result::Result<core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>, sanitization::PoolInitError>
 pub fn sanitization::SecretPool<N, SLOTS>::try_allocate_from_fn<E>(&self, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>, sanitization::SecretPoolGenerateError<E>>
-pub fn sanitization::SecretPool<N, SLOTS>::try_allocate_from_slice(&self, &[u8]) -> core::result::Result<core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>, sanitization::SecretPoolSliceError>
+pub fn sanitization::SecretPool<N, SLOTS>::try_allocate_from_slice(&self, &[u8]) -> core::result::Result<core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>, sanitization::PoolInitError>
 pub fn sanitization::SecretPool<N, SLOTS>::try_secure_clear_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
 impl<const N: usize, const SLOTS: usize> core::fmt::Debug for sanitization::SecretPool<N, SLOTS>
 pub fn sanitization::SecretPool<N, SLOTS>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -1532,6 +1545,7 @@ pub sanitization::SecretPoolReport::mapped_bytes: usize
 pub sanitization::SecretPoolReport::mapping_overhead_bytes: usize
 pub sanitization::SecretPoolReport::page_granule: usize
 pub sanitization::SecretPoolReport::payload_capacity_bytes: usize
+pub sanitization::SecretPoolReport::quarantined_slots: usize
 pub sanitization::SecretPoolReport::reserved_bytes: usize
 pub sanitization::SecretPoolReport::slot_size: usize
 pub sanitization::SecretPoolReport::slot_stride: usize
@@ -1956,9 +1970,6 @@ impl<const N: usize> sanitization::StableSharedSecretStorage for sanitization::S
 pub fn sanitization::sanitize_then_abort<T: sanitization::SecureSanitize + ?core::marker::Sized>(&mut T) -> never
 pub fn sanitization::secure_replace<T: sanitization::SecureSanitize>(&mut T, T)
 pub type sanitization::IntegrityResult<T> = core::result::Result<T, sanitization::CanaryCorruptedError>
-pub type sanitization::LockedSecretBytesArrayError = sanitization::MappedSecretInitializationError<sanitization::LengthError>
 pub type sanitization::LockedSecretBytesCheckedCopyError = sanitization::SecretIntegrityError<sanitization::LengthError>
 pub type sanitization::MappedResult<T, E> = core::result::Result<T, sanitization::SecretIntegrityError<E>>
 pub type sanitization::SecretIntegrityResult<T, E> = sanitization::MappedResult<T, E>
-pub type sanitization::SecretPoolGenerateError<E> = sanitization::MappedSecretInitializationError<E>
-pub type sanitization::SecretPoolSliceError = sanitization::MappedSecretInitializationError<sanitization::LengthError>

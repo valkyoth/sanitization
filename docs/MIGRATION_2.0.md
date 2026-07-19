@@ -321,13 +321,18 @@ Handle `CanaryCorruptedError` or `SecretIntegrityError<E>` explicitly. Use an
 `*_or_panic` helper only when aborting the current control flow is an intentional
 deployment policy.
 
-Mapped initialization now uses `MappedSecretInitializationError<E>` where an
-operation can fail during platform setup, canary verification, or caller input
-generation. In particular, `LockedSecretBytes::from_array` and the
-`SecretPool::try_allocate_from_*` helpers no longer suppress canary or CSPRNG
-failure. For checked pool initialization, `Ok(None)` now means only exhaustion.
-The non-`try` `allocate*` conveniences continue to collapse setup failures to
-`None` and should not be used where those states require different policy.
+Mapped initialization now uses operation-specific `LockedSecretInitError`,
+`PoolInitError`, and `SecretPoolGenerateError<E>` types. In particular,
+`LockedSecretBytes::from_array` and the `SecretPool::try_allocate_from_*`
+helpers do not suppress canary or CSPRNG failure. For pool initialization,
+`Ok(None)` means only that every usable slot is occupied.
+
+The lossy 1.x `SecretPool::allocate`, `allocate_from_array`, and
+`allocate_from_fn` methods were removed. Use `try_allocate`,
+`try_allocate_from_array`, or `try_allocate_from_fn` and propagate the setup
+error. Canary corruption clears and quarantines the affected slot; use
+`quarantined_slots()` or `arena_report().quarantined_slots` for public
+application telemetry.
 
 When an exposure closure is itself fallible, import
 `SecretIntegrityResultExt` and call `flatten_secret_integrity()` to convert

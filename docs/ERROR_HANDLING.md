@@ -37,20 +37,28 @@ handler when memory cannot be obtained.
 
 ## Mapped Initialization
 
-`MappedSecretInitializationError<E>` keeps three initialization failures
-separate:
+Mapped initialization uses operation-specific errors without impossible
+variants:
 
-- `Memory` for mapping, locking, policy, or OS-CSPRNG setup;
-- `Integrity` for canary corruption detected before initialization; and
-- `Input` for length validation or caller generator failure.
+- `LockedSecretInitError` distinguishes allocation or OS-CSPRNG setup from
+  fixed-secret integrity failure;
+- `PoolInitError` distinguishes public length, allocation or OS-CSPRNG setup,
+  and integrity failure; and
+- `SecretPoolGenerateError<E>` additionally preserves a caller generator
+  failure.
 
 `LockedSecretBytes::from_array`, `SecretPool::try_allocate_from_slice`,
 `SecretPool::try_allocate_from_array`, and
-`SecretPool::try_allocate_from_fn` preserve these classifications. For checked
-pool constructors, `Ok(None)` means only pool exhaustion. The convenience
-methods `allocate`, `allocate_from_array`, and `allocate_from_fn` intentionally
-collapse platform setup failure to `None`; do not use them where exhaustion and
-security-control failure require different responses.
+`SecretPool::try_allocate_from_fn` preserve these classifications. `Ok(None)`
+means only that every usable pool slot is occupied. Pool allocation has no
+lossy non-`try` convenience path.
+
+Canary corruption clears and permanently quarantines the affected slot for the
+pool's lifetime before returning `Integrity`. Applications can inspect
+`SecretPool::quarantined_slots()` or `arena_report().quarantined_slots` as
+public security telemetry, then reject service or terminate according to their
+deployment policy. Do not log secret bytes, mapping addresses, or canary
+values.
 
 ## Fallible Exposure Closures
 

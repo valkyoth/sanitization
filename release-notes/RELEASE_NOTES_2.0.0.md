@@ -85,10 +85,13 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
   canary integrity explicit per-container policy outcomes.
 - Hardened `SecretPool` with checked fixed-layout accounting, generation-bound
   canaries, failure quarantine, and efficiency reporting.
-- Preserved CSPRNG, mapping, canary-integrity, and caller-input failures through
-  `MappedSecretInitializationError`. Checked pool initialization now reserves
-  `Ok(None)` exclusively for exhaustion; explicitly documented convenience
-  allocators remain lossy by design.
+- Preserved CSPRNG, mapping, canary-integrity, length, and caller-generator
+  failures through operation-specific `LockedSecretInitError`, `PoolInitError`,
+  and `SecretPoolGenerateError<E>` types. Pool initialization reserves
+  `Ok(None)` exclusively for exhaustion and removes lossy allocation helpers.
+- Made pool integrity failure clear and permanently quarantine the affected
+  slot. Added aggregate quarantine telemetry without exposing addresses,
+  canary values, or secret bytes.
 - Added opt-in `SealedSecretBytes<N>` with guard pages, fallible page sealing,
   poisoning/retirement after unsafe transition failures, and multi-page fault
   recovery tests. This remains a reviewed optional facility with documented

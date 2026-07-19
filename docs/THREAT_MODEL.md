@@ -361,6 +361,12 @@ limit. For many same-size secrets on an untrusted or high-volume path,
 pre-allocate a bounded `SecretPool<N, SLOTS>` during trusted startup and treat
 pool exhaustion as an explicit availability policy.
 
+Canary corruption clears and permanently quarantines the affected pool slot,
+reducing usable capacity until the pool is replaced. `quarantined_slots()` and
+`arena_report().quarantined_slots` expose only aggregate public telemetry so an
+application can reject service or terminate under its own policy. They do not
+expose mapping addresses, canary values, or secret bytes.
+
 Fixed pool generations make slot reuse visible and are mixed into deterministic
 pooled canaries. They do not prevent a privileged attacker from modifying
 metadata, are not unforgeable tokens, and eventually wrap. The safe stale-handle

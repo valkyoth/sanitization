@@ -124,6 +124,32 @@ See [`BARRIERS.md`](BARRIERS.md) for the exact scope and
 
 ## Other Specialized APIs
 
+Pool allocation is always checked. `Ok(None)` means only that all usable slots
+are occupied; setup, random-canary, length, generator, and integrity failures
+remain typed errors.
+
+```rust,no_run
+# #[cfg(feature = "memory-lock")]
+# {
+use sanitization::SecretPool;
+
+let pool = SecretPool::<32, 64>::new()?;
+let Some(key) = pool.try_allocate_from_array([7; 32])? else {
+    return Err("locked secret pool exhausted".into());
+};
+
+if pool.quarantined_slots() != 0 {
+    return Err("a pool slot failed integrity verification".into());
+}
+
+drop(key);
+# Ok::<(), Box<dyn std::error::Error>>(())
+# }
+```
+
+Treat quarantine counts as public operational telemetry. Never log secret
+bytes, mapping addresses, or canary values.
+
 | Requirement | API |
 | --- | --- |
 | Many same-size locked values under one lock quota | `SecretPool<N, SLOTS>` |
