@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "docs" / "baselines" / "2.0" / "public-api"
 METADATA = OUTPUT / "metadata.json"
-SOURCE_CHECKPOINT = "5757e954b7fb7f0d4c7d06cfdc15963478288bfe"
+SOURCE_CHECKPOINT = "496cbb861e2524466e777b6eab4e164f829d6df2"
 PACKAGES = (
     "sanitization",
     "sanitization-derive",

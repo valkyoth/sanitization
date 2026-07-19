@@ -711,6 +711,12 @@ pub const fn sanitization::SecretIntegrityError<E>::is_canary(&self) -> bool
 pub const fn sanitization::SecretIntegrityError<E>::is_operation(&self) -> bool
 pub fn sanitization::SecretIntegrityError<E>::map_operation<O>(self, impl core::ops::function::FnOnce(E) -> O) -> sanitization::SecretIntegrityError<O>
 pub const fn sanitization::SecretIntegrityError<E>::operation(&self) -> core::option::Option<&E>
+impl core::convert::From<sanitization::GuardPageError> for sanitization::SecretIntegrityError<sanitization::GuardPageError>
+pub fn sanitization::SecretIntegrityError<sanitization::GuardPageError>::from(sanitization::GuardPageError) -> Self
+impl core::convert::From<sanitization::LengthError> for sanitization::SecretIntegrityError<sanitization::LengthError>
+pub fn sanitization::SecretIntegrityError<sanitization::LengthError>::from(sanitization::LengthError) -> Self
+impl core::convert::From<sanitization::MemoryLockError> for sanitization::SecretIntegrityError<sanitization::MemoryLockError>
+pub fn sanitization::SecretIntegrityError<sanitization::MemoryLockError>::from(sanitization::MemoryLockError) -> Self
 impl<E: core::fmt::Display> core::fmt::Display for sanitization::SecretIntegrityError<E>
 pub fn sanitization::SecretIntegrityError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::convert::From<sanitization::CanaryCorruptedError> for sanitization::SecretIntegrityError<E>
@@ -916,6 +922,8 @@ pub sanitization::GuardPageError::errno: i32
 pub sanitization::GuardPageError::operation: sanitization::GuardPageOperation
 impl core::convert::From<sanitization::GuardPageError> for sanitization::SealedSecretAccessError
 pub fn sanitization::SealedSecretAccessError::from(sanitization::GuardPageError) -> Self
+impl core::convert::From<sanitization::GuardPageError> for sanitization::SecretIntegrityError<sanitization::GuardPageError>
+pub fn sanitization::SecretIntegrityError<sanitization::GuardPageError>::from(sanitization::GuardPageError) -> Self
 impl core::error::Error for sanitization::GuardPageError
 impl core::fmt::Display for sanitization::GuardPageError
 pub fn sanitization::GuardPageError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -1034,6 +1042,8 @@ impl core::convert::From<sanitization::LengthError> for sanitization::ExpiringSe
 pub fn sanitization::ExpiringSecretError::from(sanitization::LengthError) -> Self
 impl core::convert::From<sanitization::LengthError> for sanitization::LockedSecretBytesError
 pub fn sanitization::LockedSecretBytesError::from(sanitization::LengthError) -> Self
+impl core::convert::From<sanitization::LengthError> for sanitization::SecretIntegrityError<sanitization::LengthError>
+pub fn sanitization::SecretIntegrityError<sanitization::LengthError>::from(sanitization::LengthError) -> Self
 impl core::error::Error for sanitization::LengthError
 impl core::fmt::Display for sanitization::LengthError
 pub fn sanitization::LengthError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -1209,6 +1219,8 @@ pub sanitization::MemoryLockError::errno: i32
 pub sanitization::MemoryLockError::operation: sanitization::MemoryLockOperation
 impl core::convert::From<sanitization::MemoryLockError> for sanitization::LockedSecretBytesError
 pub fn sanitization::LockedSecretBytesError::from(sanitization::MemoryLockError) -> Self
+impl core::convert::From<sanitization::MemoryLockError> for sanitization::SecretIntegrityError<sanitization::MemoryLockError>
+pub fn sanitization::SecretIntegrityError<sanitization::MemoryLockError>::from(sanitization::MemoryLockError) -> Self
 impl core::error::Error for sanitization::MemoryLockError
 impl core::fmt::Display for sanitization::MemoryLockError
 pub fn sanitization::MemoryLockError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -1703,9 +1715,9 @@ pub fn sanitization::MonotonicClock::now(&self) -> u64
 impl<C: sanitization::MonotonicClock + ?core::marker::Sized> sanitization::MonotonicClock for &C
 pub fn &C::now(&self) -> u64
 pub trait sanitization::SecretIntegrityResultExt<T, E>
-pub fn sanitization::SecretIntegrityResultExt::flatten_secret_integrity(self) -> sanitization::SecretIntegrityResult<T, E>
+pub fn sanitization::SecretIntegrityResultExt::flatten_secret_integrity(self) -> sanitization::MappedResult<T, E>
 impl<T, E> sanitization::SecretIntegrityResultExt<T, E> for core::result::Result<core::result::Result<T, E>, sanitization::CanaryCorruptedError>
-pub fn core::result::Result<core::result::Result<T, E>, sanitization::CanaryCorruptedError>::flatten_secret_integrity(self) -> sanitization::SecretIntegrityResult<T, E>
+pub fn core::result::Result<core::result::Result<T, E>, sanitization::CanaryCorruptedError>::flatten_secret_integrity(self) -> sanitization::MappedResult<T, E>
 pub trait sanitization::SecretStoragePolicy<T: sanitization::SecureSanitize>
 pub const sanitization::SecretStoragePolicy::RATIONALE: &'static str
 pub trait sanitization::SecureSanitize
@@ -1916,5 +1928,7 @@ impl<const N: usize> sanitization::StableSharedSecretStorage for sanitization::L
 impl<const N: usize> sanitization::StableSharedSecretStorage for sanitization::SecretBytes<N>
 pub fn sanitization::sanitize_then_abort<T: sanitization::SecureSanitize + ?core::marker::Sized>(&mut T) -> never
 pub fn sanitization::secure_replace<T: sanitization::SecureSanitize>(&mut T, T)
+pub type sanitization::IntegrityResult<T> = core::result::Result<T, sanitization::CanaryCorruptedError>
 pub type sanitization::LockedSecretBytesCheckedCopyError = sanitization::SecretIntegrityError<sanitization::LengthError>
-pub type sanitization::SecretIntegrityResult<T, E> = core::result::Result<T, sanitization::SecretIntegrityError<E>>
+pub type sanitization::MappedResult<T, E> = core::result::Result<T, sanitization::SecretIntegrityError<E>>
+pub type sanitization::SecretIntegrityResult<T, E> = sanitization::MappedResult<T, E>
