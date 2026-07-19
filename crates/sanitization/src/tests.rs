@@ -3,6 +3,12 @@ use alloc::vec::Vec;
 
 use crate::*;
 
+crate::define_secret_storage_policy! {
+    TestStoragePolicy {
+        SecretBytes<4> => "test policy accepts reviewed fixed secret bytes",
+    }
+}
+
 struct TestClock<'a>(&'a core::cell::Cell<u64>);
 
 impl MonotonicClock for TestClock<'_> {
@@ -30,6 +36,28 @@ fn secret_integrity_error_adapters_preserve_error_classification() {
     assert_eq!(
         operation.map_operation(u16::from),
         SecretIntegrityError::Operation(7_u16)
+    );
+}
+
+#[test]
+fn allowlisted_secret_requires_policy_and_storage_contracts() {
+    let mut secret =
+        AllowlistedSecret::<SecretBytes<4>, TestStoragePolicy>::new(SecretBytes::from_array([
+            1, 2, 3, 4,
+        ]));
+    assert_eq!(
+        AllowlistedSecret::<SecretBytes<4>, TestStoragePolicy>::policy_rationale(),
+        "test policy accepts reviewed fixed secret bytes"
+    );
+    assert_eq!(
+        secret.with_secret(|bytes| bytes.expose_secret(|value| *value)),
+        [1, 2, 3, 4]
+    );
+    secret.with_secret_mut(|bytes| bytes.replace_from_array([4, 3, 2, 1]));
+    assert!(secret.with_secret(|bytes| bytes.constant_time_eq(&[4, 3, 2, 1])));
+    assert_eq!(
+        std::format!("{secret:?}"),
+        "AllowlistedSecret { contents: \"<redacted>\" }"
     );
 }
 

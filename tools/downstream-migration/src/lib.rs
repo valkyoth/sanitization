@@ -1,7 +1,8 @@
 #![deny(unsafe_code)]
 
 use sanitization::{
-    SecretBytes, SecureSanitize, StableMutableSecretStorage, StableSharedSecretStorage,
+    define_secret_storage_policy, SecretBytes, SecureSanitize, StableMutableSecretStorage,
+    StableSharedSecretStorage,
 };
 
 #[derive(SecureSanitize)]
@@ -16,6 +17,12 @@ pub struct FixedCredentials {
 // Shared methods do not mutate it and mutable methods overwrite it in place.
 impl StableSharedSecretStorage for FixedCredentials {}
 impl StableMutableSecretStorage for FixedCredentials {}
+
+define_secret_storage_policy! {
+    MigrationStoragePolicy {
+        FixedCredentials => "downstream fixture reviewed fixed inline storage",
+    }
+}
 
 impl FixedCredentials {
     pub fn new(key: [u8; 32], nonce: [u8; 12], protocol: u16) -> Self {
@@ -44,7 +51,8 @@ mod tests {
         ConstantTimeEq as CtConstantTimeEq,
     };
     use sanitization::{
-        ConditionallySelectable, ConstantTimeEq, ProtectionRequest, Requirement, Secret,
+        AllowlistedSecret, ConditionallySelectable, ConstantTimeEq, ProtectionRequest,
+        Requirement,
     };
     use sanitization_arrayvec::SecretArrayVec;
     use sanitization_bytes::SecretBytesMut;
@@ -58,7 +66,10 @@ mod tests {
 
     #[test]
     fn generic_storage_contract_and_derive_work_downstream() {
-        let mut secret = Secret::new(FixedCredentials::new([7; 32], [9; 12], 0x0304));
+        let mut secret =
+            AllowlistedSecret::<FixedCredentials, MigrationStoragePolicy>::new(
+                FixedCredentials::new([7; 32], [9; 12], 0x0304),
+            );
         assert_eq!(secret.with_secret(FixedCredentials::protocol), 0x0304);
         secret.with_secret_mut(|credentials| credentials.nonce[0] = 3);
         assert_eq!(secret.with_secret(|credentials| credentials.nonce[0]), 3);

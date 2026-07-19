@@ -221,6 +221,99 @@ pub trait StableSharedSecretStorage: SecureSanitize {}
 )]
 pub trait StableMutableSecretStorage: StableSharedSecretStorage {}
 
+/// Application-controlled allow-list for concrete secret storage types.
+///
+/// This policy is an additional gate, not a replacement for
+/// [`StableSharedSecretStorage`] or [`StableMutableSecretStorage`]. A policy
+/// implementation approves one exact `T` for one application-owned policy
+/// type. [`AllowlistedSecret`] still requires the relevant storage-stability
+/// contract before exposing `T`.
+///
+/// High-assurance applications should define one private or crate-visible
+/// policy type in a reviewed module and implement this trait only for accepted
+/// concrete storage types. Dependencies cannot name a non-public policy. A
+/// public policy may be implementable by a dependency for a storage type that
+/// dependency owns under Rust's orphan rules. Prefer
+/// [`define_secret_storage_policy!`] with no visibility or `pub(crate)` so
+/// every approval stays local and carries a review rationale in one searchable
+/// declaration.
+///
+/// This trait does not prove that `T` satisfies its storage contract. It makes
+/// the deployment's concrete-type decision explicit and centrally auditable.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` does not allow-list `{T}` as secret storage",
+    label = "this exact storage type is absent from the selected policy",
+    note = "review the type and add it with `define_secret_storage_policy!`, or select an already approved type"
+)]
+pub trait SecretStoragePolicy<T: SecureSanitize> {
+    /// Human-readable reason this exact type is accepted by the policy.
+    const RATIONALE: &'static str;
+}
+
+/// Define an application-owned concrete-type allow-list for
+/// [`AllowlistedSecret`].
+///
+/// Each entry requires a non-empty literal rationale. The generated policy is
+/// an uninhabited marker type and implements [`SecretStoragePolicy<T>`] only
+/// for the listed exact types.
+///
+/// ```
+/// use sanitization::{
+///     define_secret_storage_policy, AllowlistedSecret, SecureSanitize,
+///     StableMutableSecretStorage, StableSharedSecretStorage,
+/// };
+///
+/// struct Credentials([u8; 32]);
+///
+/// impl SecureSanitize for Credentials {
+///     fn secure_sanitize(&mut self) {
+///         self.0.secure_sanitize();
+///     }
+/// }
+///
+/// // STORAGE CONTRACT: all safe operations retain the inline byte array.
+/// impl StableSharedSecretStorage for Credentials {}
+/// impl StableMutableSecretStorage for Credentials {}
+///
+/// define_secret_storage_policy! {
+///     pub(crate) DeploymentStoragePolicy {
+///         Credentials => "reviewed fixed inline storage with no interior mutation",
+///     }
+/// }
+///
+/// let mut secret =
+///     AllowlistedSecret::<Credentials, DeploymentStoragePolicy>::new(
+///         Credentials([7; 32]),
+///     );
+/// assert_eq!(secret.with_secret(|value| value.0[0]), 7);
+/// secret.with_secret_mut(|value| value.0[0] = 9);
+/// ```
+#[macro_export]
+macro_rules! define_secret_storage_policy {
+    (
+        $(#[$metadata:meta])*
+        $visibility:vis $policy:ident {
+            $($storage:ty => $reason:literal),+ $(,)?
+        }
+    ) => {
+        $(#[$metadata])*
+        $visibility enum $policy {}
+
+        $(
+            const _: () = {
+                assert!(
+                    !$reason.is_empty(),
+                    "secret storage policy rationale must not be empty",
+                );
+            };
+
+            impl $crate::SecretStoragePolicy<$storage> for $policy {
+                const RATIONALE: &'static str = $reason;
+            }
+        )+
+    };
+}
+
 /// Sanitize a value before replacing it.
 ///
 /// This is the safe replacement pattern for values whose previous contents may
@@ -4249,6 +4342,147 @@ impl<T: SecureSanitize> fmt::Debug for Secret<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Secret")
+            .field("contents", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Clear-on-drop secret gated by an application-controlled storage allow-list.
+///
+/// Unlike [`Secret<T>`], construction and exposure require a policy type that
+/// implements [`SecretStoragePolicy<T>`] for the exact wrapped type. This lets
+/// a high-assurance application centralize accepted storage types and prevents
+/// a dependency's unrelated storage-marker implementation from automatically
+/// entering that accepted set.
+///
+/// The policy is defense in depth. Shared and mutable access still require
+/// [`StableSharedSecretStorage`] and [`StableMutableSecretStorage`]
+/// respectively. An incorrect policy or storage-contract implementation can
+/// invalidate the clearing guarantee, but cannot be relied on for Rust memory
+/// safety.
+///
+/// There is intentionally no field-only derive for storage stability. A proc
+/// macro cannot inspect later inherent methods, trait implementations,
+/// interior mutation, returned guards, callbacks, or deferred cleanup.
+///
+/// An unapproved type cannot be constructed under a policy:
+///
+/// ```compile_fail
+/// use sanitization::{
+///     define_secret_storage_policy, AllowlistedSecret, SecretBytes,
+/// };
+///
+/// define_secret_storage_policy! {
+///     DeploymentStoragePolicy {
+///         SecretBytes<32> => "reviewed fixed key storage",
+///     }
+/// }
+///
+/// let _ = AllowlistedSecret::<SecretBytes<16>, DeploymentStoragePolicy>::new(
+///     SecretBytes::from_array([0; 16]),
+/// );
+/// ```
+pub struct AllowlistedSecret<T: SecureSanitize, P> {
+    inner: T,
+    policy: PhantomData<fn() -> P>,
+}
+
+impl<T, P> AllowlistedSecret<T, P>
+where
+    T: SecureSanitize,
+    P: SecretStoragePolicy<T>,
+{
+    /// Wrap a value approved by `P`.
+    #[must_use]
+    #[inline]
+    pub const fn new(inner: T) -> Self {
+        Self {
+            inner,
+            policy: PhantomData,
+        }
+    }
+
+    /// Return the policy's review rationale for this exact storage type.
+    #[must_use]
+    #[inline]
+    pub const fn policy_rationale() -> &'static str {
+        P::RATIONALE
+    }
+
+    /// Consume the wrapper after first clearing the wrapped value.
+    #[inline]
+    pub fn into_cleared(mut self) {
+        self.inner.secure_sanitize();
+    }
+}
+
+impl<T, P> AllowlistedSecret<T, P>
+where
+    T: StableSharedSecretStorage,
+    P: SecretStoragePolicy<T>,
+{
+    /// Run a closure with policy-approved shared-stable storage.
+    #[inline]
+    pub fn with_secret<R>(&self, inspect: impl FnOnce(&T) -> R) -> R {
+        inspect(&self.inner)
+    }
+}
+
+impl<T, P> AllowlistedSecret<T, P>
+where
+    T: StableMutableSecretStorage,
+    P: SecretStoragePolicy<T>,
+{
+    /// Run a closure with policy-approved mutable-stable storage.
+    #[inline]
+    pub fn with_secret_mut<R>(&mut self, edit: impl FnOnce(&mut T) -> R) -> R {
+        edit(&mut self.inner)
+    }
+}
+
+impl<T: SecureSanitize, P> SecureSanitize for AllowlistedSecret<T, P> {
+    #[inline]
+    fn secure_sanitize(&mut self) {
+        self.inner.secure_sanitize();
+    }
+}
+
+impl<T, P> StableSharedSecretStorage for AllowlistedSecret<T, P>
+where
+    T: StableSharedSecretStorage,
+    P: SecretStoragePolicy<T>,
+{
+}
+
+impl<T, P> StableMutableSecretStorage for AllowlistedSecret<T, P>
+where
+    T: StableMutableSecretStorage,
+    P: SecretStoragePolicy<T>,
+{
+}
+
+impl<T: SecureSanitize, P> Drop for AllowlistedSecret<T, P> {
+    #[inline]
+    fn drop(&mut self) {
+        self.secure_sanitize();
+    }
+}
+
+impl<T, P> Default for AllowlistedSecret<T, P>
+where
+    T: SecureSanitize + Default,
+    P: SecretStoragePolicy<T>,
+{
+    #[inline]
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
+impl<T: SecureSanitize, P> fmt::Debug for AllowlistedSecret<T, P> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AllowlistedSecret")
             .field("contents", &"<redacted>")
             .finish()
     }

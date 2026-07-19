@@ -60,6 +60,9 @@ Implemented now:
   `docs/SAFETY.md`.
 - `SecretBytes<N>` for fixed-size secrets.
 - `Secret<T>` for custom sanitizable values.
+- `AllowlistedSecret<T, P>` and `define_secret_storage_policy!` for
+  application-controlled exact-type approval on top of generic storage
+  attestations.
 - `secure_sanitize_struct!` and `secure_drop_struct!` helper macros.
 - optional `SecureSanitize` and `SecureSanitizeOnDrop` derives through the
   `derive` feature.
@@ -1722,10 +1725,36 @@ external calls inside a user-provided closure. Generic `Secret<T>` exposure is
 available only when the corresponding storage contract is implemented.
 
 For a closed high-assurance deployment, treat marker implementations and
-exposure closures as reviewed policy boundaries. Allow-list concrete storage
-types instead of accepting arbitrary downstream marker implementations, and
-keep exposure closures small enough to audit for copying, logging, allocation,
-or export. See [the strict-assurance guidance](docs/SAFETY.md#strict-assurance-use).
+exposure closures as reviewed policy boundaries. Use
+`define_secret_storage_policy!` to declare a private or crate-visible exact-type
+policy and store generic values in `AllowlistedSecret<T, P>` instead of
+accepting every downstream marker implementation:
+
+```rust
+use sanitization::{
+    define_secret_storage_policy, AllowlistedSecret, SecretBytes,
+};
+
+define_secret_storage_policy! {
+    pub(crate) DeploymentStoragePolicy {
+        SecretBytes<32> => "crate-audited fixed key storage",
+    }
+}
+
+let key = AllowlistedSecret::<SecretBytes<32>, DeploymentStoragePolicy>::new(
+    SecretBytes::from_array([7; 32]),
+);
+assert_eq!(key.with_secret(|value| value.read_byte(0)), Some(7));
+```
+
+Every approval has a required non-empty rationale, while exposure still
+requires the corresponding storage-stability trait. Keep the policy non-public:
+a dependency can name a public policy and may be able to approve a type it owns
+under Rust's orphan rules. No storage-stability derive is provided because
+fields alone cannot prove the behavior of methods, interior mutation, guards,
+callbacks, or deferred cleanup. Keep exposure closures small enough to audit
+for copying, logging, allocation, or export. See
+[the strict-assurance guidance](docs/SAFETY.md#strict-assurance-use).
 The normative contract and manual-implementation checklist are in
 [STORAGE_CONTRACTS.md](docs/STORAGE_CONTRACTS.md).
 
@@ -2118,6 +2147,7 @@ the first mismatching byte.
 | Use case | Recommended API |
 | --- | --- |
 | Fixed-size key or token | `SecretBytes<N>` |
+| Custom sanitizable type under a closed deployment allow-list | `AllowlistedSecret<T, Policy>` plus `define_secret_storage_policy!` |
 | Fixed-size key with no-`std` tick expiry | `MonotonicExpiringSecretBytes<N, C>` |
 | Fixed-size key with access expiry | `ExpiringSecretBytes<N>` with `std` |
 | Fixed-size key that should avoid swap/pagefiles on supported native platforms | `LockedSecretBytes<N>` with `memory-lock` |

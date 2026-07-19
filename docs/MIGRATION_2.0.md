@@ -32,6 +32,13 @@ Replace `Secret<Vec<u8>>` with `SecretVec`, `Secret<String>` with
 contract manually only after reviewing every safe operation described in
 `docs/STORAGE_CONTRACTS.md`.
 
+For a closed assurance profile, define a private or crate-visible exact-type
+policy with `define_secret_storage_policy!` and use
+`AllowlistedSecret<T, Policy>`. This adds a central compiler-enforced allow-list
+without pretending that a field-only derive can prove storage stability. Each
+entry requires a non-empty review rationale, and exposure still requires the
+appropriate stability marker.
+
 ## Fixed Secret Exposure
 
 Direct borrowing and temporary-copy exposure now have distinct names:

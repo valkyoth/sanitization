@@ -105,6 +105,12 @@ protection outcomes more explicit and fail-closed.
 - Documented recommended library propagation, mapped text, fail-stop, and
   application error-boundary patterns without collapsing distinct failures
   into one global error enum.
+- Added `AllowlistedSecret<T, P>` and a rationale-bearing policy macro so
+  closed deployments can centrally approve exact storage types while retaining
+  the independent shared/mutable stability bounds.
+- Kept storage contracts deliberately non-derived: field inspection cannot
+  prove method behavior, interior mutation, guard cleanup, callbacks, or
+  deferred allocation release.
 
 ## Migration
 

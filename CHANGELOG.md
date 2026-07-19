@@ -92,6 +92,11 @@
   of the canary/operation distinction.
 - Added concise protection-report validation and documented library,
   application-error, mapped-text, and fail-stop handling patterns.
+- Added `AllowlistedSecret<T, P>`, `SecretStoragePolicy<T>`, and
+  `define_secret_storage_policy!` so controlled deployments can enforce one
+  centralized exact-type storage allow-list with required review rationales.
+- Documented why storage stability cannot be safely inferred by a field-only
+  derive and added negative tests for unapproved types and empty rationales.
 
 ## 1.2.5
 

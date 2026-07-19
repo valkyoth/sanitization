@@ -10,6 +10,11 @@ The conditional downstream obligations behind generic storage attestations and
 mapped runtime outcomes are described in `docs/STORAGE_CONTRACTS.md` and
 `docs/PROTECTION_REPORT.md`.
 
+`AllowlistedSecret` centralizes an application's accepted concrete types but
+does not prove that a storage attestation is correct. A public policy type also
+does not define a closed set; keep deployment policies private or
+`pub(crate)` when external extension must be prevented.
+
 ## Timing And Microarchitecture
 
 The crate does not guarantee exact identical wall-clock timing. It also does

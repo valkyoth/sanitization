@@ -59,6 +59,13 @@ container. It does not cover allocator metadata, stale copies from earlier
 Rust moves, prior stack frames, external buffers, or allocations already freed
 before they entered a crate-owned type.
 
+`AllowlistedSecret<T, P>` adds an application-owned exact-type policy before
+construction or exposure. It does not replace or prove the storage-stability
+contract: shared and mutable exposure still require the corresponding marker,
+and the guarantee remains conditional on both the marker implementation and
+the policy review being correct. Keeping `P` private or `pub(crate)` prevents
+dependencies from naming that deployment policy.
+
 Primitive scalar representation wiping is closed over a reviewed internal set:
 integer primitives, `bool`, `char`, `f32`, and `f64`. The crate does not offer
 a blanket representation wipe for user-defined types or a public

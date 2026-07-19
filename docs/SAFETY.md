@@ -58,8 +58,9 @@ independent review.
 
 Deployments with a closed or military-controlled assurance profile should:
 
-- allow-list the exact concrete marker implementations accepted at application
-  boundaries;
+- define a private or crate-visible `SecretStoragePolicy` with
+  `define_secret_storage_policy!` and use `AllowlistedSecret<T, P>` at generic
+  application boundaries;
 - avoid public APIs that accept arbitrary downstream implementations of the
   marker traits;
 - review exposure closures as declassification boundaries and reject closures
@@ -70,8 +71,10 @@ Deployments with a closed or military-controlled assurance profile should:
 
 Sealing the traits in the core crate would prevent legitimate downstream
 fixed-storage implementations and is therefore not the general API policy.
-Applications can enforce a closed set with private wrapper traits or
-non-generic constructors.
+`AllowlistedSecret` composes the public attestation with an application-owned
+exact-type policy. Keep that policy private or `pub(crate)`; publishing the
+policy type can permit dependencies to name it and may allow approvals for
+dependency-owned storage types under Rust's orphan rules.
 
 The core crate intentionally does not certify `Vec<T>`, `String`, `Box<T>`,
 references, shared ownership, standard interior-mutability wrappers, or
@@ -79,7 +82,9 @@ arbitrary third-party containers. Generic `Secret<T>` exposure is therefore
 unavailable for those types, although ownership, explicit clearing, and
 clear-on-drop remain available. The core crate does not provide a derive for
 these markers: a derive can inspect fields but cannot prove the behavior of
-inherent or trait methods.
+inherent or trait methods, interior mutation, returned guards, callbacks, or
+deferred cleanup. The policy macro centralizes reviewed acceptance but does not
+turn those attestations into automatically proven properties.
 
 `SecretBoxBytes` is an audited exception for runtime-length heap storage. Its
 private `Vec<u8>` is reserved only during construction; safe methods cannot

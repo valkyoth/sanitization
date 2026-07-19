@@ -92,6 +92,57 @@ interior-mutable fields, returned guards, callbacks, and destructor paths. In a
 controlled high-assurance profile, allow-list reviewed implementations rather
 than accepting arbitrary downstream attestations.
 
+## Application Allow-Lists
+
+`AllowlistedSecret<T, P>` adds a deployment-controlled gate on top of the
+storage contracts. Define one private or crate-visible policy in a reviewed
+module with `define_secret_storage_policy!`:
+
+```rust
+use sanitization::{
+    define_secret_storage_policy, AllowlistedSecret, SecretBytes,
+};
+
+define_secret_storage_policy! {
+    pub(crate) DeploymentStoragePolicy {
+        SecretBytes<32> => "crate-audited fixed key storage",
+        SecretBytes<16> => "crate-audited fixed nonce storage",
+    }
+}
+
+let key = AllowlistedSecret::<SecretBytes<32>, DeploymentStoragePolicy>::new(
+    SecretBytes::from_array([7; 32]),
+);
+assert_eq!(key.with_secret(|value| value.read_byte(0)), Some(7));
+```
+
+Every exact type requires a non-empty rationale. Construction and exposure
+require `P: SecretStoragePolicy<T>`, and exposure independently retains the
+shared or mutable stability bound. A newly introduced marker implementation is
+therefore not accepted until the central policy adds that exact type.
+
+Keep the policy type private or `pub(crate)`. A public policy type can be named
+by dependencies, and Rust's orphan rules may permit a dependency to implement
+the policy for a storage type that dependency owns. A crate-private policy
+keeps approval authority inside the application crate.
+
+This mechanism centralizes review; it does not prove an attestation correct.
+The application must still review each storage contract and each rationale.
+
+## Why There Is No Storage Derive
+
+A proc macro can inspect fields and add field bounds, but it cannot inspect
+later inherent methods, implementations of foreign or local traits, interior
+mutation hidden behind safe methods, returned guard destructors, callback
+behavior, custom allocator activity, or deferred cleanup. A field-only derive
+could therefore certify a struct whose `&self` method releases an uncleared
+allocation.
+
+For that reason, version 2 deliberately keeps storage attestations manual. Use
+`SecureSanitize` derives for field-clearing coverage, write the storage-contract
+argument explicitly, and use `AllowlistedSecret` to make deployment acceptance
+central and compiler-enforced.
+
 ## Generic Bounds
 
 Libraries that expose generic secret access should carry the appropriate bound

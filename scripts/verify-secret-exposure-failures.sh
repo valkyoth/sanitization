@@ -99,4 +99,36 @@ impl Wipe for NoOpWipe {
     fn wipe(&mut self) {}
 }'
 
+run_expected_failure \
+    "allowlisted-secret-unapproved-type-rejected" \
+    '"std"' \
+    '`DeploymentPolicy: SecretStoragePolicy<SecretBytes<16>>`' \
+    'use sanitization::{
+    define_secret_storage_policy, AllowlistedSecret, SecretBytes,
+};
+
+define_secret_storage_policy! {
+    DeploymentPolicy {
+        SecretBytes<32> => "reviewed fixed key storage",
+    }
+}
+
+pub fn construct() {
+    let _ = AllowlistedSecret::<SecretBytes<16>, DeploymentPolicy>::new(
+        SecretBytes::from_array([0; 16]),
+    );
+}'
+
+run_expected_failure \
+    "storage-policy-empty-rationale-rejected" \
+    '"std"' \
+    'secret storage policy rationale must not be empty' \
+    'use sanitization::{define_secret_storage_policy, SecretBytes};
+
+define_secret_storage_policy! {
+    DeploymentPolicy {
+        SecretBytes<32> => "",
+    }
+}'
+
 printf 'generic secret exposure failure checks passed\n'
