@@ -393,6 +393,17 @@ impl GuardedSecretVec {
             .map_err(protection_error_as_guard_page)
     }
 
+    /// Create guarded storage with the `profile-guarded-native` policy.
+    ///
+    /// Guard pages, memory locking, and canaries are required. Preferred dump
+    /// and fork exclusion outcomes remain visible through
+    /// [`GuardedSecretVec::protection_report`].
+    #[cfg(feature = "profile-guarded-native")]
+    #[inline]
+    pub fn with_capacity_guarded_native(capacity: usize) -> Result<Self, ProtectionError> {
+        Self::with_capacity_with_protection(capacity, ProtectionRequest::profile_guarded_native())
+    }
+
     /// Create an empty guarded secret buffer and lock its writable data
     /// pages with the platform memory-locking backend.
     ///

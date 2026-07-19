@@ -78,6 +78,10 @@ protection outcomes more explicit and fail-closed.
   hardware coverage.
 - Added named hardened-native, guarded-native, and Linux hardening profiles;
   runtime requests and reports remain authoritative over feature selection.
+- Added profile-matched type constructors such as
+  `LockedSecretBytes::zeroed_hardened_native()` and
+  `GuardedSecretVec::with_capacity_guarded_native()`. Custom deployments retain
+  the explicit `*_with_protection` policy path.
 
 ## Verification And Release Evidence
 

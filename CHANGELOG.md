@@ -2,6 +2,9 @@
 
 ## 2.0.0
 
+- Added type-associated hardened-native, guarded-native, and hardened-Linux
+  constructors for locked, guarded, text, and pooled storage while retaining
+  explicit `*_with_protection` constructors for custom deployment policy.
 - Renamed checked mapped-container operations to a consistent `try_*` surface,
   removed redundant `*_checked` aliases, and reserved `*_or_panic` for explicit
   fail-stop policy.

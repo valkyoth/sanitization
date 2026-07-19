@@ -28,17 +28,42 @@ in `docs/PROTECTION_REPORT.md`.
 | `profile-guarded-native` | `profile-hardened-native` plus guard pages | Hardened-native policy plus guard pages required |
 | `profile-hardened-linux` | `profile-hardened-native` plus required fork exclusion | Hardened-native policy with Linux fork exclusion required |
 
-The matching constructors are:
+The normal type-associated constructors are:
 
-```rust
-use sanitization::ProtectionRequest;
+```rust,no_run
+# #[cfg(all(feature = "profile-hardened-native", feature = "profile-guarded-native"))]
+# {
+use sanitization::{GuardedSecretVec, LockedSecretBytes, LockedSecretVec, SecretPool};
 
-let native = ProtectionRequest::profile_hardened_native();
-let guarded = ProtectionRequest::profile_guarded_native();
-let linux = ProtectionRequest::profile_hardened_linux();
+let fixed = LockedSecretBytes::<32>::zeroed_hardened_native()?;
+let dynamic = LockedSecretVec::with_capacity_hardened_native(4096)?;
+let pool = SecretPool::<32, 128>::new_hardened_native()?;
+let guarded = GuardedSecretVec::with_capacity_guarded_native(4096)?;
+# Ok::<(), sanitization::ProtectionError>(())
+# }
 ```
 
-Each constructor is available only when its profile feature is enabled.
+`LockedSecretString` and `GuardedSecretString` provide the corresponding text
+constructors. The Linux profile exposes matching `*_hardened_linux`
+constructors on locked fixed, dynamic, text, and pool storage. Each shortcut is
+available only when its matching profile feature is enabled.
+
+For custom deployment policies, retain the explicit request boundary:
+
+```rust,no_run
+# #[cfg(feature = "memory-lock")]
+# {
+use sanitization::{LockedSecretBytes, ProtectionRequest};
+
+let request = ProtectionRequest::locked();
+let fixed = LockedSecretBytes::<32>::zeroed_with_protection(request)?;
+# Ok::<(), sanitization::ProtectionError>(())
+# }
+```
+
+The associated constructors select policy; they do not turn `Preferred`
+controls into runtime guarantees. Inspect `protection_report()` once and use
+`protection_request()` when validating the report.
 
 `strict-compare` is intentionally narrower than a general constant-time
 profile. It strengthens equal-length byte equality on reviewed x86_64 and

@@ -403,6 +403,27 @@ impl<const N: usize> LockedSecretBytes<N> {
             .map_err(protection_error_as_memory_lock)
     }
 
+    /// Allocate zeroed storage with the `profile-hardened-native` policy.
+    ///
+    /// Memory locking and canaries are required. Dump and fork exclusion are
+    /// preferred, so inspect [`LockedSecretBytes::protection_report`] before
+    /// relying on those controls.
+    #[cfg(feature = "profile-hardened-native")]
+    #[inline]
+    pub fn zeroed_hardened_native() -> Result<Self, ProtectionError> {
+        Self::zeroed_with_protection(ProtectionRequest::profile_hardened_native())
+    }
+
+    /// Allocate zeroed storage with the `profile-hardened-linux` policy.
+    ///
+    /// Memory locking, canaries, and Linux fork exclusion are required. Dump
+    /// exclusion remains preferred and is reported at runtime.
+    #[cfg(feature = "profile-hardened-linux")]
+    #[inline]
+    pub fn zeroed_hardened_linux() -> Result<Self, ProtectionError> {
+        Self::zeroed_with_protection(ProtectionRequest::profile_hardened_linux())
+    }
+
     /// Allocate zeroed storage under an explicit runtime protection policy.
     ///
     /// Preferred controls may fail while construction succeeds. Call
@@ -1298,6 +1319,23 @@ impl LockedSecretVec {
             .map_err(protection_error_as_memory_lock)
     }
 
+    /// Allocate dynamic storage with the `profile-hardened-native` policy.
+    ///
+    /// Preferred dump and fork exclusion outcomes remain visible through
+    /// [`LockedSecretVec::protection_report`].
+    #[cfg(feature = "profile-hardened-native")]
+    #[inline]
+    pub fn with_capacity_hardened_native(capacity: usize) -> Result<Self, ProtectionError> {
+        Self::with_capacity_with_protection(capacity, ProtectionRequest::profile_hardened_native())
+    }
+
+    /// Allocate dynamic storage with the `profile-hardened-linux` policy.
+    #[cfg(feature = "profile-hardened-linux")]
+    #[inline]
+    pub fn with_capacity_hardened_linux(capacity: usize) -> Result<Self, ProtectionError> {
+        Self::with_capacity_with_protection(capacity, ProtectionRequest::profile_hardened_linux())
+    }
+
     /// Allocate dynamic storage under an explicit runtime protection policy.
     pub fn with_capacity_with_protection(
         capacity: usize,
@@ -2150,6 +2188,23 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
     pub fn new() -> Result<Self, MemoryLockError> {
         Self::new_with_protection(ProtectionRequest::locked())
             .map_err(protection_error_as_memory_lock)
+    }
+
+    /// Create a locked pool with the `profile-hardened-native` policy.
+    ///
+    /// Preferred dump and fork exclusion outcomes remain visible through
+    /// [`SecretPool::protection_report`].
+    #[cfg(feature = "profile-hardened-native")]
+    #[inline]
+    pub fn new_hardened_native() -> Result<Self, ProtectionError> {
+        Self::new_with_protection(ProtectionRequest::profile_hardened_native())
+    }
+
+    /// Create a locked pool with the `profile-hardened-linux` policy.
+    #[cfg(feature = "profile-hardened-linux")]
+    #[inline]
+    pub fn new_hardened_linux() -> Result<Self, ProtectionError> {
+        Self::new_with_protection(ProtectionRequest::profile_hardened_linux())
     }
 
     /// Create a pool under an explicit runtime protection policy.

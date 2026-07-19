@@ -3217,6 +3217,24 @@ fn hardened_native_profile_maps_to_explicit_policy() {
     assert_eq!(request.cache_policy, Requirement::NotRequested);
 }
 
+#[cfg(all(feature = "profile-hardened-native", not(miri)))]
+#[test]
+fn hardened_native_type_constructors_select_the_profile_request() {
+    let expected = ProtectionRequest::profile_hardened_native();
+
+    let bytes = LockedSecretBytes::<0>::zeroed_hardened_native().unwrap();
+    assert_eq!(bytes.protection_request(), expected);
+
+    let vector = LockedSecretVec::with_capacity_hardened_native(0).unwrap();
+    assert_eq!(vector.protection_request(), expected);
+
+    let text = LockedSecretString::with_capacity_hardened_native(0).unwrap();
+    assert_eq!(text.protection_request(), expected);
+
+    let pool = SecretPool::<1, 0>::new_hardened_native().unwrap();
+    assert_eq!(pool.protection_request(), expected);
+}
+
 #[cfg(feature = "profile-guarded-native")]
 #[test]
 fn guarded_native_profile_requires_guard_pages() {
@@ -3224,6 +3242,48 @@ fn guarded_native_profile_requires_guard_pages() {
     assert_eq!(request.memory_lock, Requirement::Required);
     assert_eq!(request.guard_pages, Requirement::Required);
     assert_eq!(request.canary, Requirement::Required);
+}
+
+#[cfg(all(feature = "profile-guarded-native", not(miri)))]
+#[test]
+fn guarded_native_type_constructors_select_the_profile_request() {
+    let expected = ProtectionRequest::profile_guarded_native();
+    let vector = match GuardedSecretVec::with_capacity_guarded_native(0) {
+        Ok(vector) => vector,
+        Err(error) => {
+            assert_eq!(error.partial_report.fork.policy, expected.fork.policy);
+            assert_ne!(
+                error.partial_report.memory_lock,
+                ProtectionState::NotRequested
+            );
+            assert_ne!(
+                error.partial_report.guard_pages,
+                ProtectionState::NotRequested
+            );
+            assert_ne!(error.partial_report.canary, ProtectionState::NotRequested);
+            return;
+        }
+    };
+    assert_eq!(vector.protection_request(), expected);
+    drop(vector);
+
+    let text = match GuardedSecretString::with_capacity_guarded_native(0) {
+        Ok(text) => text,
+        Err(error) => {
+            assert_eq!(error.partial_report.fork.policy, expected.fork.policy);
+            assert_ne!(
+                error.partial_report.memory_lock,
+                ProtectionState::NotRequested
+            );
+            assert_ne!(
+                error.partial_report.guard_pages,
+                ProtectionState::NotRequested
+            );
+            assert_ne!(error.partial_report.canary, ProtectionState::NotRequested);
+            return;
+        }
+    };
+    assert_eq!(text.protection_request(), expected);
 }
 
 #[cfg(feature = "profile-hardened-linux")]
@@ -3234,6 +3294,24 @@ fn hardened_linux_profile_requires_fork_exclusion() {
     assert_eq!(request.fork.policy, ForkPolicy::Exclude);
     assert_eq!(request.fork.requirement, Requirement::Required);
     assert_eq!(request.canary, Requirement::Required);
+}
+
+#[cfg(all(feature = "profile-hardened-linux", not(miri)))]
+#[test]
+fn hardened_linux_type_constructors_select_the_profile_request() {
+    let expected = ProtectionRequest::profile_hardened_linux();
+
+    let bytes = LockedSecretBytes::<0>::zeroed_hardened_linux().unwrap();
+    assert_eq!(bytes.protection_request(), expected);
+
+    let vector = LockedSecretVec::with_capacity_hardened_linux(0).unwrap();
+    assert_eq!(vector.protection_request(), expected);
+
+    let text = LockedSecretString::with_capacity_hardened_linux(0).unwrap();
+    assert_eq!(text.protection_request(), expected);
+
+    let pool = SecretPool::<1, 0>::new_hardened_linux().unwrap();
+    assert_eq!(pool.protection_request(), expected);
 }
 
 #[cfg(all(

@@ -240,6 +240,20 @@ impl LockedSecretString {
         LockedSecretVec::with_capacity(capacity).map(|inner| Self { inner })
     }
 
+    /// Allocate locked text with the `profile-hardened-native` policy.
+    #[cfg(feature = "profile-hardened-native")]
+    #[inline]
+    pub fn with_capacity_hardened_native(capacity: usize) -> Result<Self, ProtectionError> {
+        LockedSecretVec::with_capacity_hardened_native(capacity).map(|inner| Self { inner })
+    }
+
+    /// Allocate locked text with the `profile-hardened-linux` policy.
+    #[cfg(feature = "profile-hardened-linux")]
+    #[inline]
+    pub fn with_capacity_hardened_linux(capacity: usize) -> Result<Self, ProtectionError> {
+        LockedSecretVec::with_capacity_hardened_linux(capacity).map(|inner| Self { inner })
+    }
+
     /// Allocate text storage under an explicit runtime protection policy.
     #[inline]
     pub fn with_capacity_with_protection(
@@ -318,6 +332,13 @@ impl LockedSecretString {
     #[inline]
     pub const fn protection_report(&self) -> &ProtectionReport {
         self.inner.protection_report()
+    }
+
+    /// Runtime protection policy requested for the underlying mapping.
+    #[must_use]
+    #[inline]
+    pub const fn protection_request(&self) -> ProtectionRequest {
+        self.inner.protection_request()
     }
 
     /// Run a closure with read-only access to the locked secret text.
@@ -589,6 +610,13 @@ impl GuardedSecretString {
         GuardedSecretVec::with_capacity(capacity).map(|inner| Self { inner })
     }
 
+    /// Allocate guarded text with the `profile-guarded-native` policy.
+    #[cfg(feature = "profile-guarded-native")]
+    #[inline]
+    pub fn with_capacity_guarded_native(capacity: usize) -> Result<Self, ProtectionError> {
+        GuardedSecretVec::with_capacity_guarded_native(capacity).map(|inner| Self { inner })
+    }
+
     /// Allocate guarded text under an explicit runtime protection policy.
     #[inline]
     pub fn with_capacity_with_protection(
@@ -679,6 +707,13 @@ impl GuardedSecretString {
     #[inline]
     pub const fn protection_report(&self) -> &ProtectionReport {
         self.inner.protection_report()
+    }
+
+    /// Runtime protection policy requested for the underlying mapping.
+    #[must_use]
+    #[inline]
+    pub const fn protection_request(&self) -> ProtectionRequest {
+        self.inner.protection_request()
     }
 
     /// Run a closure with read-only access to the guarded secret text.

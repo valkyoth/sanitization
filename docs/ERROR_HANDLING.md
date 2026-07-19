@@ -79,6 +79,13 @@ Use `Requirement::Required` for controls that must exist. Constructors then
 fail instead of returning reduced-protection storage, so the report does not
 need to be revalidated at every operation.
 
+When a named profile matches deployment policy, use its associated constructor
+instead of manually coordinating the feature and request. For example,
+`LockedSecretBytes::zeroed_hardened_native()` and
+`GuardedSecretVec::with_capacity_guarded_native()` select the policy compiled
+by their respective profile features. Explicit `*_with_protection`
+constructors remain the custom-policy path.
+
 When a request contains `Preferred` controls, inspect the report once after
 construction and retain the resulting application state. The convenience
 method `ProtectionReport::all_requested_controls_established(request)` returns

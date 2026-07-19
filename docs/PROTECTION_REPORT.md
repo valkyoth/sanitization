@@ -53,6 +53,29 @@ preferred control can return storage only when the reduced outcome is visible
 in its report. Callers should reject any report state their deployment policy
 does not accept.
 
+Named profile features provide type-associated constructors so callers do not
+need to manually pair a compiled profile with its request:
+
+```rust,no_run
+# #[cfg(feature = "profile-hardened-native")]
+# {
+use sanitization::LockedSecretBytes;
+
+let secret = LockedSecretBytes::<32>::zeroed_hardened_native()?;
+let request = secret.protection_request();
+if !secret
+    .protection_report()
+    .all_requested_controls_established(request)
+{
+    return Err("a preferred runtime protection was unavailable".into());
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+# }
+```
+
+Use `*_with_protection` only when a deployment needs a custom combination of
+required, preferred, and unrequested controls.
+
 Applications that require every preferred control to have succeeded can use
 `ProtectionReport::all_requested_controls_established(request)` once after
 construction. The method returns `false` for failed, unsupported, or

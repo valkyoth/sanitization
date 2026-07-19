@@ -265,25 +265,43 @@ Default builds are dependency-free and `no_std`.
 ### Named hardening profiles
 
 Named profiles compile reviewed capability bundles; they do not claim that the
-operating system established every requested control. Use the matching
-`ProtectionRequest` constructor and inspect the container's
-`ProtectionReport`:
+operating system established every requested control. Prefer the matching
+type-associated constructor, then inspect the container's `ProtectionReport`:
 
 ```toml
 sanitization = { version = "2", features = ["profile-hardened-native"] }
 ```
 
-```rust
-use sanitization::ProtectionRequest;
+```rust,no_run
+# #[cfg(feature = "profile-hardened-native")]
+# {
+use sanitization::LockedSecretBytes;
 
-let request = ProtectionRequest::profile_hardened_native();
+let key = LockedSecretBytes::<32>::zeroed_hardened_native()?;
+let request = key.protection_request();
+if !key
+    .protection_report()
+    .all_requested_controls_established(request)
+{
+    return Err("a preferred runtime protection was unavailable".into());
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+# }
 ```
 
-`profile-guarded-native` additionally requires guard pages.
-`profile-hardened-linux` additionally requires Linux fork exclusion. Native
-profiles fail to compile on WASM rather than silently becoming compatibility
-profiles. See [Feature Profiles And Crate Boundaries](docs/FEATURE_PROFILES.md)
-for the exact request policy and companion-crate architecture.
+The profile shortcuts are:
+
+- `zeroed_hardened_native`, `with_capacity_hardened_native`, and
+  `new_hardened_native` on locked fixed, dynamic, text, and pool storage;
+- `with_capacity_guarded_native` on guarded byte and text storage;
+- matching `*_hardened_linux` constructors for Linux's required fork
+  exclusion policy.
+
+The explicit `*_with_protection` constructors remain available for custom
+deployment policy. Native profiles fail to compile on WASM rather than
+silently becoming compatibility profiles. See
+[Feature Profiles And Crate Boundaries](docs/FEATURE_PROFILES.md) for the exact
+request policy and companion-crate architecture.
 
 ## Data-Oblivious Primitives
 
