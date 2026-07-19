@@ -10,6 +10,8 @@
   |
   <a href="https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md">Safety</a>
   |
+  <a href="https://github.com/valkyoth/sanitization/blob/main/docs/MIGRATION_2.0.md">2.0 Migration</a>
+  |
   <a href="https://github.com/valkyoth/sanitization/blob/main/SECURITY.md">Security</a>
 </div>
 

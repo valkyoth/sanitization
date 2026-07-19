@@ -67,6 +67,8 @@ scripts/checks.sh
 This script runs formatting, feature-matrix tests, examples, clippy, target
 checks for installed targets, release codegen checks, optional Kani proofs,
 documentation with warnings denied, and package listing.
+It also validates the 2.0 migration inventory, compiles an independent
+downstream consumer, and verifies the CP-21 source-level API candidate.
 The derive test target covers `SecureSanitize`, `SecureSanitizeOnDrop`, and the
 native `ct` struct derives.
 
@@ -251,7 +253,10 @@ Permanent documentation that constrains the claims:
   release-evidence barrier strategy;
 - `docs/TARGETS.md`: human-readable target tiers and feature availability matrix;
 - `docs/LEAKAGE_TESTS.md`: expectations, commands, and metadata requirements for
-  dudect-style timing/leakage harnesses;
+  target dudect-style timing/leakage evidence;
+- `docs/STORAGE_CONTRACTS.md`: the conditional generic-storage attestation;
+- `docs/PROTECTION_REPORT.md`: runtime protection request and outcome semantics;
+- `docs/MIGRATION_2.0.md`: the reviewed 1.2.5-to-2.0 source migration;
 - `docs/THREAT_MODEL.md`: guarantees, residual risks, WASM limits, canary limits;
 - `docs/SAFETY.md`: unsafe boundaries and invariants;
 - `docs/ROADMAP.md`: 1.2 target tiers and release checkpoint gates.

@@ -101,6 +101,8 @@ def main() -> int:
             "scripts/verify-codegen.sh",
             "scripts/verify-codegen-matrix.sh",
             "scripts/verify-derive-failures.sh",
+            "scripts/verify-migration-2.0.py",
+            "scripts/verify-downstream-migration.py",
             "scripts/verify-leakage-smoke.sh",
             "scripts/collect-leakage-evidence.py",
             "scripts/verify-target-evidence.py",
@@ -110,6 +112,7 @@ def main() -> int:
             "scripts/verify-verification-harnesses.py",
             "scripts/test-verification-fail-closed.py",
             "scripts/verify-evidence.py",
+            "scripts/capture-2.0-api.py --check",
         ],
     }
     print(json.dumps(report, indent=2, sort_keys=True))

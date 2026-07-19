@@ -4,7 +4,9 @@ This document defines the security claims this repository is willing to make.
 It should be read together with `docs/NON_GUARANTEES.md`, `docs/THREAT_MODEL.md`,
 `docs/SAFETY.md`, `docs/BARRIERS.md`, `docs/TARGETS.md`,
 `docs/ERASURE_BACKENDS.md`, `docs/REPRODUCIBLE_BUILDS.md`, and
-`docs/EVIDENCE.md`.
+`docs/EVIDENCE.md`. Generic ownership contracts are normative in
+`docs/STORAGE_CONTRACTS.md`; mapped runtime policy and outcome semantics are
+normative in `docs/PROTECTION_REPORT.md`.
 
 The short version: `sanitization` provides dependency-free secret ownership,
 optimizer-resistant clearing, and data-oblivious primitives under documented

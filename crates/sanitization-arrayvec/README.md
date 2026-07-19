@@ -10,6 +10,8 @@
   |
   <a href="https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md">Safety</a>
   |
+  <a href="https://github.com/valkyoth/sanitization/blob/main/docs/MIGRATION_2.0.md">2.0 Migration</a>
+  |
   <a href="https://github.com/valkyoth/sanitization/blob/main/SECURITY.md">Security</a>
 </div>
 
@@ -31,6 +33,8 @@ for projects that already use `arrayvec`. Live values are sanitized and
 dropped before the wrapper volatile-clears the complete inline
 `MaybeUninit<T>` backing region, including bytes left by earlier pop, truncate,
 clear, reuse, or wrapping operations.
+`SecretArrayVec::from_arrayvec` is intentionally a runtime constructor in 2.0
+because it clears historical spare bytes immediately.
 
 ```rust
 use sanitization::SecretBytes;

@@ -81,6 +81,21 @@
       "name": "verification-negative-fixtures",
       "claim": "Evidence and codegen validators reject seeded malformed inputs.",
       "command": "scripts/test-verification-fail-closed.py"
+    },
+    {
+      "name": "downstream-2.0-migration",
+      "claim": "Representative external consumers compile derives, storage contracts, CT APIs, serde, crypto helpers, and companion storage without workspace feature unification.",
+      "command": "scripts/verify-downstream-migration.py"
+    },
+    {
+      "name": "migration-inventory",
+      "claim": "Every catalogued removed or behaviorally changed 1.x API maps to a documented 2.0 replacement section.",
+      "command": "scripts/verify-migration-2.0.py"
+    },
+    {
+      "name": "cp21-api-candidate",
+      "claim": "Publishable crate source, manifests, features, and source-level public declarations match the reviewed CP-21 freeze candidate.",
+      "command": "scripts/capture-2.0-api.py --check"
     }
   ]
 }

@@ -14,6 +14,8 @@
   |
   <a href="https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md">Safety</a>
   |
+  <a href="https://github.com/valkyoth/sanitization/blob/main/docs/MIGRATION_2.0.md">2.0 Migration</a>
+  |
   <a href="https://github.com/valkyoth/sanitization/blob/main/SECURITY.md">Security</a>
 </div>
 
@@ -39,7 +41,9 @@ internal unsafe boundary.
 
 ## Current Status
 
-The crate is published as stable `1.2.5` on crates.io. It is intended for
+The crate is published as stable `1.2.5` on crates.io. The development branch
+is preparing the reviewed breaking security model for `2.0.0`; use
+[MIGRATION_2.0.md](docs/MIGRATION_2.0.md) when testing it downstream. The crate is intended for
 projects that want dependency-free secret ownership and sanitization by
 default, with stronger platform hardening available through explicit feature
 flags.
@@ -139,6 +143,8 @@ Read [GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/GUA
 [TARGETS.md](https://github.com/valkyoth/sanitization/blob/main/docs/TARGETS.md),
 [SAFETY.md](https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md),
 [EVIDENCE.md](https://github.com/valkyoth/sanitization/blob/main/docs/EVIDENCE.md),
+[STORAGE_CONTRACTS.md](https://github.com/valkyoth/sanitization/blob/main/docs/STORAGE_CONTRACTS.md),
+[PROTECTION_REPORT.md](https://github.com/valkyoth/sanitization/blob/main/docs/PROTECTION_REPORT.md),
 [VERIFICATION_TOOLING.md](https://github.com/valkyoth/sanitization/blob/main/docs/VERIFICATION_TOOLING.md),
 and [REPRODUCIBLE_BUILDS.md](https://github.com/valkyoth/sanitization/blob/main/docs/REPRODUCIBLE_BUILDS.md)
 before using this crate for high-assurance secret handling.
@@ -620,6 +626,10 @@ Fixed locked secrets and pool slots use the same naming:
 `expose_secret_copy` creates a guarded plaintext copy. Split-secret storage has
 no contiguous plaintext to borrow and therefore offers only reconstruction and
 explicit copy exposure.
+
+The complete breaking-change inventory, including generic exposure, CT
+declassification, derives, wipe helpers, mapped integrity results, and
+consume-once ownership, is in [MIGRATION_2.0.md](docs/MIGRATION_2.0.md).
 
 For 1.x-to-2.0 migration:
 
@@ -1699,6 +1709,8 @@ exposure closures as reviewed policy boundaries. Allow-list concrete storage
 types instead of accepting arbitrary downstream marker implementations, and
 keep exposure closures small enough to audit for copying, logging, allocation,
 or export. See [the strict-assurance guidance](docs/SAFETY.md#strict-assurance-use).
+The normative contract and manual-implementation checklist are in
+[STORAGE_CONTRACTS.md](docs/STORAGE_CONTRACTS.md).
 
 ## Consume-Once Secrets
 
@@ -2227,7 +2239,10 @@ crates/sanitization-crypto-interop # optional crypto hasher cleanup and MAC help
 ```
 
 The main crate also includes checked examples for the primary API families:
-`basic`, `alloc`, `macros`, `wipe`, `high_assurance`, and `ct_primitives`.
+`basic`, `alloc`, `macros`, `wipe`, `high_assurance`, `storage_contracts`, and
+`ct_primitives`. `tools/downstream-migration` exercises the 2.0 API from an
+independent Cargo workspace so root-workspace feature unification cannot hide
+missing downstream declarations.
 
 For crates.io releases, publish the derive crate first, then the main crate,
 then the integration wrapper crates:

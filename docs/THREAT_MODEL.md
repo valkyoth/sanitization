@@ -3,6 +3,10 @@
 This crate focuses on reducing secret lifetime and accidental disclosure inside
 Rust applications.
 
+Generic ownership guarantees depend on the downstream attestations defined in
+`docs/STORAGE_CONTRACTS.md`. Mapped runtime protection claims depend on the
+request and achieved outcome described in `docs/PROTECTION_REPORT.md`.
+
 ## In Scope
 
 - Clear-on-drop containers for fixed-size and heap-allocated secrets.

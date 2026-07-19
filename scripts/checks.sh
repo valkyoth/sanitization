@@ -15,6 +15,7 @@ if command -v cargo-audit >/dev/null 2>&1; then
         tools/core-dump-probe/Cargo.lock \
         tools/ct-leakage/Cargo.lock \
         tools/direct-exposure-codegen/Cargo.lock \
+        tools/downstream-migration/Cargo.lock \
         tools/lifecycle-probes/Cargo.lock
     do
         cargo audit --deny warnings --file "$lockfile"
@@ -60,6 +61,8 @@ fi
 scripts/verify-derive-failures.sh
 scripts/verify-secret-exposure-failures.sh
 scripts/verify-ct-declassification.sh
+scripts/verify-migration-2.0.py
+scripts/verify-downstream-migration.py
 scripts/verify-leakage-smoke.sh
 scripts/verify-loom.sh
 scripts/verify-core-dump-probe.sh
@@ -86,6 +89,7 @@ scripts/verify-codegen-matrix.sh
 scripts/verify-evidence.py
 scripts/test-release-readiness.sh
 scripts/capture-2.0-baseline.py --check
+scripts/capture-2.0-api.py --check
 scripts/verify-2.0-module-split.py
 scripts/evidence-report.py >/dev/null
 

@@ -17,6 +17,9 @@ dump exclusion, fork exclusion, or guard-page setup. Required failures return a
 structured error. Preferred failures may return a container only when its
 report records the reduced result.
 
+The normative request, failure, rollback, and report semantics are documented
+in `docs/PROTECTION_REPORT.md`.
+
 ## Named Native Profiles
 
 | Profile | Compiled capabilities | Matching request policy |

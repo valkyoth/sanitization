@@ -65,6 +65,17 @@
 //!   volatile-only compatibility types on WASM only when `wasm-compat` is also
 //!   enabled, so callers explicitly acknowledge the reduced guarantees.
 //!   `guard-pages` is rejected at compile time on WASM.
+//!
+//! # Migrating From 1.x
+//!
+//! Version 2 makes storage stability, CT declassification, derive safety,
+//! mapped integrity, and runtime protection outcomes explicit. The complete
+//! source-change inventory and replacement examples are maintained in
+//! [`docs/MIGRATION_2.0.md`](https://github.com/valkyoth/sanitization/blob/main/docs/MIGRATION_2.0.md).
+//! Generic `Secret<T>` exposure is governed by the conditional contracts in
+//! [`docs/STORAGE_CONTRACTS.md`](https://github.com/valkyoth/sanitization/blob/main/docs/STORAGE_CONTRACTS.md),
+//! and native hardening policy/report semantics are defined in
+//! [`docs/PROTECTION_REPORT.md`](https://github.com/valkyoth/sanitization/blob/main/docs/PROTECTION_REPORT.md).
 
 #[cfg(all(
     any(

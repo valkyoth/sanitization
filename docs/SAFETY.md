@@ -6,6 +6,10 @@ The crate root uses `#![deny(unsafe_code)]` and
 Representation wiping and target-memory categories are documented in
 `docs/ERASURE_BACKENDS.md`.
 
+The complete normative storage-marker checklist is in
+`docs/STORAGE_CONTRACTS.md`. Runtime mapped-protection policy and rollback
+semantics are in `docs/PROTECTION_REPORT.md`.
+
 ## Safe Security Contracts
 
 `SecureSanitize` and the storage-stability markers are safe traits, but their

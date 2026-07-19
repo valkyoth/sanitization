@@ -18,7 +18,7 @@ Memory clearing uses a single audited architecture:
 - `fence(Ordering::SeqCst)` provides a hardware ordering boundary where the
   target supports it;
 - the wipe function is kept behind a non-inlined boundary for easier codegen
-inspection.
+  inspection.
 
 CP-10 deliberately retains the 1.x ordering policy: two compiler
 `SeqCst` fences and one hardware `SeqCst` fence per pass. No fence was removed

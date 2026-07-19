@@ -6,6 +6,10 @@ of the security model, not fine print.
 The category-specific erasure decision is described in
 `docs/ERASURE_BACKENDS.md`.
 
+The conditional downstream obligations behind generic storage attestations and
+mapped runtime outcomes are described in `docs/STORAGE_CONTRACTS.md` and
+`docs/PROTECTION_REPORT.md`.
+
 ## Timing And Microarchitecture
 
 The crate does not guarantee exact identical wall-clock timing. It also does
