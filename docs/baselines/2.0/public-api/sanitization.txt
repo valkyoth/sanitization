@@ -925,10 +925,7 @@ pub struct sanitization::GuardedSecretString
 impl sanitization::GuardedSecretString
 pub const fn sanitization::GuardedSecretString::capacity(&self) -> usize
 pub fn sanitization::GuardedSecretString::clear_secret(&mut self)
-pub fn sanitization::GuardedSecretString::clear_secret_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
-pub fn sanitization::GuardedSecretString::constant_time_eq(&self, &str) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
 pub fn sanitization::GuardedSecretString::constant_time_eq_or_panic(&self, &str) -> bool
-pub fn sanitization::GuardedSecretString::expose_secret_checked<R>(&self, impl core::ops::function::FnOnce(&str) -> R) -> core::result::Result<R, sanitization::SecretTextIntegrityError>
 pub fn sanitization::GuardedSecretString::from_guarded_secret_vec(sanitization::GuardedSecretVec) -> core::result::Result<Self, sanitization::SecretTextIntegrityError>
 pub fn sanitization::GuardedSecretString::from_secret_str(&str) -> core::result::Result<Self, sanitization::GuardPageError>
 pub fn sanitization::GuardedSecretString::from_string(alloc::string::String) -> core::result::Result<Self, sanitization::GuardPageError>
@@ -939,14 +936,18 @@ pub const fn sanitization::GuardedSecretString::len(&self) -> usize
 pub fn sanitization::GuardedSecretString::locked_from_secret_str(&str) -> core::result::Result<Self, sanitization::GuardPageError>
 pub fn sanitization::GuardedSecretString::locked_from_string(alloc::string::String) -> core::result::Result<Self, sanitization::GuardPageError>
 pub const fn sanitization::GuardedSecretString::protection_report(&self) -> &sanitization::ProtectionReport
-pub fn sanitization::GuardedSecretString::push_str(&mut self, &str) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
-pub fn sanitization::GuardedSecretString::replace_from_secret_str(&mut self, &str) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
-pub fn sanitization::GuardedSecretString::replace_from_string(&mut self, alloc::string::String) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
+pub fn sanitization::GuardedSecretString::try_clear_secret_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
+pub fn sanitization::GuardedSecretString::try_constant_time_eq(&self, &str) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
+pub fn sanitization::GuardedSecretString::try_push_str(&mut self, &str) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
+pub fn sanitization::GuardedSecretString::try_replace_from_secret_str(&mut self, &str) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
+pub fn sanitization::GuardedSecretString::try_replace_from_string(&mut self, alloc::string::String) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
 pub fn sanitization::GuardedSecretString::try_with_secret<R>(&self, impl core::ops::function::FnOnce(&str) -> R) -> core::result::Result<R, sanitization::SecretTextIntegrityError>
 pub fn sanitization::GuardedSecretString::try_with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut str) -> R) -> core::result::Result<R, sanitization::SecretTextIntegrityError>
 pub fn sanitization::GuardedSecretString::verify_integrity(&self) -> core::result::Result<(), sanitization::CanaryCorruptedError>
 pub fn sanitization::GuardedSecretString::with_capacity(usize) -> core::result::Result<Self, sanitization::GuardPageError>
 pub fn sanitization::GuardedSecretString::with_capacity_with_protection(usize, sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectionError>
+pub fn sanitization::GuardedSecretString::with_secret_mut_or_panic<R>(&mut self, impl core::ops::function::FnOnce(&mut str) -> R) -> R
+pub fn sanitization::GuardedSecretString::with_secret_or_panic<R>(&self, impl core::ops::function::FnOnce(&str) -> R) -> R
 impl core::convert::From<sanitization::GuardedSecretString> for sanitization::GuardedSecretVec
 pub fn sanitization::GuardedSecretVec::from(sanitization::GuardedSecretString) -> Self
 impl core::convert::TryFrom<sanitization::GuardedSecretVec> for sanitization::GuardedSecretString
@@ -971,12 +972,7 @@ pub struct sanitization::GuardedSecretVec
 impl sanitization::GuardedSecretVec
 pub const fn sanitization::GuardedSecretVec::capacity(&self) -> usize
 pub fn sanitization::GuardedSecretVec::clear_secret(&mut self)
-pub fn sanitization::GuardedSecretVec::clear_secret_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
-pub fn sanitization::GuardedSecretVec::constant_time_eq(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
-pub fn sanitization::GuardedSecretVec::constant_time_eq_checked(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
 pub fn sanitization::GuardedSecretVec::constant_time_eq_or_panic(&self, &[u8]) -> bool
-pub fn sanitization::GuardedSecretVec::expose_secret_checked<R>(&self, impl core::ops::function::FnOnce(&[u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
-pub fn sanitization::GuardedSecretVec::extend_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
 pub fn sanitization::GuardedSecretVec::from_fn(usize, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<Self, sanitization::GuardPageError>
 pub fn sanitization::GuardedSecretVec::from_slice(&[u8]) -> core::result::Result<Self, sanitization::GuardPageError>
 pub fn sanitization::GuardedSecretVec::into_cleared(self)
@@ -989,15 +985,18 @@ pub fn sanitization::GuardedSecretVec::locked_try_from_fn<E>(usize, impl core::o
 pub fn sanitization::GuardedSecretVec::locked_with_capacity(usize) -> core::result::Result<Self, sanitization::GuardPageError>
 pub const fn sanitization::GuardedSecretVec::protection_report(&self) -> &sanitization::ProtectionReport
 pub const fn sanitization::GuardedSecretVec::protection_request(&self) -> sanitization::ProtectionRequest
-pub fn sanitization::GuardedSecretVec::replace_from_fn(&mut self, usize, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
-pub fn sanitization::GuardedSecretVec::replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
+pub fn sanitization::GuardedSecretVec::try_clear_secret_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
+pub fn sanitization::GuardedSecretVec::try_constant_time_eq(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
+pub fn sanitization::GuardedSecretVec::try_extend_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
 pub fn sanitization::GuardedSecretVec::try_from_fn<E>(usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<Self, sanitization::GuardedSecretVecGenerateError<E>>
-pub fn sanitization::GuardedSecretVec::try_replace_from_fn<E>(&mut self, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardedSecretVecGenerateError<E>>>
+pub fn sanitization::GuardedSecretVec::try_replace_from_fallible_fn<E>(&mut self, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardedSecretVecGenerateError<E>>>
+pub fn sanitization::GuardedSecretVec::try_replace_from_fn(&mut self, usize, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
+pub fn sanitization::GuardedSecretVec::try_replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::GuardPageError>>
+pub fn sanitization::GuardedSecretVec::try_with_secret<R>(&self, impl core::ops::function::FnOnce(&[u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
+pub fn sanitization::GuardedSecretVec::try_with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
 pub fn sanitization::GuardedSecretVec::verify_integrity(&self) -> core::result::Result<(), sanitization::CanaryCorruptedError>
 pub fn sanitization::GuardedSecretVec::with_capacity(usize) -> core::result::Result<Self, sanitization::GuardPageError>
 pub fn sanitization::GuardedSecretVec::with_capacity_with_protection(usize, sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectionError>
-pub fn sanitization::GuardedSecretVec::with_secret<R>(&self, impl core::ops::function::FnOnce(&[u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
-pub fn sanitization::GuardedSecretVec::with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
 pub fn sanitization::GuardedSecretVec::with_secret_mut_or_panic<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8]) -> R) -> R
 pub fn sanitization::GuardedSecretVec::with_secret_or_panic<R>(&self, impl core::ops::function::FnOnce(&[u8]) -> R) -> R
 impl core::convert::From<sanitization::GuardedSecretString> for sanitization::GuardedSecretVec
@@ -1039,16 +1038,7 @@ impl<E> core::convert::From<sanitization::LengthError> for sanitization::LockedS
 pub fn sanitization::LockedSecretVecFillError<E>::from(sanitization::LengthError) -> Self
 pub struct sanitization::LockedSecretBytes<const N: usize>
 impl<const N: usize> sanitization::LockedSecretBytes<N>
-pub fn sanitization::LockedSecretBytes<N>::constant_time_eq(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
-pub fn sanitization::LockedSecretBytes<N>::constant_time_eq_checked(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
 pub fn sanitization::LockedSecretBytes<N>::constant_time_eq_or_panic(&self, &[u8]) -> bool
-pub fn sanitization::LockedSecretBytes<N>::copy_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LengthError>>
-pub fn sanitization::LockedSecretBytes<N>::copy_to_slice(&self, &mut [u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LengthError>>
-pub fn sanitization::LockedSecretBytes<N>::copy_to_slice_checked(&self, &mut [u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LengthError>>
-pub fn sanitization::LockedSecretBytes<N>::expose_secret<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
-pub fn sanitization::LockedSecretBytes<N>::expose_secret_checked<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
-pub fn sanitization::LockedSecretBytes<N>::expose_secret_copy<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
-pub fn sanitization::LockedSecretBytes<N>::expose_secret_copy_checked<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
 pub fn sanitization::LockedSecretBytes<N>::expose_secret_copy_or_panic<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> R
 pub fn sanitization::LockedSecretBytes<N>::expose_secret_or_panic<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> R
 pub fn sanitization::LockedSecretBytes<N>::from_array([u8; N]) -> core::result::Result<Self, sanitization::MemoryLockError>
@@ -1061,17 +1051,22 @@ pub const fn sanitization::LockedSecretBytes<N>::is_memory_locked(&self) -> bool
 pub const fn sanitization::LockedSecretBytes<N>::len(&self) -> usize
 pub const fn sanitization::LockedSecretBytes<N>::protection_report(&self) -> &sanitization::ProtectionReport
 pub const fn sanitization::LockedSecretBytes<N>::protection_request(&self) -> sanitization::ProtectionRequest
-pub fn sanitization::LockedSecretBytes<N>::replace_from_array(&mut self, [u8; N]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
-pub fn sanitization::LockedSecretBytes<N>::replace_from_fill(&mut self, impl core::ops::function::FnOnce(&mut [u8; N])) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
-pub fn sanitization::LockedSecretBytes<N>::replace_from_fn(&mut self, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
-pub fn sanitization::LockedSecretBytes<N>::replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretBytesError>>
-pub fn sanitization::LockedSecretBytes<N>::replace_from_slice_or_panic(&mut self, &[u8]) -> core::result::Result<(), sanitization::LockedSecretBytesError>
+pub fn sanitization::LockedSecretBytes<N>::replace_from_slice_or_panic(&mut self, &[u8])
 pub fn sanitization::LockedSecretBytes<N>::secure_clear(&mut self)
-pub fn sanitization::LockedSecretBytes<N>::secure_clear_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
+pub fn sanitization::LockedSecretBytes<N>::try_constant_time_eq(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
+pub fn sanitization::LockedSecretBytes<N>::try_copy_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LengthError>>
+pub fn sanitization::LockedSecretBytes<N>::try_copy_to_slice(&self, &mut [u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LengthError>>
+pub fn sanitization::LockedSecretBytes<N>::try_expose_secret<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
+pub fn sanitization::LockedSecretBytes<N>::try_expose_secret_copy<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
 pub fn sanitization::LockedSecretBytes<N>::try_from_fill<E>(impl core::ops::function::FnOnce(&mut [u8; N]) -> core::result::Result<(), E>) -> core::result::Result<Self, sanitization::LockedSecretBytesGenerateError<E>>
 pub fn sanitization::LockedSecretBytes<N>::try_from_fn<E>(impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<Self, sanitization::LockedSecretBytesGenerateError<E>>
-pub fn sanitization::LockedSecretBytes<N>::try_replace_from_fill<E>(&mut self, impl core::ops::function::FnOnce(&mut [u8; N]) -> core::result::Result<(), E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretBytesGenerateError<E>>>
-pub fn sanitization::LockedSecretBytes<N>::try_replace_from_fn<E>(&mut self, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretBytesGenerateError<E>>>
+pub fn sanitization::LockedSecretBytes<N>::try_replace_from_array(&mut self, [u8; N]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
+pub fn sanitization::LockedSecretBytes<N>::try_replace_from_fallible_fill<E>(&mut self, impl core::ops::function::FnOnce(&mut [u8; N]) -> core::result::Result<(), E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretBytesGenerateError<E>>>
+pub fn sanitization::LockedSecretBytes<N>::try_replace_from_fallible_fn<E>(&mut self, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretBytesGenerateError<E>>>
+pub fn sanitization::LockedSecretBytes<N>::try_replace_from_fill(&mut self, impl core::ops::function::FnOnce(&mut [u8; N])) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
+pub fn sanitization::LockedSecretBytes<N>::try_replace_from_fn(&mut self, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
+pub fn sanitization::LockedSecretBytes<N>::try_replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretBytesError>>
+pub fn sanitization::LockedSecretBytes<N>::try_secure_clear_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
 pub fn sanitization::LockedSecretBytes<N>::verify_integrity(&self) -> core::result::Result<(), sanitization::CanaryCorruptedError>
 pub fn sanitization::LockedSecretBytes<N>::zeroed() -> core::result::Result<Self, sanitization::MemoryLockError>
 pub fn sanitization::LockedSecretBytes<N>::zeroed_with_protection(sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectionError>
@@ -1099,10 +1094,7 @@ pub struct sanitization::LockedSecretString
 impl sanitization::LockedSecretString
 pub const fn sanitization::LockedSecretString::capacity(&self) -> usize
 pub fn sanitization::LockedSecretString::clear_secret(&mut self)
-pub fn sanitization::LockedSecretString::clear_secret_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
-pub fn sanitization::LockedSecretString::constant_time_eq(&self, &str) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
 pub fn sanitization::LockedSecretString::constant_time_eq_or_panic(&self, &str) -> bool
-pub fn sanitization::LockedSecretString::expose_secret_checked<R>(&self, impl core::ops::function::FnOnce(&str) -> R) -> core::result::Result<R, sanitization::SecretTextIntegrityError>
 pub fn sanitization::LockedSecretString::from_locked_secret_vec(sanitization::LockedSecretVec) -> core::result::Result<Self, sanitization::SecretTextIntegrityError>
 pub fn sanitization::LockedSecretString::from_secret_str(&str) -> core::result::Result<Self, sanitization::MemoryLockError>
 pub fn sanitization::LockedSecretString::from_string(alloc::string::String) -> core::result::Result<Self, sanitization::MemoryLockError>
@@ -1111,14 +1103,18 @@ pub const fn sanitization::LockedSecretString::is_empty(&self) -> bool
 pub const fn sanitization::LockedSecretString::len(&self) -> usize
 pub const fn sanitization::LockedSecretString::locked_len(&self) -> usize
 pub const fn sanitization::LockedSecretString::protection_report(&self) -> &sanitization::ProtectionReport
-pub fn sanitization::LockedSecretString::push_str(&mut self, &str) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
-pub fn sanitization::LockedSecretString::replace_from_secret_str(&mut self, &str) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
-pub fn sanitization::LockedSecretString::replace_from_string(&mut self, alloc::string::String) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
+pub fn sanitization::LockedSecretString::try_clear_secret_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
+pub fn sanitization::LockedSecretString::try_constant_time_eq(&self, &str) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
+pub fn sanitization::LockedSecretString::try_push_str(&mut self, &str) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
+pub fn sanitization::LockedSecretString::try_replace_from_secret_str(&mut self, &str) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
+pub fn sanitization::LockedSecretString::try_replace_from_string(&mut self, alloc::string::String) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
 pub fn sanitization::LockedSecretString::try_with_secret<R>(&self, impl core::ops::function::FnOnce(&str) -> R) -> core::result::Result<R, sanitization::SecretTextIntegrityError>
 pub fn sanitization::LockedSecretString::try_with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut str) -> R) -> core::result::Result<R, sanitization::SecretTextIntegrityError>
 pub fn sanitization::LockedSecretString::verify_integrity(&self) -> core::result::Result<(), sanitization::CanaryCorruptedError>
 pub fn sanitization::LockedSecretString::with_capacity(usize) -> core::result::Result<Self, sanitization::MemoryLockError>
 pub fn sanitization::LockedSecretString::with_capacity_with_protection(usize, sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectionError>
+pub fn sanitization::LockedSecretString::with_secret_mut_or_panic<R>(&mut self, impl core::ops::function::FnOnce(&mut str) -> R) -> R
+pub fn sanitization::LockedSecretString::with_secret_or_panic<R>(&self, impl core::ops::function::FnOnce(&str) -> R) -> R
 impl core::convert::From<sanitization::LockedSecretString> for sanitization::LockedSecretVec
 pub fn sanitization::LockedSecretVec::from(sanitization::LockedSecretString) -> Self
 impl core::convert::TryFrom<sanitization::LockedSecretVec> for sanitization::LockedSecretString
@@ -1143,12 +1139,7 @@ pub struct sanitization::LockedSecretVec
 impl sanitization::LockedSecretVec
 pub const fn sanitization::LockedSecretVec::capacity(&self) -> usize
 pub fn sanitization::LockedSecretVec::clear_secret(&mut self)
-pub fn sanitization::LockedSecretVec::clear_secret_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
-pub fn sanitization::LockedSecretVec::constant_time_eq(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
-pub fn sanitization::LockedSecretVec::constant_time_eq_checked(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
 pub fn sanitization::LockedSecretVec::constant_time_eq_or_panic(&self, &[u8]) -> bool
-pub fn sanitization::LockedSecretVec::expose_secret_checked<R>(&self, impl core::ops::function::FnOnce(&[u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
-pub fn sanitization::LockedSecretVec::extend_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
 pub fn sanitization::LockedSecretVec::from_capacity(usize, impl core::ops::function::FnOnce(&mut [u8]) -> usize) -> core::result::Result<Self, sanitization::LockedSecretVecFillError<core::convert::Infallible>>
 pub fn sanitization::LockedSecretVec::from_exact_len(usize, impl core::ops::function::FnOnce(&mut [u8])) -> core::result::Result<Self, sanitization::MemoryLockError>
 pub fn sanitization::LockedSecretVec::from_fn(usize, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<Self, sanitization::MemoryLockError>
@@ -1160,21 +1151,24 @@ pub const fn sanitization::LockedSecretVec::len(&self) -> usize
 pub const fn sanitization::LockedSecretVec::locked_len(&self) -> usize
 pub const fn sanitization::LockedSecretVec::protection_report(&self) -> &sanitization::ProtectionReport
 pub const fn sanitization::LockedSecretVec::protection_request(&self) -> sanitization::ProtectionRequest
-pub fn sanitization::LockedSecretVec::replace_from_capacity(&mut self, usize, impl core::ops::function::FnOnce(&mut [u8]) -> usize) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretVecFillError<core::convert::Infallible>>>
-pub fn sanitization::LockedSecretVec::replace_from_exact_len(&mut self, usize, impl core::ops::function::FnOnce(&mut [u8])) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
-pub fn sanitization::LockedSecretVec::replace_from_fn(&mut self, usize, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
-pub fn sanitization::LockedSecretVec::replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
+pub fn sanitization::LockedSecretVec::try_clear_secret_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
+pub fn sanitization::LockedSecretVec::try_constant_time_eq(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
+pub fn sanitization::LockedSecretVec::try_extend_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
 pub fn sanitization::LockedSecretVec::try_from_capacity<E>(usize, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<usize, E>) -> core::result::Result<Self, sanitization::LockedSecretVecFillError<E>>
 pub fn sanitization::LockedSecretVec::try_from_exact_len<E>(usize, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<(), E>) -> core::result::Result<Self, sanitization::LockedSecretVecGenerateError<E>>
 pub fn sanitization::LockedSecretVec::try_from_fn<E>(usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<Self, sanitization::LockedSecretVecGenerateError<E>>
-pub fn sanitization::LockedSecretVec::try_replace_from_capacity<E>(&mut self, usize, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<usize, E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretVecFillError<E>>>
-pub fn sanitization::LockedSecretVec::try_replace_from_exact_len<E>(&mut self, usize, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<(), E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretVecGenerateError<E>>>
-pub fn sanitization::LockedSecretVec::try_replace_from_fn<E>(&mut self, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretVecGenerateError<E>>>
+pub fn sanitization::LockedSecretVec::try_replace_from_capacity(&mut self, usize, impl core::ops::function::FnOnce(&mut [u8]) -> usize) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretVecFillError<core::convert::Infallible>>>
+pub fn sanitization::LockedSecretVec::try_replace_from_exact_len(&mut self, usize, impl core::ops::function::FnOnce(&mut [u8])) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
+pub fn sanitization::LockedSecretVec::try_replace_from_fallible_capacity<E>(&mut self, usize, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<usize, E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretVecFillError<E>>>
+pub fn sanitization::LockedSecretVec::try_replace_from_fallible_exact_len<E>(&mut self, usize, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<(), E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretVecGenerateError<E>>>
+pub fn sanitization::LockedSecretVec::try_replace_from_fallible_fn<E>(&mut self, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LockedSecretVecGenerateError<E>>>
+pub fn sanitization::LockedSecretVec::try_replace_from_fn(&mut self, usize, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
+pub fn sanitization::LockedSecretVec::try_replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::MemoryLockError>>
+pub fn sanitization::LockedSecretVec::try_with_secret<R>(&self, impl core::ops::function::FnOnce(&[u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
+pub fn sanitization::LockedSecretVec::try_with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
 pub fn sanitization::LockedSecretVec::verify_integrity(&self) -> core::result::Result<(), sanitization::CanaryCorruptedError>
 pub fn sanitization::LockedSecretVec::with_capacity(usize) -> core::result::Result<Self, sanitization::MemoryLockError>
 pub fn sanitization::LockedSecretVec::with_capacity_with_protection(usize, sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectionError>
-pub fn sanitization::LockedSecretVec::with_secret<R>(&self, impl core::ops::function::FnOnce(&[u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
-pub fn sanitization::LockedSecretVec::with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
 pub fn sanitization::LockedSecretVec::with_secret_mut_or_panic<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8]) -> R) -> R
 pub fn sanitization::LockedSecretVec::with_secret_or_panic<R>(&self, impl core::ops::function::FnOnce(&[u8]) -> R) -> R
 impl core::convert::From<sanitization::LockedSecretString> for sanitization::LockedSecretVec
@@ -1289,8 +1283,8 @@ pub sanitization::RollbackReport::unlock: sanitization::RollbackState
 pub sanitization::RollbackReport::unmap: sanitization::RollbackState
 pub struct sanitization::SealedSecretBytes<const N: usize>
 impl<const N: usize> sanitization::SealedSecretBytes<N>
-pub fn sanitization::SealedSecretBytes<N>::clear_secret(&mut self) -> core::result::Result<(), sanitization::SealedSecretAccessError>
-pub fn sanitization::SealedSecretBytes<N>::constant_time_eq(&mut self, &[u8; N]) -> core::result::Result<bool, sanitization::SealedSecretAccessError>
+pub fn sanitization::SealedSecretBytes<N>::clear_secret_or_panic(&mut self)
+pub fn sanitization::SealedSecretBytes<N>::constant_time_eq_or_panic(&mut self, &[u8; N]) -> bool
 pub fn sanitization::SealedSecretBytes<N>::from_array([u8; N]) -> core::result::Result<Self, sanitization::SealedSecretAccessError>
 pub const fn sanitization::SealedSecretBytes<N>::is_empty(&self) -> bool
 pub const fn sanitization::SealedSecretBytes<N>::is_poisoned(&self) -> bool
@@ -1299,9 +1293,13 @@ pub const fn sanitization::SealedSecretBytes<N>::is_sealed(&self) -> bool
 pub const fn sanitization::SealedSecretBytes<N>::len(&self) -> usize
 pub fn sanitization::SealedSecretBytes<N>::protection_report(&self) -> &sanitization::ProtectionReport
 pub fn sanitization::SealedSecretBytes<N>::protection_request(&self) -> sanitization::ProtectionRequest
+pub fn sanitization::SealedSecretBytes<N>::try_clear_secret(&mut self) -> core::result::Result<(), sanitization::SealedSecretAccessError>
+pub fn sanitization::SealedSecretBytes<N>::try_constant_time_eq(&mut self, &[u8; N]) -> core::result::Result<bool, sanitization::SealedSecretAccessError>
 pub fn sanitization::SealedSecretBytes<N>::try_secure_sanitize(&mut self) -> core::result::Result<(), sanitization::SealedSecretAccessError>
-pub fn sanitization::SealedSecretBytes<N>::with_secret<R>(&mut self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::SealedSecretAccessError>
-pub fn sanitization::SealedSecretBytes<N>::with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8; N]) -> R) -> core::result::Result<R, sanitization::SealedSecretAccessError>
+pub fn sanitization::SealedSecretBytes<N>::try_with_secret<R>(&mut self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::SealedSecretAccessError>
+pub fn sanitization::SealedSecretBytes<N>::try_with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8; N]) -> R) -> core::result::Result<R, sanitization::SealedSecretAccessError>
+pub fn sanitization::SealedSecretBytes<N>::with_secret_mut_or_panic<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8; N]) -> R) -> R
+pub fn sanitization::SealedSecretBytes<N>::with_secret_or_panic<R>(&mut self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> R
 pub fn sanitization::SealedSecretBytes<N>::zeroed() -> core::result::Result<Self, sanitization::GuardPageError>
 pub fn sanitization::SealedSecretBytes<N>::zeroed_with_protection(sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectionError>
 impl<const N: usize> core::fmt::Debug for sanitization::SealedSecretBytes<N>
@@ -1446,7 +1444,6 @@ impl<const N: usize, const SLOTS: usize> sanitization::SecretPool<N, SLOTS>
 pub fn sanitization::SecretPool<N, SLOTS>::allocate(&self) -> core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>
 pub fn sanitization::SecretPool<N, SLOTS>::allocate_from_array(&self, [u8; N]) -> core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>
 pub fn sanitization::SecretPool<N, SLOTS>::allocate_from_fn(&self, impl core::ops::function::FnMut(usize) -> u8) -> core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>
-pub fn sanitization::SecretPool<N, SLOTS>::allocate_from_slice(&self, &[u8]) -> core::result::Result<core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>, sanitization::LengthError>
 pub fn sanitization::SecretPool<N, SLOTS>::arena_report(&self) -> sanitization::SecretPoolReport
 pub fn sanitization::SecretPool<N, SLOTS>::available_slots(&self) -> usize
 pub const fn sanitization::SecretPool<N, SLOTS>::capacity_slots(&self) -> usize
@@ -1458,10 +1455,11 @@ pub fn sanitization::SecretPool<N, SLOTS>::new_with_protection(sanitization::Pro
 pub const fn sanitization::SecretPool<N, SLOTS>::protection_report(&self) -> &sanitization::ProtectionReport
 pub const fn sanitization::SecretPool<N, SLOTS>::protection_request(&self) -> sanitization::ProtectionRequest
 pub fn sanitization::SecretPool<N, SLOTS>::secure_clear(&mut self)
-pub fn sanitization::SecretPool<N, SLOTS>::secure_clear_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
 pub const fn sanitization::SecretPool<N, SLOTS>::slot_size(&self) -> usize
 pub fn sanitization::SecretPool<N, SLOTS>::try_allocate(&self) -> core::result::Result<core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>, sanitization::MemoryLockError>
 pub fn sanitization::SecretPool<N, SLOTS>::try_allocate_from_fn<E>(&self, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>, E>
+pub fn sanitization::SecretPool<N, SLOTS>::try_allocate_from_slice(&self, &[u8]) -> core::result::Result<core::option::Option<sanitization::SecretPoolSlot<'_, N, SLOTS>>, sanitization::LengthError>
+pub fn sanitization::SecretPool<N, SLOTS>::try_secure_clear_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
 impl<const N: usize, const SLOTS: usize> core::fmt::Debug for sanitization::SecretPool<N, SLOTS>
 pub fn sanitization::SecretPool<N, SLOTS>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<const N: usize, const SLOTS: usize> core::marker::Send for sanitization::SecretPool<N, SLOTS>
@@ -1491,31 +1489,28 @@ pub const fn sanitization::SecretPoolReport::mapping_efficiency_basis_points(&se
 pub const fn sanitization::SecretPoolReport::storage_efficiency_basis_points(&self) -> core::option::Option<u16>
 pub struct sanitization::SecretPoolSlot<'pool, const N: usize, const SLOTS: usize>
 impl<'pool, const N: usize, const SLOTS: usize> sanitization::SecretPoolSlot<'pool, N, SLOTS>
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::constant_time_eq(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::constant_time_eq_checked(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
 pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::constant_time_eq_or_panic(&self, &[u8]) -> bool
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::copy_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LengthError>>
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::copy_to_slice(&self, &mut [u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LengthError>>
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::expose_secret<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::expose_secret_checked<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::expose_secret_copy<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::expose_secret_copy_checked<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
 pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::expose_secret_copy_or_panic<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> R
 pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::expose_secret_or_panic<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> R
 pub const fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::generation(&self) -> usize
 pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::into_cleared(self)
 pub const fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::is_empty(&self) -> bool
 pub const fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::len(&self) -> usize
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::replace_from_array(&mut self, [u8; N]) -> core::result::Result<(), sanitization::CanaryCorruptedError>
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::replace_from_fn(&mut self, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<(), sanitization::CanaryCorruptedError>
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LengthError>>
 pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::secure_clear(&mut self)
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::secure_clear_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
 pub const fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::slot_id(&self) -> sanitization::SecretPoolSlotId
 pub const fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::slot_index(&self) -> usize
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_replace_from_fn<E>(&mut self, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::SecretIntegrityError<E>>
+pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_constant_time_eq(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
+pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_copy_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LengthError>>
+pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_copy_to_slice(&self, &mut [u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LengthError>>
+pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_expose_secret<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
+pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_expose_secret_copy<R>(&self, impl core::ops::function::FnOnce(&[u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
+pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_replace_from_array(&mut self, [u8; N]) -> core::result::Result<(), sanitization::CanaryCorruptedError>
+pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_replace_from_fallible_fn<E>(&mut self, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::SecretIntegrityError<E>>
+pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_replace_from_fn(&mut self, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<(), sanitization::CanaryCorruptedError>
+pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::SecretIntegrityError<sanitization::LengthError>>
+pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_secure_clear_and_flush(&mut self) -> core::result::Result<sanitization::cache_flush::CacheFlushReport, sanitization::cache_flush::CacheFlushError>
+pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::try_with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
 pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::verify_integrity(&self) -> core::result::Result<(), sanitization::CanaryCorruptedError>
-pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8; N]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
 pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::with_secret_mut_or_panic<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8; N]) -> R) -> R
 impl<'pool, const N: usize, const SLOTS: usize> core::fmt::Debug for sanitization::SecretPoolSlot<'pool, N, SLOTS>
 pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
