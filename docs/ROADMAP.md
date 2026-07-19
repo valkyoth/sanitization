@@ -80,7 +80,7 @@ Historical release checkpoints:
 
 - `v1.2.0-alpha.1`: public API skeleton.
   Exit gate: `ct` module exists with documented `Choice`,
-  `ConstantTimeEq`, conditional select/assign traits, `CtOption`, and explicit
+  `ConstantTimeEq`, conditional select/assign traits, `PublicCtOption`, and explicit
   non-guarantees. Existing crate APIs and feature builds still compile.
 - `v1.2.0-alpha.2`: primitive implementations.
   Exit gate: unsigned/signed integer, fixed-array, and public-length slice
@@ -131,10 +131,10 @@ Initial API shape:
   `declassify(reason)` before normal branching;
 - `ct::ConditionallySelectable`: branchless selection between two values;
 - `ct::ConditionallyAssignable`: branchless assignment under a `Choice`;
-- `ct::CtOption<T>`: optional value controlled by a `Choice` instead of a
+- `ct::PublicCtOption<T>`: optional value controlled by a `Choice` instead of a
   secret-dependent branch, with explicit `declassify(reason)` when converting
   to normal `Option<T>`;
-- `ct::CtResult<T, E>`: result-like value where success/failure can remain
+- `ct::PublicCtResult<T, E>`: result-like value where success/failure can remain
   hidden until explicit `declassify(reason)`, plus branchless success-value
   selection through `unwrap_or`;
 - `ct::Mask<T>`: all-zero/all-one mask values used by branchless operations;
@@ -217,7 +217,7 @@ Verification work for `1.2.0`:
 
 - tests for `Choice` normalization and boolean algebra;
 - tests for primitive, array, slice, and secret-container equality;
-- tests for conditional select, conditional assign, and `CtOption`;
+- tests for conditional select, conditional assign, and `PublicCtOption`;
 - Kani proofs that selected equality implementations match normal equality;
 - Kani proofs that `Choice` remains normalized;
 - Kani or code-structure checks that equal-length byte comparisons visit every
@@ -393,7 +393,7 @@ Implemented now:
   comparison and cache-flush instruction paths.
 - `scripts/verify-kani.sh` runs bounded Kani proof harnesses when `cargo-kani`
   is installed, covering selected fixed-size wipe, equality, ordering,
-  selection, `CtOption`/`CtResult`, oblivious memory helper, and capacity
+  selection, `PublicCtOption`/`PublicCtResult`, oblivious memory helper, and capacity
   arithmetic properties.
 - `scripts/evidence-report.py` captures local commit, dirty-state, rustc,
   target, Kani, and Miri metadata for alpha, RC, and pentest handoffs.

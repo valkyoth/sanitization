@@ -17,7 +17,7 @@ CLEAR_PROBES = {
     "cp19_clear_sealed": ("try_secure_sanitize", "clear_secret", "wipe_backend"),
     "cp19_clear_pool_slot": ("secure_clear", "wipe_backend"),
     "cp19_clear_derived_struct": ("secure_clear", "wipe_backend"),
-    "cp19_clear_derived_enum": ("secure_clear", "wipe_backend"),
+    "cp19_clear_reviewed_enum": ("secure_clear", "wipe_backend"),
     "cp19_clear_tuple": ("secure_clear", "wipe_backend"),
     "cp19_clear_arrayvec": (
         "clear_secret",

@@ -33,7 +33,7 @@ The following known corrections are intentionally semver-breaking:
 - `CtOrdering` and `Mask<T>` lose declassification bypasses;
 - the misleading generic `ct::Secret<T>` marker is replaced;
 - secret-bearing CT option/result state becomes clear-on-drop and redacted;
-- enum derives fail closed unless inactive storage is acknowledged;
+- enum derives are rejected because inactive storage is unreachable;
 - every skipped derive field requires a reason;
 - `strict-ct` is replaced by the accurately scoped `strict-compare`;
 - ambiguous `unsafe_wipe` and best-effort compatibility names are removed;
@@ -540,7 +540,7 @@ generic exposure closures that would only recreate the original bypass.
 
 ### 4.5 Secret-bearing CT option and result
 
-Redesign `CtOption` and `CtResult` into two clearly separated categories:
+Redesign `PublicCtOption` and `PublicCtResult` into two clearly separated categories:
 
 1. lightweight control containers for public or non-secret backing values;
 2. clear-on-drop secret-bearing containers.
@@ -608,22 +608,17 @@ has an audited target-specific backend and matching evidence.
 
 ### 5.1 Enums fail closed
 
-Enum `SecureSanitize` derives must reject by default.
-
-Permit active-variant-only sanitization only with:
-
-```rust
-#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
-```
+Enum `SecureSanitize` derives must reject unconditionally.
 
 The diagnostic must explain:
 
 - only the active variant is reachable safely;
 - bytes from a previously active larger variant may remain;
-- callers should sanitize before replacement with `secure_replace`;
+- reviewed manual implementations must sanitize before replacement with
+  `secure_replace`;
 - struct-based state machines are preferred for high-assurance secret state.
 
-There should be no feature flag that silently weakens this default.
+There is no acknowledgement attribute or feature flag that weakens this rule.
 
 ### 5.2 Skip reasons
 
@@ -650,7 +645,7 @@ Add compile-pass and compile-fail coverage for:
 - generics and struct-level `Drop` bounds;
 - `PhantomData`;
 - crate-path override;
-- enum acknowledgement;
+- enum derive rejection;
 - missing and empty skip reasons;
 - duplicate and malformed attributes;
 - unions;
@@ -1085,7 +1080,7 @@ Replace broad artifact greps with downstream exported harnesses for:
 - `SecretBoxBytes`;
 - `SecretVec` and `SecretString` full-capacity clearing;
 - locked, guarded, pooled, and sealed mappings;
-- derive-generated struct and enum cleanup;
+- derive-generated struct cleanup and reviewed manual enum cleanup;
 - tuple cleanup;
 - `sanitization-arrayvec` complete backing cleanup;
 - CT equality, ordering, selection, conditional copy/swap, and oblivious lookup.
@@ -1325,7 +1320,7 @@ Backport candidates:
 - correct the inaccurate `sanitization-arrayvec` spare-storage documentation;
 - implement complete historical inline-storage clearing in 1.2.x if it can be
   done without breaking the public API and passes unsafe review;
-- keep `CtOption` and `CtResult` `Debug` implementations redacted so backing
+- keep `PublicCtOption` and `PublicCtResult` `Debug` implementations redacted so backing
   values are not printed;
 - strengthen documentation around `ct::Secret<T>`, raw `Choice` extraction,
   enum transitions, interior mutability, and `Secret<Vec<T>>`;

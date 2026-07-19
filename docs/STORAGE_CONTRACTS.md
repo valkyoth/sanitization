@@ -113,7 +113,12 @@ define_secret_storage_policy! {
 let key = AllowlistedSecret::<SecretBytes<32>, DeploymentStoragePolicy>::new(
     SecretBytes::from_array([7; 32]),
 );
-assert_eq!(key.with_secret(|value| value.read_byte(0)), Some(7));
+assert_eq!(
+    key.with_secret(|value| {
+        value.export_byte("test observes reviewed key byte", 0)
+    }),
+    Some(7)
+);
 ```
 
 Every exact type requires a non-empty rationale. Construction and exposure

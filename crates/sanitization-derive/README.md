@@ -63,35 +63,16 @@ struct Tag {
 must be non-empty. Skips are rejected for `ConditionallySelectable` because
 constructing the selected output requires every field.
 
-## Enum Derives
+## Enums
 
-Derived enum sanitization only clears the currently active variant. If code
-changes a secret-bearing enum to a non-secret variant and only then calls
-`secure_sanitize`, the old inactive variant bytes are outside the derive's safe
-reach. Prefer struct wrappers for high-assurance state machines, or call
-`sanitization::secure_replace(&mut value, replacement)` so the active variant is
-sanitized before replacement.
-
-Enum derives fail closed unless the enum explicitly acknowledges this
-limitation:
-
-```rust
-use sanitization::SecureSanitize;
-
-#[derive(SecureSanitize)]
-#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
-enum KeyMaterial {
-    Key([u8; 32]),
-    Empty,
-}
-```
-
-`ConstantTimeEq` and `ConditionallySelectable` reject enums. Use explicit struct
-wrappers or a hand-written implementation when active-variant semantics are
-intentional and reviewed.
+All derives reject enums. Safe generated code can reach only the active variant
+and cannot clear bytes retained from a previously active, larger variant. Use a
+struct with stable secret storage and an explicit public state tag. A reviewed
+manual enum implementation must call
+`sanitization::secure_replace(&mut value, replacement)` before every transition.
 
 Duplicate, malformed, empty, and misplaced helper options are rejected.
-`reason` is valid only together with `skip`. Unions are rejected.
+`reason` is valid only together with `skip`. Enums and unions are rejected.
 
 ## Generic `SecureSanitizeOnDrop`
 

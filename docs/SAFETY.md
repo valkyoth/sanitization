@@ -45,9 +45,10 @@ Fixed-size `expose_secret` methods directly borrow their container storage and
 do not intentionally build a full-size stack array. This is a source and
 reviewed-codegen property, not a promise that the compiler, calling convention,
 closure, or downstream code will never spill or copy bytes. Explicit
-`expose_secret_copy` methods create temporary plaintext arrays that are
-volatile-cleared on normal return and unwinding but remain uncleared if the
-process aborts.
+`SecretBytes::export_secret_copy` creates a reason-bearing temporary plaintext
+array that is volatile-cleared on normal return and unwinding but remains
+uncleared if the process aborts. Other mapped containers document their own
+copy exposure boundaries.
 
 ### Strict-Assurance Use
 

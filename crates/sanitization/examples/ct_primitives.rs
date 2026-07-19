@@ -1,6 +1,6 @@
 use sanitization::ct::{
-    self, Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd, CtOption, CtResult,
-    SecretCtOption, SecretCtResult, SecretIndex,
+    self, Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd, PublicCtOption,
+    PublicCtResult, SecretCtOption, SecretCtResult, SecretIndex,
 };
 use sanitization::SecureSanitize;
 
@@ -19,14 +19,14 @@ fn main() {
     let selected = u32::conditional_select(&10, &20, Choice::TRUE);
     assert_eq!(selected, 20);
 
-    let maybe = CtOption::some(41u8).map(|value| value.wrapping_add(1));
+    let maybe = PublicCtOption::some(41u8).map(|value| value.wrapping_add(1));
     assert_eq!(maybe.unwrap_or(&0), 42);
     assert_eq!(
         maybe.declassify("example option presence is public"),
         Some(42)
     );
 
-    let checked = CtResult::new(7u8, 0u8, Choice::TRUE).map(|value| value.wrapping_add(1));
+    let checked = PublicCtResult::new(7u8, 0u8, Choice::TRUE).map(|value| value.wrapping_add(1));
     assert_eq!(checked.unwrap_or(&0), 8);
     assert_eq!(checked.declassify("example result is public"), Ok(8));
 

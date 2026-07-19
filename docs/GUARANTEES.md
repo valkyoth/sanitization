@@ -132,7 +132,7 @@ The data-oblivious guarantees apply to the crate's own primitives:
 - fixed-size equality and ordering scan every public element;
 - public-length equality treats length as public metadata and rejects length
   mismatch without claiming the length is secret;
-- `ct::CtOption` and `ct::CtResult` keep success/failure state inside the CT
+- `ct::PublicCtOption` and `ct::PublicCtResult` keep success/failure state inside the CT
   domain until explicit declassification for public or non-secret backing
   values;
 - `ct::SecretIndex` and `ct::SecretScalar<T>` are non-copying, redacted,

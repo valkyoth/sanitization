@@ -103,6 +103,8 @@ request and achieved outcome described in `docs/PROTECTION_REPORT.md`.
 - Clearing temporary stack copies after process abort. Closure helpers clear
   their temporaries on normal return and unwinding paths only; `panic = "abort"`
   and other abort paths skip destructors and post-closure cleanup.
+  `sanitize_then_abort` helps only when the application deliberately routes a
+  fatal path through that helper and supplies every secret-owning root.
 - Cache-line flushing outside x86_64.
 - Detecting corruption that changes only the secret bytes and does not reach a
   canary word.
@@ -338,7 +340,7 @@ does not intentionally construct a full-size temporary array. This reduces
 stack remanence but does not prevent compiler spills, register copies, caller
 copies, or copies created by external code.
 
-`SecretBytes::expose_secret_copy` explicitly creates a full-size temporary
+`SecretBytes::export_secret_copy` explicitly creates a full-size temporary
 stack array. It volatile-clears that copy on normal return and unwinding, but
 cannot clear it after process abort. The same direct-versus-copy distinction
 applies to fixed locked storage and pool slots. Split-secret plaintext cannot

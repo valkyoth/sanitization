@@ -3,13 +3,13 @@
 
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::{
-    parse_macro_input, parse_quote, spanned::Spanned, Attribute, Data, DataEnum, DataStruct,
-    DeriveInput, Error, Fields, Generics, LitStr, Path, Result, WherePredicate,
+    parse_macro_input, parse_quote, spanned::Spanned, Attribute, Data, DataStruct, DeriveInput,
+    Error, Fields, Generics, LitStr, Path, Result, WherePredicate,
 };
 
-/// Derive `sanitization::SecureSanitize` for structs and enums.
+/// Derive `sanitization::SecureSanitize` for structs.
 ///
 /// Every non-skipped field must implement `SecureSanitize`. Skipped fields
 /// require a non-empty audit reason:
@@ -18,20 +18,11 @@ use syn::{
 /// #[sanitization(skip, reason = "public algorithm identifier")]
 /// ```
 ///
-/// # Enums
-///
-/// For enums, generated code can only sanitize the currently active variant.
-/// It cannot safely reach bytes left behind by previously active variants after
-/// a variant transition. Use `sanitization::secure_replace` before replacement,
-/// derive `SecureSanitizeOnDrop` when drop-before-assignment semantics are
-/// wanted, or prefer struct wrappers for high-assurance state machines.
-///
-/// Enum derives fail closed unless the inactive-variant storage limitation is
-/// explicitly acknowledged:
-///
-/// ```ignore
-/// #[sanitization(enum_inactive_variant_bytes = "acknowledged")]
-/// ```
+/// Enums are rejected because generated safe code can only reach the active
+/// variant and therefore cannot clear bytes retained from a previously active,
+/// larger variant. Model secret state with a struct plus an explicit public
+/// discriminator, or implement a reviewed transition that calls
+/// `sanitization::secure_replace` before changing representation.
 #[proc_macro_derive(SecureSanitize, attributes(sanitization))]
 pub fn derive_secure_sanitize(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -106,7 +97,6 @@ pub fn derive_conditionally_selectable(input: TokenStream) -> TokenStream {
 struct ContainerOptions {
     crate_path: Option<Path>,
     bound_override: Option<Vec<WherePredicate>>,
-    enum_inactive_variant_bytes_acknowledged: bool,
 }
 
 #[derive(Default)]
@@ -123,9 +113,11 @@ fn expand_secure_sanitize(input: &DeriveInput) -> Result<TokenStream2> {
     let crate_path = crate_path(&options);
     let body = match &input.data {
         Data::Struct(data) => expand_struct_body(data, &crate_path)?,
-        Data::Enum(data) => {
-            validate_enum_options(input, &options)?;
-            expand_enum_body(data, &crate_path)?
+        Data::Enum(_) => {
+            return Err(Error::new_spanned(
+                input,
+                "SecureSanitize cannot be derived for enums because inactive variant bytes are unreachable; use a struct-based state machine or a reviewed manual implementation that sanitizes before every transition",
+            ))
         }
         Data::Union(_) => {
             return Err(Error::new_spanned(
@@ -146,17 +138,6 @@ fn expand_secure_sanitize(input: &DeriveInput) -> Result<TokenStream2> {
             }
         }
     })
-}
-
-fn validate_enum_options(input: &DeriveInput, options: &ContainerOptions) -> Result<()> {
-    if !options.enum_inactive_variant_bytes_acknowledged {
-        return Err(Error::new_spanned(
-            input,
-            "SecureSanitize enum derives require #[sanitization(enum_inactive_variant_bytes = \"acknowledged\")]; only the active variant is safely reachable, bytes from a previously active larger variant may remain, callers should sanitize before replacement with sanitization::secure_replace, and struct-based state machines are preferred for high-assurance secret state",
-        ));
-    }
-
-    Ok(())
 }
 
 fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
@@ -276,14 +257,10 @@ fn crate_path(options: &ContainerOptions) -> Path {
         .unwrap_or_else(|| parse_quote!(::sanitization))
 }
 
-fn validate_container_option_scope(input: &DeriveInput, options: &ContainerOptions) -> Result<()> {
-    if !matches!(input.data, Data::Enum(_)) && options.enum_inactive_variant_bytes_acknowledged {
-        return Err(Error::new_spanned(
-            input,
-            "enum_inactive_variant_bytes acknowledgement is only valid on enums",
-        ));
-    }
-
+fn validate_container_option_scope(
+    _input: &DeriveInput,
+    _options: &ContainerOptions,
+) -> Result<()> {
     Ok(())
 }
 
@@ -482,58 +459,6 @@ fn field_calls_for_struct(fields: &Fields, crate_path: &Path) -> Result<Vec<Toke
     Ok(calls)
 }
 
-fn expand_enum_body(data: &DataEnum, crate_path: &Path) -> Result<TokenStream2> {
-    let mut arms = Vec::new();
-
-    for variant in &data.variants {
-        let variant_ident = &variant.ident;
-        let (pattern, calls) = match &variant.fields {
-            Fields::Named(fields) => {
-                let mut bindings = Vec::new();
-                let mut calls = Vec::new();
-                for field in &fields.named {
-                    let ident = field.ident.as_ref().expect("named field");
-                    if parse_field_options(&field.attrs)?.skip {
-                        continue;
-                    }
-                    bindings.push(quote!(#ident));
-                    calls.push(quote!(#crate_path::SecureSanitize::secure_sanitize(#ident);));
-                }
-
-                let pattern = if bindings.is_empty() {
-                    quote!(Self::#variant_ident { .. })
-                } else {
-                    quote!(Self::#variant_ident { #(#bindings),*, .. })
-                };
-                (pattern, calls)
-            }
-            Fields::Unnamed(fields) => {
-                let mut pattern_fields = Vec::new();
-                let mut calls = Vec::new();
-                for (index, field) in fields.unnamed.iter().enumerate() {
-                    if parse_field_options(&field.attrs)?.skip {
-                        pattern_fields.push(quote!(_));
-                    } else {
-                        let binding = format_ident!("field_{index}");
-                        pattern_fields.push(quote!(#binding));
-                        calls.push(quote!(#crate_path::SecureSanitize::secure_sanitize(#binding);));
-                    }
-                }
-                (quote!(Self::#variant_ident(#(#pattern_fields),*)), calls)
-            }
-            Fields::Unit => (quote!(Self::#variant_ident), Vec::new()),
-        };
-
-        arms.push(quote!(#pattern => { #(#calls)* }));
-    }
-
-    Ok(quote! {
-        match self {
-            #(#arms),*
-        }
-    })
-}
-
 fn parse_container_options(attrs: &[Attribute]) -> Result<ContainerOptions> {
     let mut options = ContainerOptions::default();
 
@@ -558,18 +483,6 @@ fn parse_container_options(attrs: &[Attribute]) -> Result<ContainerOptions> {
                 let literal: LitStr = value.parse()?;
                 options.bound_override = Some(parse_bounds(&literal)?);
                 Ok(())
-            } else if meta.path.is_ident("enum_inactive_variant_bytes") {
-                if options.enum_inactive_variant_bytes_acknowledged {
-                    return Err(meta.error("duplicate enum_inactive_variant_bytes acknowledgement"));
-                }
-                let value = meta.value()?;
-                let literal: LitStr = value.parse()?;
-                if literal.value() == "acknowledged" {
-                    options.enum_inactive_variant_bytes_acknowledged = true;
-                    Ok(())
-                } else {
-                    Err(meta.error("enum_inactive_variant_bytes must be exactly \"acknowledged\""))
-                }
             } else {
                 Err(meta.error("unsupported sanitization container attribute"))
             }

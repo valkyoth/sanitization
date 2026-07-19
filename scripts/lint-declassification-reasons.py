@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject unreviewable or low-effort CT declassification reasons in Rust source."""
+"""Reject unreviewable reasons at CT declassification and secret export boundaries."""
 
 from __future__ import annotations
 
@@ -12,7 +12,15 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-METHODS = {"declassify", "declassify_u8"}
+METHODS = {
+    "declassify",
+    "declassify_u8",
+    "export_byte",
+    "export_secret_copy",
+    "export_to_slice",
+    "try_export_secret_copy",
+    "try_export_to_slice",
+}
 PLACEHOLDER_WORDS = {
     "fixme",
     "later",
@@ -60,6 +68,7 @@ BOUNDARY_WORDS = {
 }
 TRUSTED_FORWARDERS = {
     Path("crates/sanitization/src/ct.rs"): "reason",
+    Path("crates/sanitization/src/owned.rs"): "reason",
 }
 
 
@@ -308,7 +317,7 @@ def lint_path(path: Path) -> tuple[list[Finding], int]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Lint reason-bearing sanitization CT declassification calls."
+        description="Lint reason-bearing sanitization declassification and export calls."
     )
     parser.add_argument(
         "paths",

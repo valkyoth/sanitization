@@ -5,26 +5,27 @@ independent review. CP-20 uses these harnesses to collect dated target evidence.
 
 The machine-readable registry is `docs/verification-harnesses.json`.
 
-## Declassification Review Gate
+## Declassification And Export Review Gate
 
 `scripts/lint-declassification-reasons.py` lexes every tracked Rust source and
-checks method-style and UFCS calls to `declassify` and `declassify_u8`.
-Consumer boundaries must provide a direct string literal with enough context
+checks method-style and UFCS calls to CT declassification methods and the core
+fixed-secret `export_*` methods. Consumer boundaries must provide a direct
+string literal with enough context
 to identify a public, test, verification, wire, return, or reporting boundary.
 The gate rejects dynamic and macro-generated reasons, short generic labels, and
 placeholder words such as `todo`, `fixme`, and `tbd`.
 
-The core CT implementation has one narrow allowlist for forwarding its public
-method's already-supplied `reason` argument to nested CT owners. No consumer
-source is allowed to forward a dynamic reason. Both the lint and its negative
-fixtures run in `scripts/checks.sh`.
+The core CT and owned-secret implementations have a narrow allowlist for
+forwarding a public method's already-supplied `reason` argument to nested
+owners. No consumer source is allowed to forward a dynamic reason. Both the
+lint and its negative fixtures run in `scripts/checks.sh`.
 
 This is intentionally a source-review aid, not authorization machinery. It
 cannot determine whether a convincing sentence states a valid disclosure
 policy, detect a declassification method hidden behind a function pointer, or
 prove that a reviewer examined the boundary. High-assurance review must still
-search for declassification calls and assess each reason against application
-policy.
+search for declassification and export calls and assess each reason against
+application policy.
 
 ## Path-Specific Codegen
 
@@ -33,7 +34,7 @@ policy.
 - direct and copied fixed-secret exposure;
 - `SecretBoxBytes`, `SecretVec`, and `SecretString` clearing;
 - locked, guarded, pooled, and sealed clearing;
-- derive-generated struct and enum cleanup;
+- derive-generated struct cleanup and reviewed manual enum cleanup;
 - tuple and `sanitization-arrayvec` cleanup;
 - CT equality, ordering, conditional copy/swap, and oblivious lookup.
 

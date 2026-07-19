@@ -23,6 +23,8 @@
 //! Important limits:
 //! - Safe Rust cannot soundly scrub old stack frames created by prior moves.
 //! - Process abort prevents destructors and post-closure cleanup from running.
+//!   Under `std`, [`sanitize_then_abort`] clears one explicitly supplied root
+//!   before a deliberate abort; it does not intercept arbitrary abort paths.
 //! - SIMD stores, broad memory policy, and target-specific hardening need
 //!   target-specific unsafe code and platform policy.
 //! - Platform memory locking is available only through the explicit

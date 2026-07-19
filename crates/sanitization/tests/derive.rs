@@ -58,19 +58,6 @@ struct DerivedCtGeneric<T> {
 }
 
 #[derive(SecureSanitize)]
-#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
-enum DerivedMaterial {
-    Symmetric(SecretBytes<4>),
-    Pair {
-        private: SecretBytes<2>,
-        #[sanitization(skip, reason = "public label contains no secret data")]
-        #[allow(dead_code)]
-        public_label: NotSanitizable,
-    },
-    Empty,
-}
-
-#[derive(SecureSanitize)]
 struct TaggedSecret<T> {
     key: SecretBytes<4>,
     marker: PhantomData<T>,
@@ -96,11 +83,17 @@ struct GenericDropSecret<T: SecureSanitize> {
     inner: T,
 }
 
-#[derive(SecureSanitize)]
-#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
 enum ReplaceMaterial {
     Key(DropProbe),
     Empty,
+}
+
+impl SecureSanitize for ReplaceMaterial {
+    fn secure_sanitize(&mut self) {
+        if let Self::Key(key) = self {
+            key.secure_sanitize();
+        }
+    }
 }
 
 static DROP_PROBE_SANITIZED: AtomicBool = AtomicBool::new(false);
@@ -161,29 +154,6 @@ fn derive_secure_sanitize_supports_crate_path_override() {
     credentials.secure_sanitize();
 
     assert!(credentials.key.constant_time_eq(&[0, 0, 0, 0]));
-}
-
-#[test]
-fn derive_secure_sanitize_covers_enum_variants() {
-    let mut symmetric = DerivedMaterial::Symmetric(SecretBytes::from_array([1, 2, 3, 4]));
-    symmetric.secure_sanitize();
-    match symmetric {
-        DerivedMaterial::Symmetric(secret) => assert!(secret.constant_time_eq(&[0, 0, 0, 0])),
-        _ => panic!("unexpected variant"),
-    }
-
-    let mut pair = DerivedMaterial::Pair {
-        private: SecretBytes::from_array([9, 8]),
-        public_label: NotSanitizable,
-    };
-    pair.secure_sanitize();
-    match pair {
-        DerivedMaterial::Pair { private, .. } => assert!(private.constant_time_eq(&[0, 0])),
-        _ => panic!("unexpected variant"),
-    }
-
-    let mut empty = DerivedMaterial::Empty;
-    empty.secure_sanitize();
 }
 
 #[test]

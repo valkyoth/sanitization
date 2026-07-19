@@ -18,7 +18,9 @@ requires a storage-stability attestation:
 use sanitization::{Secret, SecretBytes};
 
 let secret = Secret::new(SecretBytes::<32>::from_array([7; 32]));
-let first = secret.with_secret(|bytes| bytes.read_byte(0));
+let first = secret.with_secret(|bytes| {
+    bytes.export_byte("application returns public key identifier byte", 0)
+});
 assert_eq!(first, Some(7));
 ```
 
@@ -46,9 +48,9 @@ Direct borrowing and temporary-copy exposure now have distinct names:
 | 1.x | 2.0 | Migration |
 | --- | --- | --- |
 | `SecretBytes::expose_secret` | same name | Closure now borrows the owned array directly. |
-| `SecretBytes::expose_secret_volatile` | `expose_secret_copy` | Explicitly creates and clears a stack copy. |
-| `ExpiringSecretBytes::try_expose_secret_volatile` | `try_expose_secret_copy` | Expiration-checked temporary copy. |
-| `MonotonicExpiringSecretBytes::try_expose_secret_volatile` | `try_expose_secret_copy` | Counter-checked temporary copy. |
+| `SecretBytes::expose_secret_volatile` | `export_secret_copy(reason, ...)` | Explicitly creates and clears a reason-bearing stack copy. |
+| `ExpiringSecretBytes::try_expose_secret_volatile` | `try_export_secret_copy(reason, ...)` | Expiration-checked temporary copy. |
+| `MonotonicExpiringSecretBytes::try_expose_secret_volatile` | `try_export_secret_copy(reason, ...)` | Counter-checked temporary copy. |
 | `LockedSecretBytes::with_secret` | `expose_secret` | Direct protected-storage exposure after integrity checks. |
 | `SecretPoolSlot::with_secret` | `expose_secret` | Direct pooled-storage exposure after integrity checks. |
 
@@ -95,15 +97,16 @@ The following ordinary extraction or comparison paths were removed:
 | `ct::Public<T>` | `ct::PublicValue<T>` |
 | generic copyable `ct::Secret<T>` index | `ct::SecretIndex` |
 | generic copyable `ct::Secret<T>` scalar | `ct::SecretScalar<T>` |
+| public backing in `CtOption`/`CtResult` | `PublicCtOption`/`PublicCtResult` |
 | secret backing in `CtOption`/`CtResult` | `SecretValue<T>`, `SecretCtOption`, `SecretCtResult` |
 
 `SecretIndex`, `SecretScalar`, and secret CT backing values are redacted,
 non-`Copy`, clear-on-drop owners. Consuming declassification clears remaining
 secret state while transferring only the selected value.
 
-`CtOption<T>` and `CtResult<T, E>` remain for public/non-secret backing. Do not
-put secrets in them. Use the classified secret variants so dummy and unselected
-owned values are also cleared.
+`PublicCtOption<T>` and `PublicCtResult<T, E>` are explicitly classified for
+public/non-secret backing. Do not put secrets in them. Use the classified secret
+variants so dummy and unselected owned values are also cleared.
 
 The feature `strict-ct` was renamed to `strict-compare`. Its scope is
 equal-length byte equality on reviewed assembly backends. It does not strengthen
@@ -120,24 +123,11 @@ declassification boundary.
 
 ## Derive Macros
 
-Enum sanitization requires explicit acknowledgement that assignment between
-variants can leave inactive bytes in the enum allocation:
-
-```rust
-use sanitization::SecureSanitize;
-
-#[derive(SecureSanitize)]
-#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
-enum KeyState {
-    Key([u8; 32]),
-    Empty,
-}
-```
-
-Acknowledgement documents the limitation; it does not clear bytes during an
-ordinary assignment. Use `secure_replace(&mut value, replacement)` before
-variant transitions, or prefer a struct wrapper whose full secret storage has
-a stable layout.
+Enum sanitization derives are rejected because ordinary variant assignment can
+leave inactive bytes in the enum allocation. Replace secret-bearing enums with
+a struct whose secret storage has a stable layout and whose public state is a
+separate tag. If an enum is unavoidable, implement `SecureSanitize` manually
+and use `secure_replace(&mut value, replacement)` before every transition.
 
 Skipped fields now require a reason:
 

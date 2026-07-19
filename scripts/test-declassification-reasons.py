@@ -49,6 +49,11 @@ run_fixture(
     succeeds=True,
 )
 run_fixture(
+    "meaningful-export",
+    'fn check(secret: SecretBytes<4>) { let _ = secret.export_byte("wire header exposes public key byte", 0); }\n',
+    succeeds=True,
+)
+run_fixture(
     "comments-and-strings",
     '// choice.declassify("todo");\nconst TEXT: &str = ".declassify(\\\"todo\\\")";\n',
     succeeds=True,
@@ -89,5 +94,11 @@ run_fixture(
     succeeds=False,
     message="placeholder word",
 )
+run_fixture(
+    "export-todo",
+    'fn check(secret: SecretBytes<4>) { let _ = secret.export_to_slice("todo", &mut [0; 4]); }\n',
+    succeeds=False,
+    message="placeholder word",
+)
 
-print("declassification reason lint fixtures passed")
+print("declassification and export reason lint fixtures passed")

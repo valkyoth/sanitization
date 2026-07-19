@@ -719,8 +719,8 @@ fn ct_secret_containers_expose_native_traits() {
 fn ct_option_keeps_presence_as_choice() {
     use ct::ConditionallySelectable;
 
-    let present = ct::CtOption::some(9u8);
-    let absent = ct::CtOption::none(3u8);
+    let present = ct::PublicCtOption::some(9u8);
+    let absent = ct::PublicCtOption::none(3u8);
 
     assert_eq!(
         present
@@ -743,12 +743,15 @@ fn ct_option_keeps_presence_as_choice() {
             .declassify("test exposes mapped optional absence"),
         None
     );
-    assert_eq!(present.and(ct::CtOption::some(4u8)).unwrap_or(&0), 4);
-    assert_eq!(present.and(ct::CtOption::none(4u8)).unwrap_or(&0), 0);
-    assert_eq!(present.or(ct::CtOption::some(4u8)).unwrap_or(&0), 9);
-    assert_eq!(absent.or(ct::CtOption::some(4u8)).unwrap_or(&0), 4);
-    let selected =
-        ct::CtOption::conditional_select(&present, &ct::CtOption::some(11), ct::Choice::TRUE);
+    assert_eq!(present.and(ct::PublicCtOption::some(4u8)).unwrap_or(&0), 4);
+    assert_eq!(present.and(ct::PublicCtOption::none(4u8)).unwrap_or(&0), 0);
+    assert_eq!(present.or(ct::PublicCtOption::some(4u8)).unwrap_or(&0), 9);
+    assert_eq!(absent.or(ct::PublicCtOption::some(4u8)).unwrap_or(&0), 4);
+    let selected = ct::PublicCtOption::conditional_select(
+        &present,
+        &ct::PublicCtOption::some(11),
+        ct::Choice::TRUE,
+    );
     assert_eq!(selected.unwrap_or(&0), 11);
     assert_eq!(present.declassify("test exposes optional success"), Some(9));
     assert_eq!(absent.declassify("test exposes optional absence"), None);
@@ -758,8 +761,8 @@ fn ct_option_keeps_presence_as_choice() {
 fn ct_result_keeps_success_as_choice() {
     use ct::ConditionallySelectable;
 
-    let ok = ct::CtResult::new(7u8, 99u8, ct::Choice::TRUE);
-    let err = ct::CtResult::new(7u8, 99u8, ct::Choice::FALSE);
+    let ok = ct::PublicCtResult::new(7u8, 99u8, ct::Choice::TRUE);
+    let err = ct::PublicCtResult::new(7u8, 99u8, ct::Choice::FALSE);
 
     assert_eq!(
         ok.is_ok()
@@ -799,9 +802,9 @@ fn ct_result_keeps_success_as_choice() {
             .declassify("test exposes mapped result error"),
         Err(100)
     );
-    let selected = ct::CtResult::conditional_select(
+    let selected = ct::PublicCtResult::conditional_select(
         &ok,
-        &ct::CtResult::new(42u8, 1u8, ct::Choice::TRUE),
+        &ct::PublicCtResult::new(42u8, 1u8, ct::Choice::TRUE),
         ct::Choice::TRUE,
     );
     assert_eq!(selected.unwrap_or(&0), 42);
@@ -1408,11 +1411,15 @@ fn secret_bytes_round_trip_and_clear() {
     let mut secret = SecretBytes::<4>::from_array([1, 2, 3, 4]);
     let mut out = [0; 4];
 
-    assert!(secret.copy_to_slice(&mut out).is_ok());
+    assert!(secret
+        .export_to_slice("test exports bytes for round trip", &mut out)
+        .is_ok());
     assert_eq!(out, [1, 2, 3, 4]);
 
     secret.secure_clear();
-    assert!(secret.copy_to_slice(&mut out).is_ok());
+    assert!(secret
+        .export_to_slice("test exports cleared bytes for verification", &mut out)
+        .is_ok());
     assert_eq!(out, [0, 0, 0, 0]);
 
     secret.into_cleared();
@@ -1607,13 +1614,14 @@ fn fixed_secret_copy_exposure_uses_independent_storage() {
     let mut owned_address = 0usize;
     secret.transform(|bytes| owned_address = bytes.as_ptr() as usize);
 
-    let sum = secret.expose_secret_copy(|bytes| {
-        assert_ne!(bytes.as_ptr() as usize, owned_address);
-        bytes
-            .iter()
-            .copied()
-            .fold(0_u8, |total, byte| total.wrapping_add(byte))
-    });
+    let sum =
+        secret.export_secret_copy("test observes independent copied secret storage", |bytes| {
+            assert_ne!(bytes.as_ptr() as usize, owned_address);
+            bytes
+                .iter()
+                .copied()
+                .fold(0_u8, |total, byte| total.wrapping_add(byte))
+        });
 
     assert_eq!(sum, 10);
 }
@@ -1625,14 +1633,18 @@ fn expiring_secret_allows_access_before_expiration() {
         ExpiringSecretBytes::<4>::from_array([1, 2, 3, 4], std::time::Duration::from_secs(60));
     let mut out = [0; 4];
 
-    assert!(secret.try_copy_to_slice(&mut out).is_ok());
+    assert!(secret
+        .try_export_to_slice("test exports live expiring secret bytes", &mut out)
+        .is_ok());
     assert_eq!(out, [1, 2, 3, 4]);
     assert_eq!(
         secret.try_expose_secret(|bytes| bytes[0].wrapping_add(bytes[3])),
         Ok(5)
     );
     assert_eq!(
-        secret.try_expose_secret_copy(|bytes| bytes[1].wrapping_add(bytes[2])),
+        secret.try_export_secret_copy("test observes copied expiring secret bytes", |bytes| bytes
+            [1]
+        .wrapping_add(bytes[2]),),
         Ok(5)
     );
     assert_eq!(secret.try_constant_time_eq(&[1, 2, 3, 4]), Ok(true));
@@ -1651,7 +1663,7 @@ fn expiring_secret_clears_and_rejects_after_expiration() {
         Err(SecretExpiredError)
     );
     assert_eq!(
-        secret.try_copy_to_slice(&mut out),
+        secret.try_export_to_slice("test exports expiring secret bytes", &mut out),
         Err(ExpiringSecretError::Expired(SecretExpiredError))
     );
 }
@@ -1664,11 +1676,17 @@ fn expiring_secret_replacement_restarts_lifetime() {
     let mut out = [0; 4];
 
     secret.replace_from_slice(&[5, 6, 7, 8]).unwrap();
-    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(
+        secret.try_export_to_slice("test exports expiring secret bytes", &mut out),
+        Ok(())
+    );
     assert_eq!(out, [5, 6, 7, 8]);
 
     secret.replace_from_array([8, 7, 6, 5]);
-    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(
+        secret.try_export_to_slice("test exports expiring secret bytes", &mut out),
+        Ok(())
+    );
     assert_eq!(out, [8, 7, 6, 5]);
 }
 
@@ -1682,7 +1700,10 @@ fn expiring_secret_can_initialize_from_fallible_fn() {
         .unwrap();
     let mut out = [0; 4];
 
-    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(
+        secret.try_export_to_slice("test exports expiring secret bytes", &mut out),
+        Ok(())
+    );
     assert_eq!(out, [1, 2, 3, 4]);
 
     assert_eq!(
@@ -1706,7 +1727,10 @@ fn expiring_secret_can_replace_from_fn() {
     let mut out = [0; 4];
 
     secret.replace_from_fn(|index| (index as u8) + 7);
-    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(
+        secret.try_export_to_slice("test exports expiring secret bytes", &mut out),
+        Ok(())
+    );
     assert_eq!(out, [7, 8, 9, 10]);
 
     assert_eq!(
@@ -1719,13 +1743,19 @@ fn expiring_secret_can_replace_from_fn() {
         }),
         Err("generation failed")
     );
-    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(
+        secret.try_export_to_slice("test exports expiring secret bytes", &mut out),
+        Ok(())
+    );
     assert_eq!(out, [7, 8, 9, 10]);
 
     secret
         .try_replace_from_fn(|index| Ok::<u8, &'static str>((index as u8) + 1))
         .unwrap();
-    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(
+        secret.try_export_to_slice("test exports expiring secret bytes", &mut out),
+        Ok(())
+    );
     assert_eq!(out, [1, 2, 3, 4]);
 }
 
@@ -1740,7 +1770,10 @@ fn monotonic_expiring_secret_allows_access_before_expiration() {
 
     assert_eq!(secret.age_ticks(), 4);
     assert!(!secret.is_expired());
-    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(
+        secret.try_export_to_slice("test exports expiring secret bytes", &mut out),
+        Ok(())
+    );
     assert_eq!(out, [1, 2, 3, 4]);
     assert_eq!(secret.try_constant_time_eq(&[1, 2, 3, 4]), Ok(true));
 }
@@ -1756,7 +1789,7 @@ fn monotonic_expiring_secret_clears_and_rejects_after_expiration() {
 
     assert!(secret.is_expired());
     assert_eq!(
-        secret.try_copy_to_slice(&mut out),
+        secret.try_export_to_slice("test exports expiring secret bytes", &mut out),
         Err(ExpiringSecretError::Expired(SecretExpiredError))
     );
     assert_eq!(
@@ -1790,13 +1823,19 @@ fn monotonic_expiring_secret_replacement_restarts_lifetime() {
     secret.replace_from_array([5, 6, 7, 8]);
 
     assert_eq!(secret.age_ticks(), 0);
-    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(
+        secret.try_export_to_slice("test exports expiring secret bytes", &mut out),
+        Ok(())
+    );
     assert_eq!(out, [5, 6, 7, 8]);
 
     ticks.set(17);
     secret.replace_from_slice(&[8, 7, 6, 5]).unwrap();
     assert_eq!(secret.age_ticks(), 0);
-    assert_eq!(secret.try_copy_to_slice(&mut out), Ok(()));
+    assert_eq!(
+        secret.try_export_to_slice("test exports expiring secret bytes", &mut out),
+        Ok(())
+    );
     assert_eq!(out, [8, 7, 6, 5]);
 }
 
@@ -1901,7 +1940,9 @@ fn consume_once_secret_consumes_once_by_shared_reference() {
 
     let sum = secret.consume(|bytes| {
         let mut out = [0; 4];
-        bytes.copy_to_slice(&mut out).unwrap();
+        bytes
+            .export_to_slice("test exports consumed token bytes", &mut out)
+            .unwrap();
         out.iter().copied().fold(0_u8, u8::wrapping_add)
     });
 

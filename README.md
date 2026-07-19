@@ -74,7 +74,7 @@ Implemented now:
   with redacted serialization and const-generic `BoundedSecretVec<MAX>` and
   `BoundedSecretString<MAX>` input limits.
 - native dependency-free `sanitization::ct` data-oblivious primitives with
-  explicit declassification boundaries, `Choice`, `CtOption`, `CtResult`,
+  explicit declassification boundaries, `Choice`, `PublicCtOption`, `PublicCtResult`,
   `SecretIndex`, `SecretScalar`, clear-on-drop secret CT option/result state,
   `CtOrdering`, fixed-size equality and ordering, conditional selection,
   conditional copy/swap, slice selection, and oblivious lookup helpers.
@@ -332,9 +332,9 @@ Optional and fallible secret-derived states can stay in the `ct` domain until a
 public boundary:
 
 ```rust
-use sanitization::ct::{Choice, CtOption, CtResult};
+use sanitization::ct::{Choice, PublicCtOption, PublicCtResult};
 
-let maybe = CtOption::new(42u8, Choice::TRUE);
+let maybe = PublicCtOption::new(42u8, Choice::TRUE);
 assert_eq!(maybe.unwrap_or(&0), 42);
 let doubled = maybe.map(|value| value * 2);
 assert_eq!(doubled.unwrap_or(&0), 84);
@@ -343,7 +343,7 @@ assert_eq!(
     Some(42)
 );
 
-let checked = CtResult::new(7u8, "invalid", Choice::TRUE);
+let checked = PublicCtResult::new(7u8, "invalid", Choice::TRUE);
 assert_eq!(checked.unwrap_or(&0), 7);
 let incremented = checked.map(|value| value + 1);
 assert_eq!(incremented.unwrap_or(&0), 8);
@@ -353,11 +353,13 @@ assert_eq!(
 );
 ```
 
-`CtOption::map`, `CtOption::and`, `CtOption::or`, `CtResult::map`, and
-`CtResult::map_err` keep the hidden presence/success bit inside the `ct`
-domain. Their closures are always called, including on dummy backing values, so
-closures that process secret-derived data must also avoid secret-dependent
-branches and memory access.
+The `Public` prefix is a security classification: these types are copyable and
+may expose normal `Debug` output. `PublicCtOption::map`,
+`PublicCtOption::and`, `PublicCtOption::or`, `PublicCtResult::map`, and
+`PublicCtResult::map_err` keep the hidden presence/success bit inside the `ct`
+domain. Their closures are always called, including on dummy backing values.
+Never place secret-bearing values in these public containers; use the
+`SecretCt*` forms below.
 
 Use the separate secret-bearing containers when the backing values themselves
 need lifecycle protection:
@@ -584,9 +586,10 @@ assert_eq!(generated.try_constant_time_eq(&[7; 32]), Ok(true));
 key.try_expose_secret(|bytes| {
     assert_eq!(bytes.len(), 32);
 }).unwrap();
-key.try_expose_secret_copy(|bytes| {
-    assert_eq!(bytes[0], 7);
-}).unwrap();
+key.try_export_secret_copy(
+    "protocol callback requires independent key bytes",
+    |bytes| assert_eq!(bytes[0], 7),
+).unwrap();
 
 key.replace_from_fn(|index| index as u8);
 key.try_replace_from_fn(|index| Ok::<u8, &'static str>(index as u8))
@@ -621,15 +624,19 @@ let first_byte = key.expose_secret(|bytes| {
 assert_eq!(first_byte, 7);
 ```
 
-Use `expose_secret_copy` only when the callee must receive independent storage.
+Use `export_secret_copy` only when the callee must receive independent storage.
 It creates an additional `N`-byte stack array and volatile-clears it on normal
-return and unwinding. It cannot clear that copy if the process aborts.
+return and unwinding. It requires an audit reason and cannot clear that copy if
+the process aborts.
 
 ```rust
 use sanitization::SecretBytes;
 
 let key = SecretBytes::<32>::from_array([7; 32]);
-let first_byte = key.expose_secret_copy(|bytes| bytes[0]);
+let first_byte = key.export_secret_copy(
+    "protocol callback returns public key identifier byte",
+    |bytes| bytes[0],
+);
 
 assert_eq!(first_byte, 7);
 ```
@@ -649,8 +656,8 @@ For 1.x-to-2.0 migration:
 | 1.x API | 2.0 API | Behavior |
 | --- | --- | --- |
 | `SecretBytes::expose_secret` | unchanged name | now borrows owned storage directly |
-| `SecretBytes::expose_secret_volatile` | `expose_secret_copy` | explicitly creates and clears a stack copy |
-| `ExpiringSecretBytes::try_expose_secret_volatile` | `try_expose_secret_copy` | expiration-checked copy exposure |
+| `SecretBytes::expose_secret_volatile` | `export_secret_copy` | reason-bearing copy that is cleared after the callback |
+| `ExpiringSecretBytes::try_expose_secret_volatile` | `try_export_secret_copy` | expiration-checked reason-bearing copy exposure |
 | `LockedSecretBytes::with_secret` | `expose_secret` | direct protected-storage exposure |
 | `SecretPoolSlot::with_secret` | `expose_secret` | direct pooled-slot exposure |
 
@@ -668,7 +675,10 @@ key.copy_from_slice(&[9; 32]).unwrap();
 assert!(key.constant_time_eq(&[9; 32]));
 
 key.write_byte(0, 1).unwrap();
-assert_eq!(key.read_byte(0), Some(1));
+assert_eq!(
+    key.export_byte("protocol emits public key version byte", 0),
+    Some(1)
+);
 
 key.secure_clear();
 assert!(key.constant_time_eq(&[0; 32]));
@@ -1390,7 +1400,7 @@ These macros are declarative `macro_rules!` macros. They do not require `syn`,
 `quote`, `proc-macro2`, or any compile-time code-generation dependency. They
 currently support named-field structs without generics or `where` clauses.
 
-Enable `derive` when you want full struct and enum derive support and accept
+Enable `derive` when you want full struct derive support and accept
 the explicit proc-macro dependency tradeoff:
 
 ```toml
@@ -1407,17 +1417,6 @@ struct LoginCredentials {
     session_token: [u8; 32],
 }
 
-#[derive(SecureSanitize)]
-#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
-enum KeyMaterial {
-    Symmetric(SecretBytes<32>),
-    Asymmetric {
-        private: SecretBytes<64>,
-        #[sanitization(skip, reason = "public key contains no secret data")]
-        public: [u8; 32],
-    },
-    Empty,
-}
 ```
 
 `#[derive(SecureSanitize)]` calls `secure_sanitize` on every non-skipped field.
@@ -1427,14 +1426,11 @@ non-empty audit reason, for example
 `#[sanitization(skip, reason = "public algorithm identifier")]`. Use a skip
 only for fields that are intentionally non-secret or sanitized elsewhere.
 
-For enums, the generated implementation can only sanitize the currently active
-variant. If code changes a secret-bearing enum to a non-secret variant and only
-then calls `secure_sanitize`, the old inactive variant bytes are outside the
-derive's safe reach. Use `secure_replace(&mut value, replacement)` to sanitize
-before replacement, use `SecureSanitizeOnDrop` where assignment/drop semantics
-should clear the old active variant, or prefer struct wrappers for
-high-assurance state machines. Enum derives fail closed unless
-`#[sanitization(enum_inactive_variant_bytes = "acknowledged")]` is present.
+Enum derives are rejected. Safe generated code can reach only the active
+variant and cannot clear bytes retained from a previously active, larger
+variant. Use a struct with stable secret storage and an explicit public state
+tag. A reviewed manual enum implementation must use
+`secure_replace(&mut value, replacement)` before every transition.
 
 The derive crate is a code generator only. It does not duplicate the wipe
 backend, comparison logic, selection logic, or secret containers; generated code
@@ -1470,13 +1466,11 @@ Supported derive attributes are
 `#[sanitization(bound = "...")]` on fields or containers for explicit generated
 `where` predicates, and
 `#[sanitization(crate = "::path::to::sanitization")]` on containers when the
-main crate is renamed in `Cargo.toml`. Enum containers also accept
-`#[sanitization(enum_inactive_variant_bytes = "acknowledged")]`, which is
-required for every `SecureSanitize` enum derive. Duplicate, malformed, empty,
-or misplaced helper options are rejected. The helper attribute intentionally avoids
+main crate is renamed in `Cargo.toml`. Duplicate, malformed, empty, or
+misplaced helper options are rejected. The helper attribute intentionally avoids
 the name `sanitize`, which collides with Rust's experimental built-in sanitizer
-attribute on nightly/Miri. Unions are rejected; implement them manually only
-when the active field invariant is documented.
+attribute on nightly/Miri. Enums and unions are rejected; implement them
+manually only when the active field invariant and every transition are reviewed.
 
 For `SecureSanitizeOnDrop` on generic structs, put sanitization bounds on the
 struct declaration itself:
@@ -1744,7 +1738,12 @@ define_secret_storage_policy! {
 let key = AllowlistedSecret::<SecretBytes<32>, DeploymentStoragePolicy>::new(
     SecretBytes::from_array([7; 32]),
 );
-assert_eq!(key.with_secret(|value| value.read_byte(0)), Some(7));
+assert_eq!(
+    key.with_secret(|value| {
+        value.export_byte("test observes reviewed key byte", 0)
+    }),
+    Some(7)
+);
 ```
 
 Every approval has a required non-empty rationale, while exposure still
@@ -1774,7 +1773,9 @@ let token = ConsumeOnceSecret::new(SecretBytes::<4>::from_array([1, 2, 3, 4]));
 
 let sum = token.consume(|secret| {
     let mut out = [0; 4];
-    secret.copy_to_slice(&mut out).unwrap();
+    secret
+        .export_to_slice("protocol consumes one-time token bytes", &mut out)
+        .unwrap();
     out.iter().copied().fold(0_u8, u8::wrapping_add)
 }).unwrap();
 
@@ -1788,6 +1789,11 @@ cleanup guard clears during unwinding. A value that is never consumed is
 cleared on drop. The closure can still deliberately copy or export data, Rust
 moves and registers remain outside the guarantee, and destructor cleanup
 cannot run if the process aborts.
+
+For a deliberate fatal path under `std`, `sanitize_then_abort(&mut root)`
+clears one application-owned root before calling `std::process::abort`. Group
+all owners that must be cleared into a sanitizable struct or tuple. This helper
+does not intercept direct aborts, signals, or aborts initiated by dependencies.
 
 ## Direct Wiping
 
@@ -2195,7 +2201,8 @@ the first mismatching byte.
 especially with `#[derive(Zeroize, ZeroizeOnDrop)]`. This crate keeps the core
 crate dependency-free by default, but now offers an optional
 `sanitization-derive` sister crate behind the `derive` feature for users who
-want similar compiler-generated struct and enum coverage. When existing
+want compiler-generated struct coverage. Enum derives are deliberately
+rejected because inactive representation bytes are unreachable. When existing
 RustCrypto ecosystem APIs require `zeroize` or `subtle` trait bounds, enable
 `zeroize-interop` or `subtle-interop`; these are explicit opt-ins and are not
 part of the dependency-free default build.

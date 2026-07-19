@@ -104,9 +104,9 @@ struct Bad {
 }'
 
 run_expected_failure \
-    "enum-ack-required" \
+    "enum-sanitize-rejected" \
     '"derive"' \
-    "SecureSanitize enum derives require #[sanitization(enum_inactive_variant_bytes = \"acknowledged\")]" \
+    "SecureSanitize cannot be derived for enums because inactive variant bytes are unreachable" \
     'use sanitization::SecureSanitize;
 
 #[derive(SecureSanitize)]
@@ -223,45 +223,6 @@ run_expected_failure \
 
 #[derive(SecureSanitize)]
 #[sanitization(crate = "::sanitization", crate = "::sanitization")]
-struct Bad {
-    value: u8,
-}'
-
-run_expected_failure \
-    "duplicate-enum-ack-rejected" \
-    '"derive"' \
-    "duplicate enum_inactive_variant_bytes acknowledgement" \
-    'use sanitization::SecureSanitize;
-
-#[derive(SecureSanitize)]
-#[sanitization(
-    enum_inactive_variant_bytes = "acknowledged",
-    enum_inactive_variant_bytes = "acknowledged"
-)]
-enum Bad {
-    Value(u8),
-}'
-
-run_expected_failure \
-    "invalid-enum-ack-rejected" \
-    '"derive"' \
-    "enum_inactive_variant_bytes must be exactly \"acknowledged\"" \
-    'use sanitization::SecureSanitize;
-
-#[derive(SecureSanitize)]
-#[sanitization(enum_inactive_variant_bytes = "accepted")]
-enum Bad {
-    Value(u8),
-}'
-
-run_expected_failure \
-    "enum-ack-on-struct-rejected" \
-    '"derive"' \
-    "enum_inactive_variant_bytes acknowledgement is only valid on enums" \
-    'use sanitization::SecureSanitize;
-
-#[derive(SecureSanitize)]
-#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
 struct Bad {
     value: u8,
 }'

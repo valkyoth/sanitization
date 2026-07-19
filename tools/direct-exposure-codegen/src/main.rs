@@ -11,11 +11,17 @@ pub struct DerivedStruct {
     second: SecretBytes<16>,
 }
 
-#[derive(sanitization::SecureSanitize)]
-#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
-pub enum DerivedEnum {
+pub enum ReviewedEnum {
     Key(SecretBytes<32>),
     Empty,
+}
+
+impl SecureSanitize for ReviewedEnum {
+    fn secure_sanitize(&mut self) {
+        if let Self::Key(key) = self {
+            key.secure_sanitize();
+        }
+    }
 }
 
 #[inline(never)]
@@ -27,7 +33,10 @@ pub fn cp04_direct_exposure(secret: &SecretBytes<4096>) -> u8 {
 #[inline(never)]
 #[no_mangle]
 pub fn cp04_copy_exposure(secret: &SecretBytes<4096>) -> u8 {
-    secret.expose_secret_copy(|bytes| black_box(bytes)[black_box(2048)])
+    secret.export_secret_copy(
+        "codegen verification observes copied secret byte",
+        |bytes| black_box(bytes)[black_box(2048)],
+    )
 }
 
 #[inline(never)]
@@ -80,7 +89,7 @@ pub fn cp19_clear_derived_struct(value: &mut DerivedStruct) {
 
 #[inline(never)]
 #[no_mangle]
-pub fn cp19_clear_derived_enum(value: &mut DerivedEnum) {
+pub fn cp19_clear_reviewed_enum(value: &mut ReviewedEnum) {
     value.secure_sanitize();
 }
 
@@ -145,9 +154,9 @@ fn main() {
         second: SecretBytes::from_array([2; 16]),
     };
     cp19_clear_derived_struct(black_box(&mut derived));
-    let mut derived_enum = DerivedEnum::Key(SecretBytes::from_array([3; 32]));
-    cp19_clear_derived_enum(black_box(&mut derived_enum));
-    black_box(DerivedEnum::Empty);
+    let mut reviewed_enum = ReviewedEnum::Key(SecretBytes::from_array([3; 32]));
+    cp19_clear_reviewed_enum(black_box(&mut reviewed_enum));
+    black_box(ReviewedEnum::Empty);
 
     let mut tuple = (
         SecretBytes::from_array([4; 32]),

@@ -79,8 +79,8 @@ scripts/verify-derive-failures.sh
 ```
 
 This builds temporary downstream crates and asserts that native `ct` enum
-derives, skipped `ConditionallySelectable` fields, enum sanitization without
-inactive-variant acknowledgement, unreasoned skips, malformed or duplicate
+derives, skipped `ConditionallySelectable` fields, all enum sanitization
+derives, unreasoned skips, malformed or duplicate
 helper options, unions, and missing generic drop bounds remain compile
 failures.
 
@@ -197,9 +197,9 @@ Current proof scope:
 - `ct::oblivious_lookup` matches public-index lookup or fallback behavior for
   the bounded harness;
 - `ct::select_slice` matches the public interpretation of the `Choice`;
-- `ct::CtOption` unwrap/combine/select behavior matches the public
+- `ct::PublicCtOption` unwrap/combine/select behavior matches the public
   interpretation of hidden presence bits;
-- `ct::CtResult` unwrap/map/select behavior matches the public interpretation
+- `ct::PublicCtResult` unwrap/map/select behavior matches the public interpretation
   of hidden success bits;
 - secret CT scalar, option, and result ownership tests cover clear-on-drop,
   selected-value transfer, dummy/unselected cleanup, mapping panic unwind,

@@ -317,14 +317,35 @@ macro_rules! define_secret_storage_policy {
 /// Sanitize a value before replacing it.
 ///
 /// This is the safe replacement pattern for values whose previous contents may
-/// hold secrets, especially enums that move from a secret-bearing variant to a
-/// non-secret variant. `SecureSanitize` for derived enums can only clear the
-/// currently active variant. Calling `secure_sanitize` after assigning a unit
-/// or empty variant is too late; use `secure_replace` to clear first.
+/// hold secrets, especially manually implemented enums that move from a
+/// secret-bearing variant to a non-secret variant. Calling `secure_sanitize`
+/// after assigning a unit or empty variant is too late; use `secure_replace` to
+/// clear first. Derive macros reject enums because they cannot enforce this
+/// transition discipline.
 #[inline]
 pub fn secure_replace<T: SecureSanitize>(slot: &mut T, replacement: T) {
     slot.secure_sanitize();
     *slot = replacement;
+}
+
+/// Sanitize one application-owned root value and then deliberately abort.
+///
+/// This helper is only for fatal paths that explicitly choose to abort. It
+/// sanitizes `root` before invoking [`std::process::abort`]. Aggregate all
+/// reachable secret owners into a struct or tuple when more than one value must
+/// be cleared.
+///
+/// This does **not** install a panic, signal, or process-wide abort hook. It
+/// cannot clear compiler temporaries, external copies, unrelated owners, or
+/// secrets when another component aborts directly. Ordinary destructors still
+/// do not run after process abort.
+#[cfg(feature = "std")]
+#[inline(never)]
+pub fn sanitize_then_abort<T: SecureSanitize + ?Sized>(root: &mut T) -> ! {
+    root.secure_sanitize();
+    compiler_fence(Ordering::SeqCst);
+    black_box(&mut *root);
+    std::process::abort()
 }
 
 macro_rules! impl_secure_sanitize_scalar {
@@ -777,7 +798,9 @@ mod kani_verification {
         let mut output = [0xA5; 4];
 
         secret.secure_clear();
-        assert!(secret.copy_to_slice(&mut output).is_ok());
+        assert!(secret
+            .export_to_slice("test exports bytes for verification output", &mut output)
+            .is_ok());
 
         assert_eq!(output, [0; 4]);
     }
@@ -974,7 +997,7 @@ mod kani_verification {
         let fallback: u8 = kani::any();
         let presence_byte: u8 = kani::any();
         let presence = ct::Choice::from_u8(presence_byte);
-        let option = ct::CtOption::new(value, presence);
+        let option = ct::PublicCtOption::new(value, presence);
 
         let selected = option.unwrap_or(&fallback);
 
@@ -994,8 +1017,8 @@ mod kani_verification {
         let right_presence_byte: u8 = kani::any();
         let left_presence = ct::Choice::from_u8(left_presence_byte);
         let right_presence = ct::Choice::from_u8(right_presence_byte);
-        let left = ct::CtOption::new(left_value, left_presence);
-        let right = ct::CtOption::new(right_value, right_presence);
+        let left = ct::PublicCtOption::new(left_value, left_presence);
+        let right = ct::PublicCtOption::new(right_value, right_presence);
 
         let and_selected = left.and(right).unwrap_or(&fallback);
         let or_selected = left.or(right).unwrap_or(&fallback);
@@ -1026,7 +1049,7 @@ mod kani_verification {
         let fallback: u8 = kani::any();
         let success_byte: u8 = kani::any();
         let success = ct::Choice::from_u8(success_byte);
-        let result = ct::CtResult::new(value, error, success);
+        let result = ct::PublicCtResult::new(value, error, success);
 
         let selected = result.unwrap_or(&fallback);
         let mapped = result.map(|inner| inner.wrapping_add(1));
@@ -1061,18 +1084,19 @@ mod kani_verification {
         let right_value: u8 = kani::any();
         let choice_byte: u8 = kani::any();
         let choice = ct::Choice::from_u8(choice_byte);
-        let left_option = ct::CtOption::some(left_value);
-        let right_option = ct::CtOption::some(right_value);
-        let left_result = ct::CtResult::new(left_value, 11u8, ct::Choice::TRUE);
-        let right_result = ct::CtResult::new(right_value, 22u8, ct::Choice::TRUE);
+        let left_option = ct::PublicCtOption::some(left_value);
+        let right_option = ct::PublicCtOption::some(right_value);
+        let left_result = ct::PublicCtResult::new(left_value, 11u8, ct::Choice::TRUE);
+        let right_result = ct::PublicCtResult::new(right_value, 22u8, ct::Choice::TRUE);
 
-        let selected_option = <ct::CtOption<u8> as ct::ConditionallySelectable>::conditional_select(
-            &left_option,
-            &right_option,
-            choice,
-        );
+        let selected_option =
+            <ct::PublicCtOption<u8> as ct::ConditionallySelectable>::conditional_select(
+                &left_option,
+                &right_option,
+                choice,
+            );
         let selected_result =
-            <ct::CtResult<u8, u8> as ct::ConditionallySelectable>::conditional_select(
+            <ct::PublicCtResult<u8, u8> as ct::ConditionallySelectable>::conditional_select(
                 &left_result,
                 &right_result,
                 choice,
@@ -1103,7 +1127,9 @@ mod kani_verification {
         let mut observed = [0_u8; 4];
 
         secret.copy_from_slice(&replacement).unwrap();
-        secret.copy_to_slice(&mut observed).unwrap();
+        secret
+            .export_to_slice("test exports bytes for verification output", &mut observed)
+            .unwrap();
 
         assert_eq!(observed, replacement);
     }
@@ -1182,7 +1208,7 @@ mod temporary_bytes_tests {
 ///
 /// `SecretBytes<N>` stores `N` bytes inline. [`SecretBytes::expose_secret`]
 /// borrows that storage directly and does not intentionally construct a
-/// full-size temporary array. [`SecretBytes::expose_secret_copy`] is the
+/// full-size temporary array. [`SecretBytes::export_secret_copy`] is the
 /// explicit copy-based alternative.
 ///
 /// The type deliberately does not implement `Clone`, `Copy`, `Deref`,
@@ -1386,9 +1412,18 @@ impl<const N: usize> SecretBytes<N> {
         Ok(output)
     }
 
-    /// Fill a caller-provided destination with a temporary copy of the secret.
+    /// Export a temporary copy into caller-owned storage.
+    ///
+    /// The destination is outside this container's clearing guarantee. The
+    /// caller must clear it. `reason` is an audit label identifying why this
+    /// copy is allowed to cross the secret-container boundary.
     #[inline]
-    pub fn copy_to_slice(&self, destination: &mut [u8]) -> Result<(), LengthError> {
+    pub fn export_to_slice(
+        &self,
+        reason: &'static str,
+        destination: &mut [u8],
+    ) -> Result<(), LengthError> {
+        black_box(reason);
         if destination.len() != N {
             return Err(LengthError {
                 expected: N,
@@ -1404,10 +1439,15 @@ impl<const N: usize> SecretBytes<N> {
         Ok(())
     }
 
-    /// Read one byte without exposing the whole secret.
+    /// Export one byte from the secret.
+    ///
+    /// The returned scalar is an unmanaged copy that may remain in registers or
+    /// compiler temporaries. `reason` is an audit label identifying the public
+    /// boundary that permits this extraction.
     #[must_use]
     #[inline]
-    pub fn read_byte(&self, index: usize) -> Option<u8> {
+    pub fn export_byte(&self, reason: &'static str, index: usize) -> Option<u8> {
+        black_box(reason);
         if index < N {
             Some(self.load(index))
         } else {
@@ -1461,7 +1501,12 @@ impl<const N: usize> SecretBytes<N> {
     /// Prefer [`SecretBytes::expose_secret`] unless the callee must receive
     /// storage that is independent from the secret container.
     #[inline]
-    pub fn expose_secret_copy<R>(&self, inspect: impl FnOnce(&[u8; N]) -> R) -> R {
+    pub fn export_secret_copy<R>(
+        &self,
+        reason: &'static str,
+        inspect: impl FnOnce(&[u8; N]) -> R,
+    ) -> R {
+        black_box(reason);
         expose_array_copy(&self.bytes, inspect)
     }
 
@@ -2195,9 +2240,15 @@ impl<const N: usize, C: MonotonicClock> MonotonicExpiringSecretBytes<N, C> {
     /// Fill a caller-provided destination with a copy of the secret bytes if
     /// the secret has not expired.
     #[inline]
-    pub fn try_copy_to_slice(&mut self, destination: &mut [u8]) -> Result<(), ExpiringSecretError> {
+    pub fn try_export_to_slice(
+        &mut self,
+        reason: &'static str,
+        destination: &mut [u8],
+    ) -> Result<(), ExpiringSecretError> {
         self.enforce_live()?;
-        self.inner.copy_to_slice(destination).map_err(Into::into)
+        self.inner
+            .export_to_slice(reason, destination)
+            .map_err(Into::into)
     }
 
     /// Run a closure with direct shared access if the secret has not expired.
@@ -2213,14 +2264,15 @@ impl<const N: usize, C: MonotonicClock> MonotonicExpiringSecretBytes<N, C> {
     /// Run a closure with a temporary array copy if the secret has not expired.
     ///
     /// This is the monotonic-clock variant of
-    /// [`SecretBytes::expose_secret_copy`].
+    /// [`SecretBytes::export_secret_copy`].
     #[inline]
-    pub fn try_expose_secret_copy<R>(
+    pub fn try_export_secret_copy<R>(
         &mut self,
+        reason: &'static str,
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, SecretExpiredError> {
         self.enforce_live()?;
-        Ok(self.inner.expose_secret_copy(inspect))
+        Ok(self.inner.export_secret_copy(reason, inspect))
     }
 
     /// Compare against a slice if the secret has not expired.
@@ -2480,9 +2532,15 @@ impl<const N: usize> ExpiringSecretBytes<N> {
     /// Fill a caller-provided destination with a copy of the secret bytes if
     /// the secret has not expired.
     #[inline]
-    pub fn try_copy_to_slice(&mut self, destination: &mut [u8]) -> Result<(), ExpiringSecretError> {
+    pub fn try_export_to_slice(
+        &mut self,
+        reason: &'static str,
+        destination: &mut [u8],
+    ) -> Result<(), ExpiringSecretError> {
         self.enforce_live()?;
-        self.inner.copy_to_slice(destination).map_err(Into::into)
+        self.inner
+            .export_to_slice(reason, destination)
+            .map_err(Into::into)
     }
 
     /// Run a closure with direct shared access if the secret has not expired.
@@ -2497,14 +2555,15 @@ impl<const N: usize> ExpiringSecretBytes<N> {
 
     /// Run a closure with a temporary array copy if the secret has not expired.
     ///
-    /// This is the expiring variant of [`SecretBytes::expose_secret_copy`].
+    /// This is the expiring variant of [`SecretBytes::export_secret_copy`].
     #[inline]
-    pub fn try_expose_secret_copy<R>(
+    pub fn try_export_secret_copy<R>(
         &mut self,
+        reason: &'static str,
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, SecretExpiredError> {
         self.enforce_live()?;
-        Ok(self.inner.expose_secret_copy(inspect))
+        Ok(self.inner.export_secret_copy(reason, inspect))
     }
 
     /// Compare against a slice if the secret has not expired.

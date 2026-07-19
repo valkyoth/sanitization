@@ -13,7 +13,7 @@ use crate::SecureSanitize;
 ///
 /// `Choice` is for secret-derived booleans that should remain branchless while
 /// they are combined, selected on, or carried through public-backing
-/// [`CtOption`]/[`CtResult`] and secret-backing
+/// [`PublicCtOption`]/[`PublicCtResult`] and secret-backing
 /// [`SecretCtOption`]/[`SecretCtResult`] state. Turning a `Choice` into a
 /// normal `bool` is declassification and should happen only through
 /// [`Choice::declassify`].
@@ -618,26 +618,27 @@ fn sanitize_owned_option<T: SecureSanitize>(value: &mut Option<T>) {
     *value = None;
 }
 
-/// Optional value with a hidden presence bit.
+/// Optional value with a hidden presence bit and explicitly public backing.
 ///
-/// `CtOption` stores a value regardless of whether it is logically present.
+/// `PublicCtOption` stores a value regardless of whether it is logically present.
 /// Callers should combine or select on the [`Choice`] returned by
-/// [`CtOption::is_some`] and declassify only at a public boundary.
+/// [`PublicCtOption::is_some`] and declassify only at a public boundary.
 ///
 /// # Warning
 ///
-/// This public-backing type is `Copy` when `T` is `Copy` and exposes
-/// unredacted `Debug` output when `T` does. Do not instantiate it with
-/// secret-bearing storage. Use [`SecretCtOption`] for non-`Copy`, redacted,
+/// The `Public` prefix is a security classification, not merely a descriptive
+/// name. This type is `Copy` when `T` is `Copy` and exposes unredacted `Debug`
+/// output when `T` does. Do not instantiate it with secret-bearing storage.
+/// Use [`SecretCtOption`] with [`SecretValue`] for non-`Copy`, redacted,
 /// clear-on-drop backing values.
 #[derive(Clone, Copy, Debug)]
-pub struct CtOption<T> {
+pub struct PublicCtOption<T> {
     value: T,
     is_some: Choice,
 }
 
-impl<T> CtOption<T> {
-    /// Construct a `CtOption`.
+impl<T> PublicCtOption<T> {
+    /// Construct optional state whose backing value is classified as public.
     #[inline]
     pub const fn new(value: T, is_some: Choice) -> Self {
         Self { value, is_some }
@@ -674,7 +675,7 @@ impl<T> CtOption<T> {
     }
 
     /// Borrow the backing value. Its logical validity is controlled by
-    /// [`CtOption::is_some`].
+    /// [`PublicCtOption::is_some`].
     #[inline]
     pub const fn value(&self) -> &T {
         &self.value
@@ -697,8 +698,8 @@ impl<T> CtOption<T> {
     /// avoid secret-dependent control flow and secret-dependent memory
     /// access.
     #[inline]
-    pub fn map<U>(self, transform: impl FnOnce(T) -> U) -> CtOption<U> {
-        CtOption {
+    pub fn map<U>(self, transform: impl FnOnce(T) -> U) -> PublicCtOption<U> {
+        PublicCtOption {
             value: transform(self.value),
             is_some: self.is_some,
         }
@@ -709,8 +710,8 @@ impl<T> CtOption<T> {
     ///
     /// The backing value from `other` is retained regardless of presence.
     #[inline]
-    pub fn and<U>(self, other: CtOption<U>) -> CtOption<U> {
-        CtOption {
+    pub fn and<U>(self, other: PublicCtOption<U>) -> PublicCtOption<U> {
+        PublicCtOption {
             value: other.value,
             is_some: self.is_some & other.is_some,
         }
@@ -746,7 +747,7 @@ impl<T> CtOption<T> {
     }
 }
 
-impl<T> ConditionallySelectable for CtOption<T>
+impl<T> ConditionallySelectable for PublicCtOption<T>
 where
     T: ConditionallySelectable,
 {
@@ -759,23 +760,24 @@ where
     }
 }
 
-/// Result-like value with a hidden success bit.
+/// Result-like value with a hidden success bit and explicitly public backing.
 ///
 /// # Warning
 ///
-/// This public-backing type is `Copy` when both backing types are `Copy` and
-/// exposes their normal `Debug` output. Do not place secret-bearing values in
-/// either side. Use [`SecretCtResult`] when a success or error backing value
-/// is secret and must be redacted and cleared on drop.
+/// The `Public` prefix is a security classification. This type is `Copy` when
+/// both backing types are `Copy` and exposes their normal `Debug` output. Do
+/// not place secret-bearing values in either side. Use [`SecretCtResult`] when
+/// a success or error backing value is secret and must be redacted and cleared
+/// on drop.
 #[derive(Clone, Copy, Debug)]
-pub struct CtResult<T, E> {
+pub struct PublicCtResult<T, E> {
     value: T,
     error: E,
     is_ok: Choice,
 }
 
-impl<T, E> CtResult<T, E> {
-    /// Construct a `CtResult` from both backing values and a success bit.
+impl<T, E> PublicCtResult<T, E> {
+    /// Construct public result backing values and a hidden success bit.
     #[inline]
     pub const fn new(value: T, error: E, is_ok: Choice) -> Self {
         Self {
@@ -827,8 +829,8 @@ impl<T, E> CtResult<T, E> {
     /// avoid secret-dependent control flow and secret-dependent memory
     /// access.
     #[inline]
-    pub fn map<U>(self, transform: impl FnOnce(T) -> U) -> CtResult<U, E> {
-        CtResult {
+    pub fn map<U>(self, transform: impl FnOnce(T) -> U) -> PublicCtResult<U, E> {
+        PublicCtResult {
             value: transform(self.value),
             error: self.error,
             is_ok: self.is_ok,
@@ -843,8 +845,8 @@ impl<T, E> CtResult<T, E> {
     /// avoid secret-dependent control flow and secret-dependent memory
     /// access.
     #[inline]
-    pub fn map_err<F>(self, transform: impl FnOnce(E) -> F) -> CtResult<T, F> {
-        CtResult {
+    pub fn map_err<F>(self, transform: impl FnOnce(E) -> F) -> PublicCtResult<T, F> {
+        PublicCtResult {
             value: self.value,
             error: transform(self.error),
             is_ok: self.is_ok,
@@ -866,7 +868,7 @@ impl<T, E> CtResult<T, E> {
     }
 }
 
-impl<T, E> ConditionallySelectable for CtResult<T, E>
+impl<T, E> ConditionallySelectable for PublicCtResult<T, E>
 where
     T: ConditionallySelectable,
     E: ConditionallySelectable,
@@ -884,7 +886,7 @@ where
 /// Optional CT state whose backing value is explicitly classified as public
 /// or secret.
 ///
-/// Unlike [`CtOption`], this container is non-copying, has redacted `Debug`,
+/// Unlike [`PublicCtOption`], this container is non-copying, has redacted `Debug`,
 /// exposes no raw backing getter, and can own a [`SecretValue`] that clears on
 /// drop. The backing closure used by [`SecretCtOption::map_secret`] runs for
 /// both present and absent states.

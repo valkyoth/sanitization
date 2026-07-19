@@ -4,12 +4,12 @@
   "harnesses": [
     {
       "name": "declassification-reason-lint",
-      "claim": "Every Rust CT declassification boundary has a reviewable call-site literal and rejects known placeholder wording.",
+      "claim": "Every Rust CT declassification and core fixed-secret export boundary has a reviewable call-site literal and rejects known placeholder wording.",
       "command": "scripts/lint-declassification-reasons.py"
     },
     {
       "name": "declassification-reason-lint-fixtures",
-      "claim": "The declassification lint accepts meaningful method and UFCS boundaries while rejecting placeholder, generic, dynamic, and macro-generated reasons.",
+      "claim": "The boundary-reason lint accepts meaningful declassification and export boundaries while rejecting placeholder, generic, dynamic, and macro-generated reasons.",
       "command": "scripts/test-declassification-reasons.py"
     },
     {

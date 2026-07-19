@@ -1,5 +1,5 @@
 use sanitization::ct::{
-    self, Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd, CtOption, CtResult,
+    self, Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd, PublicCtOption, PublicCtResult,
     SecretIndex,
 };
 use sanitization::SecretBytes;
@@ -63,12 +63,12 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "ct_option_unwrap_choice",
-        description: "CtOption<u64>::unwrap_or absent vs present Choice",
+        description: "PublicCtOption<u64>::unwrap_or absent vs present Choice",
         run: run_ct_option_unwrap_choice,
     },
     Case {
         name: "ct_result_unwrap_choice",
-        description: "CtResult<u64, u64>::unwrap_or error vs success Choice",
+        description: "PublicCtResult<u64, u64>::unwrap_or error vs success Choice",
         run: run_ct_result_unwrap_choice,
     },
     Case {
@@ -564,7 +564,7 @@ fn run_u64_select_choice(class: Class, inner: usize, rng: &mut XorShift64) -> u1
 fn run_ct_option_unwrap_choice(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
     let value = rng.next_u64();
     let fallback = rng.next_u64();
-    let option = CtOption::new(value, choice_for_class(class));
+    let option = PublicCtOption::new(value, choice_for_class(class));
     measure(inner, || option.unwrap_or(black_box(&fallback)) as u8)
 }
 
@@ -572,7 +572,7 @@ fn run_ct_result_unwrap_choice(class: Class, inner: usize, rng: &mut XorShift64)
     let value = rng.next_u64();
     let error = rng.next_u64();
     let fallback = rng.next_u64();
-    let result = CtResult::new(value, error, choice_for_class(class));
+    let result = PublicCtResult::new(value, error, choice_for_class(class));
     measure(inner, || result.unwrap_or(black_box(&fallback)) as u8)
 }
 

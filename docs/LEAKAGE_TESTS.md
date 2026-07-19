@@ -57,7 +57,7 @@ Tests should compare distributions such as:
 - all bytes equal vs. last byte different;
 - low secret index vs. high secret index;
 - true `Choice` vs. false `Choice`;
-- success `CtOption`/`CtResult` vs. failure `CtOption`/`CtResult`.
+- success `PublicCtOption`/`PublicCtResult` vs. failure `PublicCtOption`/`PublicCtResult`.
 
 ## Out Of Scope For Leakage Harnesses
 

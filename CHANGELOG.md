@@ -2,6 +2,14 @@
 
 ## 2.0.0
 
+- Renamed public-backing CT state to `PublicCtOption` and `PublicCtResult` so
+  copyable/unredacted backing data carries an explicit public classification.
+- Rejected all `SecureSanitize` enum derives; inactive variant bytes cannot be
+  reached by generated safe code, so there is no acknowledgement escape hatch.
+- Replaced fixed `SecretBytes` byte and temporary-copy helpers with
+  reason-bearing `export_*` boundaries covered by the repository reason lint.
+- Added `sanitize_then_abort` for deliberate `std` fatal paths while retaining
+  the explicit non-guarantee for arbitrary aborts and signals.
 - Replaced the generic copyable `ct::Secret<T>` control marker with
   clear-on-drop `SecretIndex` and `SecretScalar<T>` owners.
 - Added explicit `PublicValue<T>` and clear-on-drop `SecretValue<T>`
@@ -10,8 +18,7 @@
   that sanitize dummy and unselected secret values before declassification.
 - Added panic-unwind and ownership-transition tests for mapping, selection,
   consuming declassification, zero-sized values, and sanitizer failures.
-- Made `SecureSanitize` enum derives fail closed unless inactive-variant bytes
-  are explicitly acknowledged.
+- Made `SecureSanitize` enum derives fail closed unconditionally.
 - Required a non-empty reason for every skipped derive field and rejected
   duplicate, malformed, empty, or misplaced helper options.
 - Expanded derive pass/fail coverage for unit and tuple structs, renamed crate
@@ -38,7 +45,7 @@
 - Extended release codegen checks to cover x86 SSE/AVX and AArch64 vector
   register-zeroing instructions.
 - Documented locked-mapping resource exhaustion policy and warned against
-  placing secret-bearing values in public-backing `CtOption`/`CtResult`.
+  placing secret-bearing values in public-backing `PublicCtOption`/`PublicCtResult`.
 - Added `StableSharedSecretStorage` and `StableMutableSecretStorage` contracts,
   and restricted generic `Secret<T>` exposure to storage whose safe shared or
   mutable operations cannot release uncleared secret-bearing storage.
@@ -206,7 +213,7 @@
 
 - Added the initial native `sanitization::ct` data-oblivious API skeleton with
   `Choice`, explicit `Choice::declassify`, native equality/select traits,
-  `CtOption`, `CtResult`, public/secret marker wrappers, masks, and fixed or
+  `PublicCtOption`, `PublicCtResult`, public/secret marker wrappers, masks, and fixed or
   public-length byte equality helpers.
 - Added `secure_replace` for sanitizing a value before replacement, documented
   enum derive inactive-variant byte limits, and added `strict-enum-derive` for
@@ -239,18 +246,18 @@
   consumed-state disclosure from `ReadOnceSecret` debug output.
 - Clarified the benign AVX feature-detection cache race and made the
   split-secret dual mask-quality check explicitly non-short-circuiting.
-- Added explicit `CtOption::declassify` and `CtResult::declassify` public
-  branch boundaries, plus `CtResult::unwrap_or` for branchless success-value
+- Added explicit `PublicCtOption::declassify` and `PublicCtResult::declassify` public
+  branch boundaries, plus `PublicCtResult::unwrap_or` for branchless success-value
   selection.
 - Added `ct::CtOrdering`, `ct::ConstantTimeOrd`, and `ct::cmp_fixed` for
   dependency-free data-oblivious ordering of primitive integers and fixed byte
   arrays.
 - Added bounded Kani proof coverage for native `ct` ordering primitives,
   including fixed byte arrays plus signed and unsigned integer ordering.
-- Expanded `ct::CtOption` and `ct::CtResult` with CT-domain map/select
+- Expanded `ct::PublicCtOption` and `ct::PublicCtResult` with CT-domain map/select
   combinators so callers can keep hidden presence/success state out of normal
   control flow longer.
-- Added bounded Kani proof coverage for the new `CtOption` and `CtResult`
+- Added bounded Kani proof coverage for the new `PublicCtOption` and `PublicCtResult`
   combinator semantics.
 - Added bounded Kani proof coverage for `Choice` boolean algebra,
   `ct::oblivious_lookup`, and `ct::conditional_swap`.
@@ -282,7 +289,7 @@
   `getrandom` retry loops, making `SecretPool::allocate` fail closed on
   random-canary setup failure, and adding `ct::oblivious_lookup_secret`.
 - Added a checked `ct_primitives` example covering native equality, ordering,
-  selection, `CtOption`, `CtResult`, oblivious lookup, slice selection, and
+  selection, `PublicCtOption`, `PublicCtResult`, oblivious lookup, slice selection, and
   conditional swap.
 - Added optional `derive` support for conservative field-wise
   `ConstantTimeEq` and `ConditionallySelectable` struct derives.

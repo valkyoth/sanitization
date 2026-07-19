@@ -11,9 +11,9 @@ protection outcomes more explicit and fail-closed.
   Generic `Secret<T>` exposure now requires an explicit storage-stability
   attestation covering safe shared access, interior mutation, mutable access,
   callbacks, guards, trait methods, and destruction.
-- Fixed-size containers now expose their owned storage directly. APIs that
-  create temporary copies are named `expose_secret_copy` or
-  `try_expose_secret_copy` so the extra secret lifetime is visible.
+- Fixed-size containers now expose their owned storage directly. Core APIs that
+  create temporary copies are reason-bearing `export_*` boundaries so the
+  extra secret lifetime is visible and searchable.
 - Added `SecretBoxBytes` for fixed-allocation runtime-length secret bytes that
   never grow, reallocate, or expose their private backing allocation.
 - Renamed `ReadOnceSecret<T>` to `ConsumeOnceSecret<T>`. Its single scoped
@@ -37,9 +37,9 @@ protection outcomes more explicit and fail-closed.
 
 ## Derives And Companion Crates
 
-- Made enum sanitization derives fail closed unless inactive-variant storage is
-  explicitly acknowledged. Assignment between enum variants still requires
-  `secure_replace` or a stable-layout wrapper to clear the old representation.
+- Rejected enum sanitization derives because generated safe code cannot clear
+  inactive variant storage. Reviewed manual enums must use `secure_replace`
+  before every transition; stable-layout struct wrappers are preferred.
 - Required every skipped derive field to include a non-empty reason and
   rejected duplicate, malformed, empty, or misplaced helper attributes.
 - Kept constant-time derives struct-only and field-wise; enums, unions, and

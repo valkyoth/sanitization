@@ -96,7 +96,7 @@
       "coverage": [
         "compile-fail checks for enum native ct derives",
         "compile-fail checks for skipped conditionally selectable fields",
-        "compile-fail checks for strict enum sanitization acknowledgement"
+        "compile-fail checks rejecting enum sanitization derives"
       ]
     },
     {

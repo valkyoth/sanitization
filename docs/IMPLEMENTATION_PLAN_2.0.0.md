@@ -443,13 +443,13 @@ Goal: prevent derives from silently accepting unsafe aggregate behavior.
 
 Deliverables:
 
-- reject secret-bearing enum derives by default;
-- require explicit inactive-variant acknowledgment where a reviewed mode
-  remains available;
+- reject enum derives unconditionally because inactive variant storage is
+  unreachable to generated safe code;
 - require a non-empty reason for every skipped field;
 - preserve generic-bound correctness;
 - reject unions;
-- add tuple struct, renamed crate, generic, enum, skip, and diagnostic tests;
+- add tuple struct, renamed crate, generic, enum-rejection, skip, and diagnostic
+  tests;
 - ensure generated drop implementations have correct bounds.
 
 Pentest focus:
