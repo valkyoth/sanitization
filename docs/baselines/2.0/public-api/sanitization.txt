@@ -533,7 +533,7 @@ impl<T: sanitization::wipe::Wipe> core::fmt::Debug for sanitization::wipe::WipeO
 pub fn sanitization::wipe::WipeOnDrop<T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<T: sanitization::wipe::Wipe> core::ops::drop::Drop for sanitization::wipe::WipeOnDrop<T>
 pub fn sanitization::wipe::WipeOnDrop<T>::drop(&mut self)
-pub trait sanitization::wipe::Wipe
+pub trait sanitization::wipe::Wipe: sanitization::wipe::sealed::Sealed
 pub fn sanitization::wipe::Wipe::wipe(&mut self)
 impl sanitization::wipe::Wipe for [u8]
 pub fn [u8]::wipe(&mut self)
