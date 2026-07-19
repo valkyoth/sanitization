@@ -82,6 +82,42 @@ pub(crate) fn fail_next_fill_for_test() {
     FAIL_NEXT_FILL.with(|fail| fail.set(true));
 }
 
+pub(crate) const CANARY_SIZE: usize = 8;
+
+/// Non-copying owner for random canary material held outside a mapping.
+pub(crate) struct CanaryMaterial([u8; CANARY_SIZE]);
+
+impl CanaryMaterial {
+    #[inline]
+    pub(crate) const fn zeroed() -> Self {
+        Self([0; CANARY_SIZE])
+    }
+
+    #[inline]
+    pub(crate) fn random() -> Result<Self, i32> {
+        let mut material = Self::zeroed();
+        fill(&mut material.0)?;
+        Ok(material)
+    }
+
+    #[inline]
+    pub(crate) const fn as_bytes(&self) -> &[u8; CANARY_SIZE] {
+        &self.0
+    }
+
+    #[inline]
+    pub(crate) fn clear(&mut self) {
+        crate::wipe_backend::erase(self.0.as_mut_ptr(), self.0.len());
+    }
+}
+
+impl Drop for CanaryMaterial {
+    #[inline]
+    fn drop(&mut self) {
+        self.clear();
+    }
+}
+
 pub(crate) fn fill(bytes: &mut [u8]) -> Result<(), i32> {
     if bytes.is_empty() {
         return Ok(());
@@ -270,4 +306,16 @@ fn raw_syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> isize {
     }
 
     ret
+}
+
+#[cfg(test)]
+mod material_tests {
+    use super::{CanaryMaterial, CANARY_SIZE};
+
+    #[test]
+    fn canary_material_explicit_clear_wipes_owned_bytes() {
+        let mut material = CanaryMaterial([0xA5; CANARY_SIZE]);
+        material.clear();
+        assert_eq!(material.as_bytes(), &[0; CANARY_SIZE]);
+    }
 }

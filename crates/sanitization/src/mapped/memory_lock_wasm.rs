@@ -362,7 +362,7 @@ pub struct LockedSecretBytes<const N: usize> {
     #[cfg(feature = "canary-check")]
     poisoned: Cell<bool>,
     #[cfg(feature = "random-canary")]
-    canary: [u8; CANARY_SIZE],
+    canary: crate::canary::CanaryMaterial,
 }
 
 // SAFETY: The value owns its inline WASM storage. Moving ownership to
@@ -908,12 +908,6 @@ impl<const N: usize> LockedSecretBytes<N> {
         CANARY_MASK.to_ne_bytes()
     }
 
-    #[cfg(feature = "random-canary")]
-    #[inline]
-    fn canary_value(&self) -> [u8; CANARY_SIZE] {
-        self.canary
-    }
-
     #[cfg(feature = "canary-check")]
     #[inline]
     fn canaries_intact(&self) -> bool {
@@ -921,9 +915,12 @@ impl<const N: usize> LockedSecretBytes<N> {
             return true;
         }
 
-        let expected = self.canary_value();
-        crate::constant_time_eq_slices(&self.storage().prefix, &expected)
-            & crate::constant_time_eq_slices(&self.storage().suffix, &expected)
+        #[cfg(feature = "random-canary")]
+        let expected = self.canary.as_bytes();
+        #[cfg(not(feature = "random-canary"))]
+        let expected = &self.canary_value();
+        crate::constant_time_eq_slices(&self.storage().prefix, expected)
+            & crate::constant_time_eq_slices(&self.storage().suffix, expected)
     }
 
     #[cfg(feature = "canary-check")]
@@ -933,9 +930,13 @@ impl<const N: usize> LockedSecretBytes<N> {
             return;
         }
 
-        let canary = self.canary_value();
-        self.storage.get_mut().prefix.copy_from_slice(&canary);
-        self.storage.get_mut().suffix.copy_from_slice(&canary);
+        #[cfg(feature = "random-canary")]
+        let canary = self.canary.as_bytes();
+        #[cfg(not(feature = "random-canary"))]
+        let canary = &self.canary_value();
+        let storage = self.storage.get_mut();
+        storage.prefix.copy_from_slice(canary);
+        storage.suffix.copy_from_slice(canary);
         compiler_fence(Ordering::SeqCst);
     }
 
@@ -969,6 +970,8 @@ impl<const N: usize> Drop for LockedSecretBytes<N> {
     #[inline]
     fn drop(&mut self) {
         self.secure_clear();
+        #[cfg(feature = "random-canary")]
+        self.canary.clear();
     }
 }
 
@@ -1043,8 +1046,10 @@ pub struct SecretPoolSlot<'pool, const N: usize, const SLOTS: usize> {
     slot_index: usize,
     pool: &'pool SecretPool<N, SLOTS>,
     generation: usize,
+    #[cfg(feature = "canary-check")]
+    canaries_initialized: bool,
     #[cfg(feature = "random-canary")]
-    canary: [u8; CANARY_SIZE],
+    canary: crate::canary::CanaryMaterial,
 }
 
 // SAFETY: The pool uses an atomic bitmap to ensure only one safe live slot
@@ -1205,8 +1210,10 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
                     slot_index,
                     pool: self,
                     generation,
+                    #[cfg(feature = "canary-check")]
+                    canaries_initialized: false,
                     #[cfg(feature = "random-canary")]
-                    canary: [0; CANARY_SIZE],
+                    canary: crate::canary::CanaryMaterial::zeroed(),
                 };
                 if let Err(error) = slot.initialize_canaries() {
                     drop(slot);
@@ -1725,19 +1732,15 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
 
     #[cfg(feature = "random-canary")]
     #[inline]
-    fn canary_value(&self) -> [u8; CANARY_SIZE] {
-        self.canary
-    }
-
-    #[cfg(feature = "random-canary")]
-    #[inline]
     fn initialize_canaries(&mut self) -> Result<(), MemoryLockError> {
         if N == 0 {
+            self.canaries_initialized = true;
             return Ok(());
         }
 
         self.canary = random_canary_value()?;
         self.write_canaries();
+        self.canaries_initialized = true;
         Ok(())
     }
 
@@ -1745,6 +1748,7 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
     #[inline]
     fn initialize_canaries(&mut self) -> Result<(), MemoryLockError> {
         self.write_canaries();
+        self.canaries_initialized = true;
         Ok(())
     }
 
@@ -1761,9 +1765,12 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
             return true;
         }
 
-        let expected = self.canary_value();
-        crate::constant_time_eq_slices(&self.storage().prefix, &expected)
-            & crate::constant_time_eq_slices(&self.storage().suffix, &expected)
+        #[cfg(feature = "random-canary")]
+        let expected = self.canary.as_bytes();
+        #[cfg(not(feature = "random-canary"))]
+        let expected = &self.canary_value();
+        crate::constant_time_eq_slices(&self.storage().prefix, expected)
+            & crate::constant_time_eq_slices(&self.storage().suffix, expected)
     }
 
     #[cfg(feature = "canary-check")]
@@ -1773,9 +1780,15 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
             return;
         }
 
-        let canary = self.canary_value();
-        self.storage_mut().prefix.copy_from_slice(&canary);
-        self.storage_mut().suffix.copy_from_slice(&canary);
+        #[cfg(feature = "random-canary")]
+        let canary = self.canary.as_bytes();
+        #[cfg(not(feature = "random-canary"))]
+        let canary = &self.canary_value();
+        // SAFETY: the live slot handle is unique and the pool bitmap prevents
+        // another safe handle from mutating this slot concurrently.
+        let storage = unsafe { &mut *self.pool.slots[self.slot_index].get() };
+        storage.prefix.copy_from_slice(canary);
+        storage.suffix.copy_from_slice(canary);
         compiler_fence(Ordering::SeqCst);
     }
 
@@ -1815,7 +1828,18 @@ impl<const N: usize, const SLOTS: usize> Drop for SecretPool<N, SLOTS> {
 impl<'pool, const N: usize, const SLOTS: usize> Drop for SecretPoolSlot<'pool, N, SLOTS> {
     #[inline]
     fn drop(&mut self) {
+        #[cfg(feature = "canary-check")]
+        if self.canaries_initialized && !self.canaries_intact() {
+            self.clear_after_canary_failure();
+            #[cfg(feature = "random-canary")]
+            self.canary.clear();
+            self.pool.used[self.slot_index].store(false, Ordering::Release);
+            return;
+        }
+
         self.secure_clear();
+        #[cfg(feature = "random-canary")]
+        self.canary.clear();
         self.pool.used[self.slot_index].store(false, Ordering::Release);
     }
 }
@@ -2006,11 +2030,9 @@ fn protection_error_as_memory_lock(error: ProtectionError) -> MemoryLockError {
 }
 
 #[cfg(feature = "random-canary")]
-fn random_canary_value() -> Result<[u8; CANARY_SIZE], MemoryLockError> {
-    let mut canary = [0; CANARY_SIZE];
-    crate::canary::fill(&mut canary).map_err(|errno| MemoryLockError {
+fn random_canary_value() -> Result<crate::canary::CanaryMaterial, MemoryLockError> {
+    crate::canary::CanaryMaterial::random().map_err(|errno| MemoryLockError {
         operation: MemoryLockOperation::Random,
         errno,
-    })?;
-    Ok(canary)
+    })
 }

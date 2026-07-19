@@ -329,13 +329,18 @@ Invariant:
   canary disclosure is in scope, or deterministic canaries are not acceptable
   for the threat model.
 - With `random-canary`, the expected canary is generated once from the
-  operating-system CSPRNG and stored in the Rust owner or slot metadata. The
-  prefix and suffix copies remain in the locked or guarded mapping beside the
-  secret bytes. Random generation failure is reported as a `Random` platform
-  operation error where the API can return one. `SecretPool::try_allocate` and
-  all `try_allocate_from_*` initialization helpers preserve random generation
+  operating-system CSPRNG and stored in a private non-`Copy`, clear-on-drop
+  owner inside the Rust value or slot handle. Verification and canary writes
+  borrow that owner rather than constructing explicit array copies. Custom
+  pool and page-sealed teardown clears this material before publishing slot
+  availability or bypassing the guarded value's normal destructor. The prefix
+  and suffix copies remain in the locked or guarded mapping beside the secret
+  bytes. Random generation failure is reported as a `Random` platform operation
+  error where the API can return one. `SecretPool::try_allocate` and all
+  `try_allocate_from_*` initialization helpers preserve random generation
   failure separately from ordinary exhaustion. There are no lossy pool
-  allocation convenience methods.
+  allocation convenience methods. Compiler-created spills and historical Rust
+  moves remain outside this guarantee.
 - Canary writes happen only after platform mapping setup and locking succeed.
 - On WASM, there is no platform mapping setup or locking. `canary-check`
   requires `random-canary` at compile time because deterministic inline-storage
@@ -354,6 +359,9 @@ Invariant:
   even if a later clear rewrites the physical canary words. Explicitly named
   `_or_panic` helpers retain panic-on-corruption behavior for compatibility and
   trait bridges.
+- Pool-slot destruction verifies both canary regions before any clear operation
+  can rewrite them. A mismatch clears and permanently quarantines the slot;
+  only an intact slot is cleared and returned to the available bitmap.
 - Secret bytes are not copied into the mapping until platform setup succeeds:
   Linux dump exclusion, the requested fork policy, and `mlock`;
   FreeBSD core-dump exclusion and `mlock`; Android/macOS/iOS/other-BSD

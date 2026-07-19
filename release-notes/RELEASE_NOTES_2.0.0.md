@@ -45,6 +45,10 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
 
 ## Data-Oblivious State
 
+- Unified equal-length equality dispatch so `ct::eq_fixed`, native
+  secret-container CT traits, and crypto-interop HMAC/BLAKE3 verification use
+  the strict assembly backend when enabled. Path-specific LLVM IR checks now
+  prove those representative call paths reach that backend.
 - Made `Choice`, masks, and `CtOrdering` declassification reason-bearing and
   removed ordinary equality or raw extraction paths that bypassed the review
   boundary.
@@ -76,6 +80,10 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
 
 ## Wiping And Native Hardening
 
+- Pool-slot Drop now verifies canaries before clearing can rewrite them, making
+  corruption quarantine unconditional even when no checked accessor follows
+  the corruption. Random expected canaries are non-`Copy`, borrowed in place,
+  and clear on ordinary, pooled, and page-sealed teardown.
 - Consolidated clearing behind the canonical safe `sanitization::wipe` API and
   private sealed `wipe_backend`; removed misleading best-effort and
   `unsafe-wipe` compatibility surfaces.

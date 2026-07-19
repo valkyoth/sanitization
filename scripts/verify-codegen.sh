@@ -31,9 +31,18 @@ cargo rustc \
     -C extra-filename=-verify-codegen \
     --emit=llvm-ir
 
+cargo rustc \
+    -p sanitization-crypto-interop \
+    --release \
+    --features blake3,hmac-sha2,strict-compare \
+    -- \
+    -C extra-filename=-verify-codegen \
+    --emit=llvm-ir
+
 ir_file="target/release/deps/sanitization-verify-codegen.ll"
 asm_file="target/release/deps/sanitization-verify-codegen.s"
 exposure_ir="tools/direct-exposure-codegen/target/release/deps/direct_exposure_codegen-verify-codegen.ll"
+crypto_interop_ir="target/release/deps/sanitization_crypto_interop-verify-codegen.ll"
 
 if [[ ! -f "${ir_file}" ]]; then
     echo "no sanitization LLVM IR file found" >&2
@@ -50,7 +59,14 @@ if [[ -z "${exposure_ir}" || ! -f "${exposure_ir}" ]]; then
     exit 1
 fi
 
-"${PYTHON:-python3}" scripts/verify-codegen-artifact.py "${exposure_ir}"
+if [[ ! -f "${crypto_interop_ir}" ]]; then
+    echo "no crypto-interop LLVM IR file found" >&2
+    exit 1
+fi
+
+"${PYTHON:-python3}" scripts/verify-codegen-artifact.py \
+    "${exposure_ir}" \
+    "${crypto_interop_ir}"
 
 secret_box_core_clear_body="$(
     awk '

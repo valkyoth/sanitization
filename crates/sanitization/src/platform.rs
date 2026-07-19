@@ -159,20 +159,25 @@ pub(crate) mod compare_asm {
 
     #[inline(never)]
     pub(crate) fn constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
+        equal_len_choice_bit(left, right) == 1
+    }
+
+    #[inline(never)]
+    pub(crate) fn equal_len_choice_bit(left: &[u8], right: &[u8]) -> u8 {
         #[cfg(target_arch = "x86_64")]
         {
-            constant_time_eq_equal_len_x86_64(left, right)
+            equal_len_choice_bit_x86_64(left, right)
         }
 
         #[cfg(target_arch = "aarch64")]
         {
-            constant_time_eq_equal_len_aarch64(left, right)
+            equal_len_choice_bit_aarch64(left, right)
         }
     }
 
     #[cfg(target_arch = "x86_64")]
     #[inline(never)]
-    fn constant_time_eq_equal_len_x86_64(left: &[u8], right: &[u8]) -> bool {
+    fn equal_len_choice_bit_x86_64(left: &[u8], right: &[u8]) -> u8 {
         debug_assert_eq!(left.len(), right.len());
 
         let mut left_ptr = left.as_ptr();
@@ -212,12 +217,13 @@ pub(crate) mod compare_asm {
         // The assembly loop ORs byte differences into the low accumulator byte.
         // Mask explicitly so the observable Rust contract does not depend on
         // readers inferring that the full register was zeroed before the loop.
-        core::hint::black_box(diff & 0xFF) == 0
+        let diff = core::hint::black_box((diff & 0xFF) as u8);
+        ((diff | diff.wrapping_neg()) >> 7) ^ 1
     }
 
     #[cfg(target_arch = "aarch64")]
     #[inline(never)]
-    fn constant_time_eq_equal_len_aarch64(left: &[u8], right: &[u8]) -> bool {
+    fn equal_len_choice_bit_aarch64(left: &[u8], right: &[u8]) -> u8 {
         debug_assert_eq!(left.len(), right.len());
 
         let mut left_ptr = left.as_ptr();
@@ -252,7 +258,8 @@ pub(crate) mod compare_asm {
         }
 
         let _ = (left_ptr, right_ptr, remaining, tmp_left, tmp_right);
-        core::hint::black_box(diff & 0xFF) == 0
+        let diff = core::hint::black_box((diff & 0xFF) as u8);
+        ((diff | diff.wrapping_neg()) >> 7) ^ 1
     }
 }
 

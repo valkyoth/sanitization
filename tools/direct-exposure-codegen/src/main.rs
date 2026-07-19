@@ -113,6 +113,34 @@ pub fn cp19_ct_eq(left: &[u8; 32], right: &[u8; 32]) -> ct::Choice {
 
 #[inline(never)]
 #[no_mangle]
+pub fn cp19_secret_bytes_ct_eq(
+    left: &SecretBytes<32>,
+    right: &SecretBytes<32>,
+) -> ct::Choice {
+    ct::ConstantTimeEq::ct_eq(black_box(left), black_box(right))
+}
+
+#[inline(never)]
+#[no_mangle]
+pub fn cp19_hmac_sha256_verify(key: &[u8], message: &[u8], tag: &[u8; 32]) -> bool {
+    sanitization_crypto_interop::hmac_sha2::hmac_sha256_verify(
+        black_box(key),
+        black_box(message),
+        black_box(tag),
+    )
+}
+
+#[inline(never)]
+#[no_mangle]
+pub fn cp19_blake3_verify(preimage: &[u8], digest: &[u8; 32]) -> bool {
+    sanitization_crypto_interop::blake3::blake3_digest_verify(
+        black_box(preimage),
+        black_box(digest),
+    )
+}
+
+#[inline(never)]
+#[no_mangle]
 pub fn cp19_ct_cmp(left: &[u8; 32], right: &[u8; 32]) -> ct::CtOrdering {
     ct::cmp_fixed(black_box(left), black_box(right))
 }
@@ -171,6 +199,10 @@ fn main() {
     let left = [9_u8; 32];
     let mut right = [9_u8; 32];
     black_box(cp19_ct_eq(black_box(&left), black_box(&right)));
+    black_box(cp19_secret_bytes_ct_eq(
+        black_box(&SecretBytes::from_array(left)),
+        black_box(&SecretBytes::from_array(right)),
+    ));
     black_box(cp19_ct_cmp(black_box(&left), black_box(&right)));
     cp19_ct_copy(
         black_box(&mut right),
@@ -191,4 +223,6 @@ fn main() {
     black_box(cp19_clear_guarded as fn(&mut GuardedSecretVec));
     black_box(cp19_clear_sealed as fn(&mut SealedSecretBytes<32>));
     black_box(cp19_clear_pool_slot as fn(&mut SecretPoolSlot<'_, 32, 2>));
+    black_box(cp19_hmac_sha256_verify as fn(&[u8], &[u8], &[u8; 32]) -> bool);
+    black_box(cp19_blake3_verify as fn(&[u8], &[u8; 32]) -> bool);
 }

@@ -2,6 +2,14 @@
 
 ## 2.0.0
 
+- Verify pool-slot canaries during `Drop` before clearing can rewrite them, so
+  corruption is cleared and quarantined even when no later accessor runs.
+- Store random expected canaries in private non-`Copy`, clear-on-drop owners,
+  borrow them during verification and writes, and explicitly clear them across
+  pool and page-sealed custom teardown.
+- Route the native `ct` equality family, secret-container CT traits, and HMAC
+  and BLAKE3 verification through the strict assembly comparison backend, with
+  path-specific LLVM IR evidence for each representative API.
 - Added an enforced `cargo-deny 0.20.2` policy across all independent Cargo
   graphs and replaced the CI `curl | sh` rustup fallback with versioned,
   SHA-256-pinned installer binaries.

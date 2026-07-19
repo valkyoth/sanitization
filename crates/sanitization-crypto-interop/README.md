@@ -36,10 +36,14 @@ The core `sanitization` crate remains dependency-free by default. This sister
 crate is explicitly opt-in and feature-gated per backend.
 The optional `std` feature forwards to `sanitization/std` for callers that want
 the same feature profile across both crates; it is disabled by default.
+The optional `strict-compare` feature forwards to
+`sanitization/strict-compare`, making all fixed-length HMAC and BLAKE3 verify
+helpers use the reviewed native assembly equality backend on x86_64 and
+AArch64 and fail closed on unsupported non-Miri targets.
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "2.0.0", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-crypto-interop = { version = "2.0.0", features = ["sha2", "blake3", "hmac-sha2", "strict-compare"] }
 ```
 
 ## SHA-2

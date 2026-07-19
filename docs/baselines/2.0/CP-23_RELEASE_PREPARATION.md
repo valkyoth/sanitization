@@ -25,8 +25,11 @@ The freeze was most recently reopened to prevent mapped constructors from
 suppressing CSPRNG or canary failures, make dynamic secret generation report
 capacity and allocation failure, verify canaries after normal mapped exposure,
 and permanently poison corrupted standalone mapped owners. The refreshed
-candidate also adds fail-closed lifecycle and initialization source gates plus
-an explicit deployment responsibility matrix. It therefore requires another
+candidate also verifies pool-slot integrity during destruction, clears
+crate-owned random-canary metadata, routes the native CT and crypto verification
+surfaces through strict assembly equality, adds path-specific codegen evidence,
+and retains fail-closed lifecycle and initialization source gates plus an
+explicit deployment responsibility matrix. It therefore requires another
 full-range review before a permanent report can be accepted.
 
 The final CP-23 candidate is the exact commit immediately preceding the

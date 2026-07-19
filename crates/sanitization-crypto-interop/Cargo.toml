@@ -27,6 +27,7 @@ std = ["sanitization/std"]
 sha2 = ["dep:sha2", "dep:zeroize"]
 blake3 = ["dep:blake3", "dep:zeroize"]
 hmac-sha2 = ["sha2"]
+strict-compare = ["sanitization/strict-compare"]
 
 [dependencies]
 blake3 = { version = "1.8.5", default-features = false, features = ["zeroize"], optional = true }

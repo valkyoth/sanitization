@@ -526,7 +526,7 @@ pub struct GuardedSecretVec {
     #[cfg(feature = "canary-check")]
     poisoned: Cell<bool>,
     #[cfg(feature = "random-canary")]
-    canary: [u8; CANARY_SIZE],
+    canary: crate::canary::CanaryMaterial,
 }
 
 // SAFETY: The value exclusively owns a private guarded mapping. Moving
@@ -1188,14 +1188,20 @@ impl GuardedSecretVec {
 
     #[cfg(feature = "random-canary")]
     #[inline]
-    fn canary_value(&self) -> [u8; CANARY_SIZE] {
-        self.canary
+    fn with_canary<R>(&self, use_canary: impl FnOnce(&[u8; CANARY_SIZE]) -> R) -> R {
+        use_canary(self.canary.as_bytes())
+    }
+
+    #[cfg(all(feature = "canary-check", not(feature = "random-canary")))]
+    #[inline]
+    fn with_canary<R>(&self, use_canary: impl FnOnce(&[u8; CANARY_SIZE]) -> R) -> R {
+        let canary = self.canary_value();
+        use_canary(&canary)
     }
 
     #[cfg(feature = "canary-check")]
     #[inline]
     fn canaries_intact(&self) -> bool {
-        let expected = self.canary_value();
         // SAFETY: canary-checked guarded mappings reserve prefix and suffix
         // canary regions inside the writable data area.
         let prefix = unsafe { core::slice::from_raw_parts(self.data.as_ptr(), CANARY_SIZE) };
@@ -1205,24 +1211,27 @@ impl GuardedSecretVec {
             core::slice::from_raw_parts(self.data.as_ptr().add(CANARY_SIZE + self.len), CANARY_SIZE)
         };
 
-        crate::constant_time_eq_slices(prefix, &expected)
-            & crate::constant_time_eq_slices(suffix, &expected)
+        self.with_canary(|expected| {
+            crate::constant_time_eq_slices(prefix, expected)
+                & crate::constant_time_eq_slices(suffix, expected)
+        })
     }
 
     #[cfg(feature = "canary-check")]
     #[inline]
     fn write_canaries(&mut self) {
-        let canary = self.canary_value();
-        // SAFETY: canary-checked guarded mappings reserve prefix and suffix
-        // canary regions inside the writable data area.
-        unsafe {
-            core::ptr::copy_nonoverlapping(canary.as_ptr(), self.data.as_ptr(), CANARY_SIZE);
-            core::ptr::copy_nonoverlapping(
-                canary.as_ptr(),
-                self.data.as_ptr().add(CANARY_SIZE + self.len),
-                CANARY_SIZE,
-            );
-        }
+        self.with_canary(|canary| {
+            // SAFETY: canary-checked guarded mappings reserve prefix and suffix
+            // canary regions inside the writable data area.
+            unsafe {
+                core::ptr::copy_nonoverlapping(canary.as_ptr(), self.data.as_ptr(), CANARY_SIZE);
+                core::ptr::copy_nonoverlapping(
+                    canary.as_ptr(),
+                    self.data.as_ptr().add(CANARY_SIZE + self.len),
+                    CANARY_SIZE,
+                );
+            }
+        });
         compiler_fence(Ordering::SeqCst);
     }
 
@@ -1239,6 +1248,12 @@ impl GuardedSecretVec {
         // `Sync`, so safe code cannot run this concurrently through shared
         // references.
         crate::wipe_backend::erase(self.data.as_ptr(), self.writable_len);
+    }
+
+    #[cfg(feature = "random-canary")]
+    #[inline]
+    fn clear_canary_material(&mut self) {
+        self.canary.clear();
     }
 
     #[cfg(all(test, feature = "canary-check", feature = "std"))]
@@ -1258,6 +1273,8 @@ impl Drop for GuardedSecretVec {
     #[inline]
     fn drop(&mut self) {
         self.clear_secret();
+        #[cfg(feature = "random-canary")]
+        self.clear_canary_material();
         #[cfg(feature = "memory-lock")]
         if self.locked {
             let _ = unlock_mapping(self.data, self.writable_len);
@@ -1760,6 +1777,8 @@ impl<const N: usize> SealedSecretBytes<N> {
         if normalization.is_ok() {
             crate::wipe_backend::erase(self.inner.data.as_ptr(), self.inner.writable_len);
         }
+        #[cfg(feature = "random-canary")]
+        self.inner.clear_canary_material();
 
         #[cfg(feature = "memory-lock")]
         let unlock = if self.inner.locked {
@@ -1937,6 +1956,8 @@ fn rollback_sealed_transition_failure(mut inner: GuardedSecretVec) -> RollbackRe
     if normalize_data_pages(inner.data, inner.writable_len, PageProtection::ReadWrite).is_ok() {
         inner.clear_secret();
     }
+    #[cfg(feature = "random-canary")]
+    inner.clear_canary_material();
     let inner = ManuallyDrop::new(inner);
 
     #[cfg(feature = "memory-lock")]
@@ -2221,13 +2242,11 @@ fn guard_mark_wipeonfork(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageEr
 }
 
 #[cfg(feature = "random-canary")]
-fn random_canary_value() -> Result<[u8; CANARY_SIZE], GuardPageError> {
-    let mut canary = [0; CANARY_SIZE];
-    crate::canary::fill(&mut canary).map_err(|errno| GuardPageError {
+fn random_canary_value() -> Result<crate::canary::CanaryMaterial, GuardPageError> {
+    crate::canary::CanaryMaterial::random().map_err(|errno| GuardPageError {
         operation: GuardPageOperation::Random,
         errno,
-    })?;
-    Ok(canary)
+    })
 }
 
 fn rounded_data_len(len: usize) -> Result<usize, GuardPageError> {

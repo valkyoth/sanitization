@@ -221,10 +221,13 @@ occupancy, so an attacker who can both read and write memory can forge it. Use
 `random-canary` when ASLR is disabled, weakened, canary disclosure is in scope,
 or deterministic canaries are not acceptable for the threat model. With
 `random-canary`, canaries are generated from the operating-system CSPRNG using
-dependency-free platform backends. Random canaries improve blind overwrite
-detection and audit posture, but they still do not authenticate memory against
-an attacker who can read and rewrite both the owner metadata and mapped canary
-bytes.
+dependency-free platform backends. Crate-owned expected canary material is
+non-`Copy`, is borrowed for verification and writes, and is volatile-cleared
+during owner, pool-slot, and page-sealed teardown. Random canaries improve blind
+overwrite detection and audit posture, but they still do not authenticate
+memory against an attacker who can read and rewrite both the owner metadata and
+mapped canary bytes. Compiler-created spills and historical moves are not
+claimed to be recoverable or clearable.
 `strict-canary-check` is a named profile for environments where deterministic
 canaries are not acceptable; it enables `random-canary` and therefore fails
 construction on targets without a supported dependency-free random backend
@@ -237,8 +240,10 @@ address. `canary-check` on WASM must be paired with both `wasm-compat` and
 return a `Random` operation error for random canary generation in this
 dependency-free implementation.
 
-With the `asm-compare` feature on x86_64 and AArch64, equal-length comparisons
-use an inline-assembly loop. This gives the comparison body a stronger compiler
+With the `asm-compare` feature on x86_64 and AArch64, equal-length comparisons,
+including `ct::eq_fixed`, native secret-container `ct::ConstantTimeEq`
+implementations, and crypto-interop verification helpers, use the shared
+inline-assembly loop. This gives the comparison body a stronger compiler
 boundary, but it does not hide length metadata and does not claim protection
 against all microarchitectural side channels. With `strict-compare`, unsupported
 non-Miri targets fail at compile time instead of using the portable Rust
@@ -364,8 +369,10 @@ pool exhaustion as an explicit availability policy.
 
 Canary corruption clears and permanently poisons standalone locked or guarded
 owners. Rewriting canaries during a later clear does not make those owners
-usable again. Pool corruption clears and permanently quarantines the affected slot,
-reducing usable capacity until the pool is replaced. `quarantined_slots()` and
+usable again. Pool-slot destruction checks integrity before clearing can rewrite
+the canary words, so corruption clears and permanently quarantines the affected
+slot even when no later accessor runs. This reduces usable capacity until the
+pool is replaced. `quarantined_slots()` and
 `arena_report().quarantined_slots` expose only aggregate public telemetry so an
 application can reject service or terminate under its own policy. They do not
 expose mapping addresses, canary values, or secret bytes.

@@ -98,6 +98,7 @@ impl SecureSanitize for ReplaceMaterial {
 
 static DROP_PROBE_SANITIZED: AtomicBool = AtomicBool::new(false);
 static DROP_PROBE_DROPPED_ZEROED: AtomicBool = AtomicBool::new(false);
+static DROP_PROBE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 struct DropProbe(u8);
 
@@ -175,6 +176,7 @@ fn derive_secure_sanitize_does_not_force_phantom_type_bounds() {
 
 #[test]
 fn derive_secure_sanitize_on_drop_compiles_and_runs() {
+    let _guard = DROP_PROBE_LOCK.lock().unwrap();
     DROP_PROBE_SANITIZED.store(false, Ordering::SeqCst);
     DROP_PROBE_DROPPED_ZEROED.store(false, Ordering::SeqCst);
 
@@ -189,6 +191,7 @@ fn derive_secure_sanitize_on_drop_compiles_and_runs() {
 
 #[test]
 fn derive_secure_sanitize_on_drop_supports_struct_level_generic_bounds() {
+    let _guard = DROP_PROBE_LOCK.lock().unwrap();
     DROP_PROBE_SANITIZED.store(false, Ordering::SeqCst);
     DROP_PROBE_DROPPED_ZEROED.store(false, Ordering::SeqCst);
 
@@ -205,6 +208,7 @@ fn derive_secure_sanitize_on_drop_supports_struct_level_generic_bounds() {
 
 #[test]
 fn secure_replace_clears_enum_active_variant_before_replacement() {
+    let _guard = DROP_PROBE_LOCK.lock().unwrap();
     DROP_PROBE_SANITIZED.store(false, Ordering::SeqCst);
     DROP_PROBE_DROPPED_ZEROED.store(false, Ordering::SeqCst);
 

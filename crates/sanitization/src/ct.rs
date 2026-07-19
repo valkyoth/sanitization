@@ -1618,14 +1618,30 @@ pub fn select_slice(
 fn bytes_eq_equal_len(left: &[u8], right: &[u8]) -> Choice {
     debug_assert_eq!(left.len(), right.len());
 
-    let mut diff = 0u8;
-    let mut index = 0usize;
-    while index < left.len() {
-        diff = black_box(diff | (left[index] ^ right[index]));
-        index += 1;
+    #[cfg(all(
+        feature = "asm-compare",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    {
+        Choice::from_u8(crate::compare_asm::equal_len_choice_bit(left, right))
     }
 
-    !Choice::from_u8(black_box(diff))
+    #[cfg(not(all(
+        feature = "asm-compare",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    )))]
+    {
+        let mut diff = 0u8;
+        let mut index = 0usize;
+        while index < left.len() {
+            diff = black_box(diff | (left[index] ^ right[index]));
+            index += 1;
+        }
+
+        !Choice::from_u8(black_box(diff))
+    }
 }
 
 #[inline]

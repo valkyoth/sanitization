@@ -16,3 +16,8 @@ sanitization = { version = "2.0.0", path = "../../crates/sanitization", features
     "strict-compare",
 ] }
 sanitization-arrayvec = { version = "2.0.0", path = "../../crates/sanitization-arrayvec" }
+sanitization-crypto-interop = { version = "2.0.0", path = "../../crates/sanitization-crypto-interop", features = [
+    "blake3",
+    "hmac-sha2",
+    "strict-compare",
+] }

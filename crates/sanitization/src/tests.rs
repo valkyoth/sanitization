@@ -1731,6 +1731,9 @@ fn assembly_comparison_matches_portable_path() {
         compare_asm::constant_time_eq_equal_len(&empty, &empty),
         portable_constant_time_eq_equal_len(&empty, &empty)
     );
+    assert_eq!(compare_asm::equal_len_choice_bit(&left, &same), 1);
+    assert_eq!(compare_asm::equal_len_choice_bit(&left, &different), 0);
+    assert_eq!(compare_asm::equal_len_choice_bit(&empty, &empty), 1);
 }
 
 #[test]
@@ -4867,6 +4870,9 @@ fn mapped_initializers_preserve_injected_csprng_failures() {
         Err(_) => return,
     };
 
+    let initialized = pool.try_allocate().unwrap().unwrap();
+    drop(initialized);
+
     crate::canary::fail_next_fill_for_test();
     assert!(matches!(
         pool.try_allocate(),
@@ -4876,6 +4882,7 @@ fn mapped_initializers_preserve_injected_csprng_failures() {
         })
     ));
     assert_eq!(pool.available_slots(), 1);
+    assert_eq!(pool.quarantined_slots(), 0);
 
     crate::canary::fail_next_fill_for_test();
     assert!(matches!(
@@ -5047,6 +5054,30 @@ fn secret_pool_slot_canaries_detect_corruption() {
     drop(slot);
     assert_eq!(pool.quarantined_slots(), 1);
     assert_eq!(pool.available_slots(), 0);
+}
+
+#[cfg(all(
+    feature = "std",
+    feature = "canary-check",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn pool_slot_drop_detects_and_quarantines_corruption() {
+    let pool = match SecretPool::<4, 1>::new() {
+        Ok(pool) => pool,
+        Err(_) => return,
+    };
+    let mut slot = pool.try_allocate().unwrap().unwrap();
+
+    slot.corrupt_prefix_canary_for_test();
+    drop(slot);
+
+    assert_eq!(pool.quarantined_slots(), 1);
+    assert_eq!(pool.available_slots(), 0);
+    assert!(pool.try_allocate().unwrap().is_none());
 }
 
 #[cfg(all(

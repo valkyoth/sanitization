@@ -53,7 +53,10 @@ the generated code shape for reviewed targets.
 The `asm-compare` feature enables target-specific equal-length comparison
 backends where available. The `strict-compare` feature fails closed on
 unsupported targets instead of silently falling back for equal-length byte
-equality.
+equality. The shared dispatch backs `ct::eq_fixed`, `ct::eq_public_len`, byte
+slice and array trait implementations, native secret-container equality, and
+the crypto-interop HMAC and BLAKE3 verification helpers. Release codegen probes
+trace each of those representative paths to the assembly backend.
 
 Assembly backends are useful because they reduce compiler freedom in the most
 sensitive comparison loop. They still do not prove complete hardware timing

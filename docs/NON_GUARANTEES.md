@@ -168,7 +168,10 @@ Canaries are corruption detectors, not memory authentication. Pre/post checks
 can observe adjacent damage before or after normal scoped access, but cannot
 prevent arbitrary modification by an attacker who can also rewrite owner
 metadata. Keeping a MAC key in the same compromised process does not close that
-gap.
+gap. Random expected canary material owned by the crate is clear-on-drop and is
+borrowed rather than explicitly copied by verification, but compiler spills,
+register copies, historical moves, aborts, and leaked values remain outside the
+clearing guarantee.
 
 If `Drop` cannot change an already sealed page back to read/write, it cannot
 perform the normal volatile clear and instead attempts to unlock and release
