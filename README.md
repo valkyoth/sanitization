@@ -309,6 +309,13 @@ value becomes a normal public branch, decision, or raw bit. `Choice`,
 `CtOrdering`, and `Mask<T>` do not implement ordinary equality. Raw mask values
 and normalized choice bytes require reason-bearing declassification.
 
+The repository runs `scripts/lint-declassification-reasons.py` in CI. It
+requires a direct, meaningful string literal at consumer call sites and rejects
+short, generic, or placeholder reasons such as `"todo"` and `"result is
+public"`. Downstream high-assurance projects can run the same script over their
+Rust source. This is a review aid, not proof that a plausible sentence describes
+a valid declassification policy; reviewers must still assess every boundary.
+
 UTF-8 validation, serde limit checks, and variable-length mismatch handling are
 outside this data-oblivious claim. They may return as soon as invalid input or
 public metadata is known. Use text and variable-length APIs only when UTF-8

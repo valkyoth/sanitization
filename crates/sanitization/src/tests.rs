@@ -44,8 +44,8 @@ fn ct_choice_normalizes_and_declassifies_explicitly() {
         (!false_choice).declassify_u8("test or verification observes normalized choice"),
         1
     );
-    assert!(true_choice.declassify("test assertion"));
-    assert!(!false_choice.declassify("test assertion"));
+    assert!(true_choice.declassify("test observes true choice assertion"));
+    assert!(!false_choice.declassify("test observes false choice assertion"));
 }
 
 #[test]

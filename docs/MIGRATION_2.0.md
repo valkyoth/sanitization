@@ -71,6 +71,12 @@ assert!(choice.declassify("authentication result is public"));
 assert_eq!(Choice::TRUE.declassify_u8("wire flag is public"), 1);
 ```
 
+Do not use generic labels such as `"todo"`, `"reason"`, or `"result is
+public"`. The repository's `scripts/lint-declassification-reasons.py` command
+can be added to downstream CI to require reviewable literal reasons. It catches
+common placeholder abuse but does not replace review of whether each public
+boundary is actually authorized.
+
 The following ordinary extraction or comparison paths were removed:
 
 | 1.x | 2.0 replacement |

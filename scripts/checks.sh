@@ -5,6 +5,8 @@ cargo fmt --check
 scripts/verify-action-pins.sh
 scripts/verify-feature-profiles.py
 scripts/verify-verification-harnesses.py
+scripts/test-declassification-reasons.py
+scripts/lint-declassification-reasons.py
 scripts/test-verification-fail-closed.py
 scripts/test-latest-rust.py
 if cargo audit --version >/dev/null 2>&1; then

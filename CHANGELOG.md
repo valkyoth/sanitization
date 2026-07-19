@@ -83,6 +83,8 @@
   `2.0.0`.
 - Made dependency-audit detection use Cargo's subcommand lookup and audited
   every committed tooling lockfile from one already-fetched advisory database.
+- Added a fail-closed CT declassification-reason lint and negative fixtures to
+  reject dynamic, short, generic, and placeholder audit labels in CI.
 
 ## 1.2.5
 

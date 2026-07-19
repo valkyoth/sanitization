@@ -3,6 +3,16 @@
   "status": "infrastructure",
   "harnesses": [
     {
+      "name": "declassification-reason-lint",
+      "claim": "Every Rust CT declassification boundary has a reviewable call-site literal and rejects known placeholder wording.",
+      "command": "scripts/lint-declassification-reasons.py"
+    },
+    {
+      "name": "declassification-reason-lint-fixtures",
+      "claim": "The declassification lint accepts meaningful method and UFCS boundaries while rejecting placeholder, generic, dynamic, and macro-generated reasons.",
+      "command": "scripts/test-declassification-reasons.py"
+    },
+    {
       "name": "path-specific-codegen",
       "claim": "Public secret and CT paths reach the reviewed backend without forbidden substitutions.",
       "command": "scripts/verify-codegen.sh"

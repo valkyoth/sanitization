@@ -149,6 +149,8 @@ cargo test --manifest-path tools/lifecycle-probes/Cargo.toml -- --test-threads=1
 Run fail-closed verification fixtures and validate the harness registry:
 
 ```bash
+scripts/test-declassification-reasons.py
+scripts/lint-declassification-reasons.py
 scripts/test-verification-fail-closed.py
 scripts/verify-verification-harnesses.py
 ```

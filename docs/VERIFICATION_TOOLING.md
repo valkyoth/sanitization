@@ -5,6 +5,27 @@ independent review. CP-20 uses these harnesses to collect dated target evidence.
 
 The machine-readable registry is `docs/verification-harnesses.json`.
 
+## Declassification Review Gate
+
+`scripts/lint-declassification-reasons.py` lexes every tracked Rust source and
+checks method-style and UFCS calls to `declassify` and `declassify_u8`.
+Consumer boundaries must provide a direct string literal with enough context
+to identify a public, test, verification, wire, return, or reporting boundary.
+The gate rejects dynamic and macro-generated reasons, short generic labels, and
+placeholder words such as `todo`, `fixme`, and `tbd`.
+
+The core CT implementation has one narrow allowlist for forwarding its public
+method's already-supplied `reason` argument to nested CT owners. No consumer
+source is allowed to forward a dynamic reason. Both the lint and its negative
+fixtures run in `scripts/checks.sh`.
+
+This is intentionally a source-review aid, not authorization machinery. It
+cannot determine whether a convincing sentence states a valid disclosure
+policy, detect a declassification method hidden behind a function pointer, or
+prove that a reviewer examined the boundary. High-assurance review must still
+search for declassification calls and assess each reason against application
+policy.
+
 ## Path-Specific Codegen
 
 `tools/direct-exposure-codegen` exports named downstream functions for:
@@ -134,6 +155,10 @@ when the probe was explicitly requested.
 
 `scripts/test-verification-fail-closed.py` seeds malformed evidence and an
 incomplete LLVM artifact. Both validators must reject those fixtures.
+
+`scripts/test-declassification-reasons.py` separately proves that placeholder,
+generic, dynamic, macro-generated, and UFCS reasons fail closed while meaningful
+literal boundaries remain accepted.
 
 `scripts/verify-verification-harnesses.py` also ensures:
 
