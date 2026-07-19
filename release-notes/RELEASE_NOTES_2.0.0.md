@@ -10,6 +10,10 @@ constructing references to uninitialized byte values. The
 `sanitization-arrayvec` companion uses this typed path for complete inline
 spare-capacity cleanup.
 
+The `sanitization-bytes` companion now requires patched `bytes 1.11.1` or
+newer, preventing fresh downstream lockfiles from resolving versions affected
+by `RUSTSEC-2026-0007`.
+
 Wrapping an existing `bytes::BytesMut` now immediately volatile-clears its
 spare capacity so historical bytes from pre-wrap truncation do not survive.
 

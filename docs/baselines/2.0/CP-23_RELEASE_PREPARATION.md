@@ -31,8 +31,11 @@ surfaces through strict assembly equality, adds path-specific codegen evidence,
 and retains fail-closed lifecycle and initialization source gates plus an
 explicit deployment responsibility matrix. The final remediation also adds a
 typed `MaybeUninit<T>` wipe path and routes ArrayVec spare-capacity cleanup
-through it, eliminating references to uninitialized byte values. It therefore
-requires another full-range review before a permanent report can be accepted.
+through it, eliminating references to uninitialized byte values. It also
+raises the `sanitization-bytes` dependency floor to patched `bytes 1.11.1` and
+enforces that published requirement in the companion-boundary gate. It
+therefore requires another full-range review before a permanent report can be
+accepted.
 
 The final CP-23 candidate is the exact commit immediately preceding the
 permanent pentest report. After all implementation, remediation, documentation,

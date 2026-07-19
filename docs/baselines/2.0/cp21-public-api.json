@@ -859,7 +859,7 @@
     "Cargo.toml": "a21a4c6bcb0169be244cbfe20da1b49b3936ccce7688155bb291bd3efd144bfb",
     "crates/sanitization-arrayvec/Cargo.toml": "2b15c7628aa43262035dba2d51e84553f8f49dd0429125fea1461f016a7a9d0e",
     "crates/sanitization-arrayvec/src/lib.rs": "49d076169d5c5b2629bf69133f8c60ee30d384c6f33d2be0bc674e681298ae0b",
-    "crates/sanitization-bytes/Cargo.toml": "ed1caff5feb85455dd53608071df177116fd42a88c053f06c6b68e3811f93eb1",
+    "crates/sanitization-bytes/Cargo.toml": "2fbbc3ae38ce7e04ddd43293296a3250bce16bc226a4bfbf5b691f5a86b50569",
     "crates/sanitization-bytes/src/lib.rs": "886c887128bb71eeea8038388d10e7ccfb5691afe82c250e39088f9b421d5eeb",
     "crates/sanitization-crypto-interop/Cargo.toml": "fc9d0b54cf374fadcd9f7b1bfc4e8be96b97338824b133fe45d468f26d116453",
     "crates/sanitization-crypto-interop/src/blake3.rs": "9f510a72082652065065a6f56bce20af52f94efd8a896b081a3605a551c7533e",

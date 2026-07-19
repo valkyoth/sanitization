@@ -2,6 +2,9 @@
 
 ## 2.0.0
 
+- Raised the `sanitization-bytes` dependency floor to patched `bytes 1.11.1`
+  and added a release-policy check that prevents broadening the published
+  requirement back to advisory-affected versions.
 - Added `wipe::maybe_uninit` for canonical volatile clearing of non-live
   `MaybeUninit<T>` storage without constructing references to uninitialized
   byte values.

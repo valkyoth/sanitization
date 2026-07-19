@@ -36,6 +36,10 @@ COMPANIONS = {
     "sanitization-derive": "proc-macro",
 }
 
+MINIMUM_COMPANION_DEPENDENCIES = {
+    ("sanitization-bytes", "bytes"): "1.11.1",
+}
+
 FORBIDDEN_WIPE_PRIMITIVES = (
     "write_volatile",
     "compiler_fence",
@@ -103,6 +107,16 @@ for crate, expected_role in COMPANIONS.items():
         fail(f"{crate} package metadata role must be {expected_role!r}")
 
     dependencies = manifest.get("dependencies", {})
+    for (dependency_crate, dependency), minimum in MINIMUM_COMPANION_DEPENDENCIES.items():
+        if crate != dependency_crate:
+            continue
+        specification = dependencies.get(dependency)
+        if not isinstance(specification, dict) or specification.get("version") != minimum:
+            fail(
+                f"{crate} must require {dependency} >= {minimum} through its "
+                "published caret requirement"
+            )
+
     if crate == "sanitization-derive":
         if "sanitization" in dependencies:
             fail("sanitization-derive must not depend on the runtime crate")
