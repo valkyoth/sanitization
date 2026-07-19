@@ -16,6 +16,8 @@
   |
   <a href="https://github.com/valkyoth/sanitization/blob/main/docs/MIGRATION_2.0.md">2.0 Migration</a>
   |
+  <a href="https://github.com/valkyoth/sanitization/blob/main/docs/ERROR_HANDLING.md">Error Handling</a>
+  |
   <a href="https://github.com/valkyoth/sanitization/blob/main/SECURITY.md">Security</a>
 </div>
 
@@ -144,6 +146,7 @@ Read [GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/GUA
 [EVIDENCE.md](https://github.com/valkyoth/sanitization/blob/main/docs/EVIDENCE.md),
 [STORAGE_CONTRACTS.md](https://github.com/valkyoth/sanitization/blob/main/docs/STORAGE_CONTRACTS.md),
 [PROTECTION_REPORT.md](https://github.com/valkyoth/sanitization/blob/main/docs/PROTECTION_REPORT.md),
+[ERROR_HANDLING.md](https://github.com/valkyoth/sanitization/blob/main/docs/ERROR_HANDLING.md),
 [SCOPE_2.0.0.md](https://github.com/valkyoth/sanitization/blob/main/docs/SCOPE_2.0.0.md),
 [VERIFICATION_TOOLING.md](https://github.com/valkyoth/sanitization/blob/main/docs/VERIFICATION_TOOLING.md),
 and [REPRODUCIBLE_BUILDS.md](https://github.com/valkyoth/sanitization/blob/main/docs/REPRODUCIBLE_BUILDS.md)
@@ -1038,6 +1041,13 @@ verify first. If corruption is detected, the full mapping or slot is
 volatile-cleared before the error is returned. Compatibility aliases ending in
 `_checked` remain available, while explicitly named `_or_panic` helpers are the
 only mapped accessors that panic on corruption.
+
+Fallible exposure closures can import `SecretIntegrityResultExt` and call
+`flatten_secret_integrity()` to avoid nested results while preserving separate
+canary and operation failures. `SecretIntegrityResult<T, E>` shortens public
+signatures, and `SecretIntegrityError::map_operation` maps application errors
+without erasing corruption. See [ERROR_HANDLING.md](docs/ERROR_HANDLING.md) for
+library propagation, mapped-text, fail-stop, and protection-report patterns.
 
 Standalone canaries are derived from the mapping address and a fixed mask on
 native mapped backends. Deterministic pool-slot canaries additionally mix in a

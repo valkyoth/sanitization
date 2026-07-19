@@ -87,6 +87,11 @@
   reject dynamic, short, generic, and placeholder audit labels in CI.
 - Sealed `wipe::Wipe` to the audited byte slice, byte array, `Vec<u8>`, and
   `String` implementations so `WipeOnDrop<T>` cannot wrap a downstream no-op.
+- Added `SecretIntegrityResult`, `SecretIntegrityResultExt`, and classification
+  helpers so fallible mapped exposure composes without nested results or loss
+  of the canary/operation distinction.
+- Added concise protection-report validation and documented library,
+  application-error, mapped-text, and fail-stop handling patterns.
 
 ## 1.2.5
 

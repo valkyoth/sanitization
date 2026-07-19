@@ -53,6 +53,13 @@ preferred control can return storage only when the reduced outcome is visible
 in its report. Callers should reject any report state their deployment policy
 does not accept.
 
+Applications that require every preferred control to have succeeded can use
+`ProtectionReport::all_requested_controls_established(request)` once after
+construction. The method returns `false` for failed, unsupported, or
+compatibility-only preferred controls. `NotApplicable` satisfies a request for
+empty storage. Applications that accept selected reduced outcomes should still
+inspect the relevant report fields explicitly.
+
 ```rust,no_run
 # #[cfg(feature = "memory-lock")]
 # {
@@ -98,4 +105,4 @@ those reduced outcomes rather than pretending native protection succeeded.
 
 See `docs/FEATURE_PROFILES.md`, `docs/TARGETS.md`,
 `docs/NON_GUARANTEES.md`, and `docs/THREAT_MODEL.md` for the complete platform
-claim.
+claim. See `docs/ERROR_HANDLING.md` for concise checked-call composition.

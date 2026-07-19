@@ -22,6 +22,80 @@ pub enum SecretIntegrityError<E> {
     Operation(E),
 }
 
+/// Result alias for mapped operations that distinguish integrity corruption
+/// from an operation-specific failure.
+pub type SecretIntegrityResult<T, E> = Result<T, SecretIntegrityError<E>>;
+
+impl<E> SecretIntegrityError<E> {
+    /// Returns `true` when integrity-canary verification failed.
+    #[must_use]
+    pub const fn is_canary(&self) -> bool {
+        matches!(self, Self::Canary(_))
+    }
+
+    /// Returns `true` when the requested operation failed after integrity
+    /// verification succeeded.
+    #[must_use]
+    pub const fn is_operation(&self) -> bool {
+        matches!(self, Self::Operation(_))
+    }
+
+    /// Borrows the operation-specific error, when present.
+    #[must_use]
+    pub const fn operation(&self) -> Option<&E> {
+        match self {
+            Self::Canary(_) => None,
+            Self::Operation(error) => Some(error),
+        }
+    }
+
+    /// Maps only the operation-specific error while preserving integrity
+    /// corruption as a separate variant.
+    pub fn map_operation<O>(self, map: impl FnOnce(E) -> O) -> SecretIntegrityError<O> {
+        match self {
+            Self::Canary(error) => SecretIntegrityError::Canary(error),
+            Self::Operation(error) => SecretIntegrityError::Operation(map(error)),
+        }
+    }
+}
+
+/// Flattens a fallible mapped-secret exposure closure without losing the
+/// distinction between integrity corruption and the closure's own error.
+///
+/// Mapped byte exposure methods return `Result<R, CanaryCorruptedError>`. If
+/// the closure itself returns `Result<T, E>`, importing this trait permits:
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "memory-lock")]
+/// # fn example() -> sanitization::SecretIntegrityResult<(), &'static str> {
+/// use sanitization::{LockedSecretBytes, SecretIntegrityResultExt};
+///
+/// let key = LockedSecretBytes::<4>::from_array([1, 2, 3, 4])
+///     .expect("test environment permits memory locking");
+/// let parsed = key
+///     .expose_secret(|bytes| bytes.first().copied().ok_or("empty key"))
+///     .flatten_secret_integrity()?;
+/// assert_eq!(parsed, 1);
+/// # Ok(())
+/// # }
+/// ```
+pub trait SecretIntegrityResultExt<T, E> {
+    /// Converts the outer canary error to [`SecretIntegrityError::Canary`] and
+    /// the closure error to [`SecretIntegrityError::Operation`].
+    fn flatten_secret_integrity(self) -> SecretIntegrityResult<T, E>;
+}
+
+impl<T, E> SecretIntegrityResultExt<T, E> for Result<Result<T, E>, CanaryCorruptedError> {
+    #[inline]
+    fn flatten_secret_integrity(self) -> SecretIntegrityResult<T, E> {
+        match self {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(error)) => Err(SecretIntegrityError::Operation(error)),
+            Err(error) => Err(SecretIntegrityError::Canary(error)),
+        }
+    }
+}
+
 impl<E: fmt::Display> fmt::Display for SecretIntegrityError<E> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -394,6 +468,23 @@ pub enum ProtectionState {
     CompatibilityOnly,
 }
 
+impl ProtectionState {
+    /// Returns whether this outcome fulfills a requested control.
+    ///
+    /// `NotApplicable` fulfills a request because there is no live storage on
+    /// which to establish the control. `NotRequested` requirements are always
+    /// fulfilled and do not imply that a control was attempted.
+    #[must_use]
+    pub const fn satisfies(self, requirement: Requirement) -> bool {
+        match requirement {
+            Requirement::NotRequested => true,
+            Requirement::Required | Requirement::Preferred => {
+                matches!(self, Self::Established | Self::NotApplicable)
+            }
+        }
+    }
+}
+
 /// Actual outcome of the requested process-fork behavior.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ForkProtectionReport {
@@ -435,6 +526,24 @@ pub struct ProtectionReport {
 }
 
 impl ProtectionReport {
+    /// Returns whether every requested control was established or did not
+    /// apply to empty storage.
+    ///
+    /// This is stricter than construction success: a failed or unsupported
+    /// `Preferred` control returns `false`, even though construction may
+    /// legitimately have returned a live reduced-protection container.
+    /// Controls marked [`Requirement::NotRequested`] are ignored.
+    #[must_use]
+    pub fn all_requested_controls_established(&self, request: ProtectionRequest) -> bool {
+        self.memory_lock.satisfies(request.memory_lock)
+            && self.dump_exclusion.satisfies(request.dump_exclusion)
+            && self.fork.policy == request.fork.policy
+            && self.fork.state.satisfies(request.fork.requirement)
+            && self.guard_pages.satisfies(request.guard_pages)
+            && self.canary.satisfies(request.canary)
+            && self.cache_policy.satisfies(request.cache_policy)
+    }
+
     #[allow(dead_code)]
     pub(crate) const fn pending(
         request: ProtectionRequest,

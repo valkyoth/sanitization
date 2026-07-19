@@ -13,6 +13,80 @@ impl MonotonicClock for TestClock<'_> {
 }
 
 #[test]
+fn secret_integrity_error_adapters_preserve_error_classification() {
+    let canary = SecretIntegrityError::<u8>::Canary(CanaryCorruptedError);
+    assert!(canary.is_canary());
+    assert!(!canary.is_operation());
+    assert_eq!(canary.operation(), None);
+    assert_eq!(
+        canary.map_operation(u16::from),
+        SecretIntegrityError::Canary(CanaryCorruptedError)
+    );
+
+    let operation = SecretIntegrityError::Operation(7_u8);
+    assert!(!operation.is_canary());
+    assert!(operation.is_operation());
+    assert_eq!(operation.operation(), Some(&7));
+    assert_eq!(
+        operation.map_operation(u16::from),
+        SecretIntegrityError::Operation(7_u16)
+    );
+}
+
+#[test]
+fn secret_integrity_result_adapter_flattens_fallible_exposure() {
+    let success: Result<Result<u8, &str>, CanaryCorruptedError> = Ok(Ok(7));
+    assert_eq!(success.flatten_secret_integrity(), Ok(7));
+
+    let operation: Result<Result<u8, &str>, CanaryCorruptedError> = Ok(Err("decode failed"));
+    assert_eq!(
+        operation.flatten_secret_integrity(),
+        Err(SecretIntegrityError::Operation("decode failed"))
+    );
+
+    let canary: Result<Result<u8, &str>, CanaryCorruptedError> = Err(CanaryCorruptedError);
+    assert_eq!(
+        canary.flatten_secret_integrity(),
+        Err(SecretIntegrityError::Canary(CanaryCorruptedError))
+    );
+}
+
+#[test]
+fn protection_report_can_validate_requested_controls_once() {
+    let request = ProtectionRequest {
+        memory_lock: Requirement::Required,
+        dump_exclusion: Requirement::Preferred,
+        fork: ForkProtectionRequest::exclude(Requirement::Preferred),
+        guard_pages: Requirement::NotRequested,
+        canary: Requirement::Required,
+        cache_policy: Requirement::NotRequested,
+    };
+    let mut report = ProtectionReport {
+        mapping: ProtectionState::Established,
+        memory_lock: ProtectionState::Established,
+        dump_exclusion: ProtectionState::Established,
+        fork: ForkProtectionReport {
+            policy: ForkPolicy::Exclude,
+            state: ProtectionState::Established,
+        },
+        guard_pages: ProtectionState::NotRequested,
+        canary: ProtectionState::Established,
+        cache_policy: ProtectionState::NotRequested,
+        requested_bytes: 32,
+        mapped_bytes: 4096,
+        locked_bytes: 4096,
+        page_granule: 4096,
+        lock_quota_likely: false,
+    };
+
+    assert!(report.all_requested_controls_established(request));
+    report.dump_exclusion = ProtectionState::Unsupported;
+    assert!(!report.all_requested_controls_established(request));
+    assert!(ProtectionState::NotApplicable.satisfies(Requirement::Required));
+    assert!(ProtectionState::Unsupported.satisfies(Requirement::NotRequested));
+}
+
+#[test]
 fn ct_choice_normalizes_and_declassifies_explicitly() {
     let false_choice = ct::Choice::from_u8(0);
     let true_choice = ct::Choice::from_u8(7);

@@ -278,6 +278,13 @@ Handle `CanaryCorruptedError` or `SecretIntegrityError<E>` explicitly. Use an
 `*_or_panic` helper only when aborting the current control flow is an intentional
 deployment policy.
 
+When an exposure closure is itself fallible, import
+`SecretIntegrityResultExt` and call `flatten_secret_integrity()` to convert
+`Result<Result<T, E>, CanaryCorruptedError>` into the concise
+`SecretIntegrityResult<T, E>` alias. This preserves the integrity/operation
+distinction without nested matching. See `docs/ERROR_HANDLING.md` for mapped
+text and application-error patterns.
+
 ```rust,no_run
 # #[cfg(feature = "memory-lock")]
 # {
@@ -308,7 +315,9 @@ Runtime hardening is now modeled by:
 
 Cargo profiles describe compiled capability, never successful runtime
 protection. Read `docs/PROTECTION_REPORT.md` before migrating locked or guarded
-constructors.
+constructors. `Required` controls fail construction; for requests containing
+`Preferred` controls, `ProtectionReport::all_requested_controls_established`
+provides a concise strict check after construction.
 
 ## Added 2.0 Facilities
 
