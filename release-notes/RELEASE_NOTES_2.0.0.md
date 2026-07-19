@@ -126,6 +126,8 @@ protection outcomes more explicit and fail-closed.
 - Added `AllowlistedSecret<T, P>` and a rationale-bearing policy macro so
   closed deployments can centrally approve exact storage types while retaining
   the independent shared/mutable stability bounds.
+- Rejected empty and ASCII-whitespace-only storage-policy rationales at compile
+  time so policy approvals cannot carry blank review metadata.
 - Kept storage contracts deliberately non-derived: field inspection cannot
   prove method behavior, interior mutation, guard cleanup, callbacks, or
   deferred allocation release.

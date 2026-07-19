@@ -122,6 +122,8 @@
 - Added `AllowlistedSecret<T, P>`, `SecretStoragePolicy<T>`, and
   `define_secret_storage_policy!` so controlled deployments can enforce one
   centralized exact-type storage allow-list with required review rationales.
+- Rejected empty and ASCII-whitespace-only storage-policy rationales at compile
+  time so every allow-list entry carries reviewable text.
 - Documented why storage stability cannot be safely inferred by a field-only
   derive and added negative tests for unapproved types and empty rationales.
 

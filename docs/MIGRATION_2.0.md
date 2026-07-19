@@ -38,8 +38,8 @@ For a closed assurance profile, define a private or crate-visible exact-type
 policy with `define_secret_storage_policy!` and use
 `AllowlistedSecret<T, Policy>`. This adds a central compiler-enforced allow-list
 without pretending that a field-only derive can prove storage stability. Each
-entry requires a non-empty review rationale, and exposure still requires the
-appropriate stability marker.
+entry requires a review rationale containing non-whitespace text, and exposure
+still requires the appropriate stability marker.
 
 ## Fixed Secret Exposure
 

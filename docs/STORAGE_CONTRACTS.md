@@ -121,10 +121,12 @@ assert_eq!(
 );
 ```
 
-Every exact type requires a non-empty rationale. Construction and exposure
-require `P: SecretStoragePolicy<T>`, and exposure independently retains the
-shared or mutable stability bound. A newly introduced marker implementation is
-therefore not accepted until the central policy adds that exact type.
+Every exact type requires a rationale containing non-whitespace text; empty and
+ASCII-whitespace-only literals are rejected at compile time. Construction and
+exposure require `P: SecretStoragePolicy<T>`, and exposure independently
+retains the shared or mutable stability bound. A newly introduced marker
+implementation is therefore not accepted until the central policy adds that
+exact type.
 
 Keep the policy type private or `pub(crate)`. A public policy type can be named
 by dependencies, and Rust's orphan rules may permit a dependency to implement
