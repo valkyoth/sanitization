@@ -46,6 +46,7 @@ impl FixedCredentials {
 mod tests {
     use super::*;
     use arrayvec::ArrayVec;
+    use core::sync::atomic::{AtomicU64, Ordering};
     use sanitization::ct::{
         Choice, ConditionallySelectable as CtConditionallySelectable,
         ConstantTimeEq as CtConstantTimeEq,
@@ -64,11 +65,21 @@ mod tests {
         right: [u8; 16],
     }
 
+    fn next_fixture_nonce() -> [u8; 12] {
+        static SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed).to_le_bytes();
+        let process = std::process::id().to_le_bytes();
+        core::array::from_fn(|index| {
+            sequence[index % sequence.len()] ^ process[index % process.len()]
+        })
+    }
+
     #[test]
     fn generic_storage_contract_and_derive_work_downstream() {
         let mut secret =
             AllowlistedSecret::<FixedCredentials, MigrationStoragePolicy>::new(
-                FixedCredentials::new([7; 32], [9; 12], 0x0304),
+                FixedCredentials::new([7; 32], next_fixture_nonce(), 0x0304),
             );
         assert_eq!(secret.with_secret(FixedCredentials::protocol), 0x0304);
         secret.with_secret_mut(|credentials| credentials.nonce[0] = 3);
@@ -94,7 +105,7 @@ mod tests {
 
     #[test]
     fn crypto_helpers_accept_direct_secret_exposure() {
-        let credentials = FixedCredentials::new([0x42; 32], [0; 12], 1);
+        let credentials = FixedCredentials::new([0x42; 32], next_fixture_nonce(), 1);
         credentials.key().expose_secret(|key| {
             let tag = hmac_sha2::hmac_sha256(key, b"migration");
             assert!(hmac_sha2::hmac_sha256_verify(key, b"migration", &tag));
