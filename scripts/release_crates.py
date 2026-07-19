@@ -107,6 +107,18 @@ def verify_versions(expected_version: str) -> None:
             )
 
 
+def verify_proc_macro_lockstep(expected_version: str) -> None:
+    with (ROOT / "crates" / "sanitization" / "Cargo.toml").open("rb") as handle:
+        manifest = tomllib.load(handle)
+    dependency = manifest["dependencies"].get("sanitization-derive")
+    expected_requirement = f"={expected_version}"
+    if not isinstance(dependency, dict) or dependency.get("version") != expected_requirement:
+        raise RuntimeError(
+            "sanitization must exact-pin sanitization-derive to "
+            f"{expected_requirement!r} before publishing"
+        )
+
+
 def verify_publish_order() -> None:
     import json
 
@@ -334,6 +346,7 @@ def main() -> int:
 
     require_clean_tree(allow_dirty=args.allow_dirty or args.dry_run)
     verify_versions(args.version)
+    verify_proc_macro_lockstep(args.version)
     verify_publish_order()
     verify_latest_rust()
     verify_release_artifacts(args.version, require_pentest=not args.prepare_only)

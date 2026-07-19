@@ -7,8 +7,8 @@ use sanitization::ct::{
     ConstantTimeEq as CtConstantTimeEq,
 };
 use sanitization::{
-    secure_replace, ConditionallySelectable, ConstantTimeEq, SecretBytes, SecureSanitize,
-    SecureSanitizeOnDrop,
+    secure_replace, ConditionallySelectable, ConstantTimeEq, DropSafeSanitize, SecretBytes,
+    SecureSanitize, SecureSanitizeOnDrop,
 };
 
 #[allow(dead_code)]
@@ -84,17 +84,25 @@ struct GenericDropSecret<T: SecureSanitize + Unpin> {
 }
 
 #[derive(SecureSanitizeOnDrop)]
-struct ManualWholeValueSanitizer {
-    key: DropProbe,
+struct ManualAggregateSanitizer {
+    #[sanitization(
+        skip,
+        reason = "public slot identifies external storage cleared by the aggregate sanitizer"
+    )]
+    slot: usize,
 }
 
-impl SecureSanitize for ManualWholeValueSanitizer {
+impl SecureSanitize for ManualAggregateSanitizer {
     fn secure_sanitize(&mut self) {
-        MANUAL_WHOLE_SANITIZER_CALLED.store(true, Ordering::SeqCst);
-        let old = core::mem::replace(self, Self { key: DropProbe(0) });
-        drop(old);
+        if self.slot == 7 {
+            EXTERNAL_SECRET_PRESENT.store(false, Ordering::SeqCst);
+        }
     }
 }
+
+// DROP SANITIZE CONTRACT: secure_sanitize clears the external slot in place,
+// does not replace or destroy Self, and performs no reentrant cleanup.
+impl DropSafeSanitize for ManualAggregateSanitizer {}
 
 enum ReplaceMaterial {
     Key(DropProbe),
@@ -111,7 +119,7 @@ impl SecureSanitize for ReplaceMaterial {
 
 static DROP_PROBE_SANITIZED: AtomicBool = AtomicBool::new(false);
 static DROP_PROBE_DROPPED_ZEROED: AtomicBool = AtomicBool::new(false);
-static MANUAL_WHOLE_SANITIZER_CALLED: AtomicBool = AtomicBool::new(false);
+static EXTERNAL_SECRET_PRESENT: AtomicBool = AtomicBool::new(false);
 static DROP_PROBE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 struct DropProbe(u8);
@@ -221,17 +229,13 @@ fn derive_secure_sanitize_on_drop_supports_struct_level_generic_bounds() {
 }
 
 #[test]
-fn derive_secure_sanitize_on_drop_does_not_call_manual_whole_value_sanitizer() {
+fn derive_secure_sanitize_on_drop_preserves_manual_aggregate_sanitizer() {
     let _guard = DROP_PROBE_LOCK.lock().unwrap();
-    DROP_PROBE_SANITIZED.store(false, Ordering::SeqCst);
-    DROP_PROBE_DROPPED_ZEROED.store(false, Ordering::SeqCst);
-    MANUAL_WHOLE_SANITIZER_CALLED.store(false, Ordering::SeqCst);
+    EXTERNAL_SECRET_PRESENT.store(true, Ordering::SeqCst);
 
-    drop(ManualWholeValueSanitizer { key: DropProbe(13) });
+    drop(ManualAggregateSanitizer { slot: 7 });
 
-    assert!(!MANUAL_WHOLE_SANITIZER_CALLED.load(Ordering::SeqCst));
-    assert!(DROP_PROBE_SANITIZED.load(Ordering::SeqCst));
-    assert!(DROP_PROBE_DROPPED_ZEROED.load(Ordering::SeqCst));
+    assert!(!EXTERNAL_SECRET_PRESENT.load(Ordering::SeqCst));
 }
 
 #[test]

@@ -23,6 +23,9 @@ use syn::{
 /// larger variant. Model secret state with a struct plus an explicit public
 /// discriminator, or implement a reviewed transition that calls
 /// `sanitization::secure_replace` before changing representation.
+///
+/// The derive also implements `sanitization::DropSafeSanitize` because its
+/// sanitizer is generated field-wise and cannot replace or destroy `Self`.
 #[proc_macro_derive(SecureSanitize, attributes(sanitization))]
 pub fn derive_secure_sanitize(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -31,14 +34,14 @@ pub fn derive_secure_sanitize(input: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Derive `Drop` by sanitizing each non-skipped struct field directly.
+/// Derive `Drop` by invoking the complete `SecureSanitize` implementation.
 ///
-/// The generated destructor requires `Self: Unpin`. A destructor may run for
-/// a pinned value, so generated code cannot safely pass an unrestricted
-/// `&mut Self` to an arbitrary whole-value sanitizer for a structurally pinned
-/// type. Direct field sanitization also avoids invoking a manual
-/// `SecureSanitize` implementation that replaces `Self` and recursively
-/// enters its destructor.
+/// The generated destructor requires `Self: DropSafeSanitize + Unpin`.
+/// `#[derive(SecureSanitize)]` provides `DropSafeSanitize` automatically for
+/// its generated field-wise sanitizer. A reviewed manual aggregate sanitizer
+/// must implement `DropSafeSanitize` explicitly; this preserves external
+/// storage, ordering, and platform cleanup while making recursive
+/// self-destruction an explicit contract violation.
 ///
 /// Enums are rejected even when they have a manual `SecureSanitize`
 /// implementation. Calling that implementation at final drop cannot clear
@@ -151,6 +154,8 @@ fn expand_secure_sanitize(input: &DeriveInput) -> Result<TokenStream2> {
                 #body
             }
         }
+
+        impl #impl_generics #crate_path::DropSafeSanitize for #name #type_generics #where_clause {}
     })
 }
 
@@ -160,8 +165,8 @@ fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
     validate_field_options(&input.data)?;
     let crate_path = crate_path(&options);
 
-    let body = match &input.data {
-        Data::Struct(data) => expand_struct_body(data, &crate_path)?,
+    match &input.data {
+        Data::Struct(_) => {}
         Data::Enum(_) => {
             return Err(Error::new_spanned(
                 input,
@@ -174,7 +179,7 @@ fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
                 "SecureSanitizeOnDrop cannot be derived for unions",
             ))
         }
-    };
+    }
 
     let name = &input.ident;
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
@@ -183,9 +188,9 @@ fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
         impl #impl_generics Drop for #name #type_generics #where_clause {
             #[inline]
             fn drop(&mut self) {
-                fn require_drop_contract<T: ?Sized + #crate_path::SecureSanitize + ::core::marker::Unpin>() {}
+                fn require_drop_contract<T: ?Sized + #crate_path::DropSafeSanitize + ::core::marker::Unpin>() {}
                 require_drop_contract::<Self>();
-                #body
+                #crate_path::SecureSanitize::secure_sanitize(self);
             }
         }
     })

@@ -137,9 +137,15 @@ def verify_archive(package: str, version: str, package_dir: Path) -> None:
         dependency_spec = dependencies[dependency]
         if isinstance(dependency_spec, dict) and "path" in dependency_spec:
             fail(f"{archive.name} retained local path for {dependency}")
-        if normalized_dependency_version(dependencies, dependency) != version:
+        expected_requirement = (
+            f"={version}"
+            if package == "sanitization" and dependency == "sanitization-derive"
+            else version
+        )
+        if normalized_dependency_version(dependencies, dependency) != expected_requirement:
             fail(
-                f"{archive.name} does not require {dependency} at release version {version}"
+                f"{archive.name} does not require {dependency} with reviewed "
+                f"release requirement {expected_requirement}"
             )
 
     print(f"verified {archive.relative_to(ROOT)}")

@@ -35,8 +35,11 @@ through it, eliminating references to uninitialized byte values. It also
 raises the `sanitization-bytes` dependency floor to patched `bytes 1.11.1` and
 enforces that published requirement in the companion-boundary gate. Final
 derive hardening requires `SecureSanitizeOnDrop` and `secure_drop_struct!`
-owners to be `Unpin` and makes their destructors sanitize fields directly,
-closing structural-pinning and recursive whole-value sanitizer paths. It
+owners to implement `DropSafeSanitize + Unpin`. Their destructors call the
+complete sanitizer, preserving aggregate cleanup while requiring manual
+sanitizers to explicitly attest non-recursive destructor safety. The runtime
+also exact-pins the derive crate to the same version, and release preflight
+enforces that generated/runtime API lockstep. It
 therefore requires another full-range review before a permanent report can be
 accepted.
 

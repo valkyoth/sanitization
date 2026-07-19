@@ -1792,6 +1792,7 @@ pub fn sanitization::SplitSecretBytes<N, SHARES>::zeroize(&mut self)
 impl<const N: usize, const SHARES: usize> zeroize::ZeroizeOnDrop for sanitization::SplitSecretBytes<N, SHARES>
 pub const sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN: usize
 pub const sanitization::DEFAULT_SECRET_VEC_SERDE_MAX_LEN: usize
+pub trait sanitization::DropSafeSanitize: sanitization::SecureSanitize
 pub trait sanitization::MonotonicClock
 pub fn sanitization::MonotonicClock::now(&self) -> u64
 impl<C: sanitization::MonotonicClock + ?core::marker::Sized> sanitization::MonotonicClock for &C

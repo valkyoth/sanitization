@@ -285,6 +285,24 @@ struct Bad {
 }'
 
 run_expected_failure \
+    "manual-sanitize-on-drop-contract-required" \
+    '"derive"' \
+    "DropSafeSanitize" \
+    'use sanitization::{SecureSanitize, SecureSanitizeOnDrop};
+
+#[derive(SecureSanitizeOnDrop)]
+struct Bad {
+    value: u8,
+}
+
+impl SecureSanitize for Bad {
+    fn secure_sanitize(&mut self) {
+        let old = core::mem::replace(self, Self { value: 0 });
+        drop(old);
+    }
+}'
+
+run_expected_failure \
     "pinned-secure-drop-struct-rejected" \
     '' \
     "Unpin" \

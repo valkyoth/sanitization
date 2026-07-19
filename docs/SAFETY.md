@@ -25,11 +25,20 @@ sanitization call is active. Implementations must document copies, shared or
 external storage, padding, allocator metadata, platform copies, or historical
 allocations they cannot reach.
 
+`DropSafeSanitize` is the explicit contract for calling a complete sanitizer
+from its owner's destructor. It requires the sanitizer to preserve aggregate
+cleanup and not replace, destroy, or recursively enter destruction of `Self`.
+The trait is safe and downstream-implementable because a false implementation
+violates security or availability guarantees, not Rust memory safety. Manual
+implementations require review and should carry a `DROP SANITIZE CONTRACT`
+comment.
+
 `SecureSanitizeOnDrop` and `secure_drop_struct!` require their complete struct
-to implement `Unpin`. Their generated destructors sanitize each non-skipped
-field directly instead of passing `&mut Self` to a whole-value sanitizer. This
-prevents generated code from violating structural pinning and avoids recursive
-drop through a manual sanitizer that replaces `Self`. Address-sensitive
+to implement `DropSafeSanitize + Unpin`, then invoke its complete sanitizer.
+`#[derive(SecureSanitize)]` and `secure_sanitize_struct!` automatically provide
+the marker for their generated field-wise implementations. This preserves
+reviewed external-storage, ordering, and platform cleanup without silently
+reopening structural-pinning or recursive-drop assumptions. Address-sensitive
 `!Unpin` owners require a reviewed pin-aware manual sanitization and destructor
 design.
 

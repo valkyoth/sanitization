@@ -59,6 +59,8 @@ def load_manifest(crate: str) -> dict:
 
 
 core = load_manifest("sanitization")
+with (ROOT / "Cargo.toml").open("rb") as handle:
+    workspace_version = tomllib.load(handle)["workspace"]["package"]["version"]
 features = core.get("features", {})
 if features.get("default") != []:
     fail("sanitization default features must remain empty")
@@ -70,6 +72,17 @@ for profile, expected in EXPECTED_PROFILES.items():
 for dependency, specification in core.get("dependencies", {}).items():
     if not isinstance(specification, dict) or not specification.get("optional", False):
         fail(f"default core dependency {dependency!r} is not optional")
+
+derive_dependency = core.get("dependencies", {}).get("sanitization-derive")
+expected_derive_version = f"={workspace_version}"
+if (
+    not isinstance(derive_dependency, dict)
+    or derive_dependency.get("version") != expected_derive_version
+):
+    fail(
+        "sanitization must exact-pin sanitization-derive to the workspace "
+        f"version {expected_derive_version!r}"
+    )
 
 core_metadata = core.get("package", {}).get("metadata", {}).get("sanitization", {})
 if core_metadata.get("role") != "core":

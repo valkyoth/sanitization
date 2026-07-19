@@ -36,6 +36,11 @@ sanitization = { version = "2.0.0", features = ["derive"] }
 The derive crate only generates calls to traits from `sanitization`; it does
 not implement memory wiping, comparison, or selection logic itself.
 
+The runtime crate exact-pins this proc-macro crate to the same release. The
+macros generate references to runtime traits, so independently mixing an older
+runtime with a newer derive crate is unsupported and intentionally prevented by
+Cargo resolution.
+
 Available derives:
 
 - `SecureSanitize`
@@ -90,6 +95,9 @@ struct Wrapper<T: SecureSanitize + Unpin> {
 
 The generated `Drop` impl cannot add a stricter bound than the struct itself.
 It requires the complete struct to be `Unpin` because a destructor may receive
-a logically pinned value. The destructor sanitizes non-skipped fields directly
-and never invokes a manual whole-value `SecureSanitize` implementation, which
-prevents self-replacement from recursively entering `Drop`.
+a logically pinned value. It also requires `DropSafeSanitize` and invokes the
+complete `SecureSanitize` implementation so reviewed aggregate cleanup is not
+lost. `#[derive(SecureSanitize)]` supplies the marker for its generated
+field-wise implementation. A manual aggregate sanitizer must implement
+`DropSafeSanitize` explicitly after review; recursive self-replacement remains
+a contract violation.

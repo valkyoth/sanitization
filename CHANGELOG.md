@@ -2,10 +2,13 @@
 
 ## 2.0.0
 
-- Restricted `SecureSanitizeOnDrop` and `secure_drop_struct!` to `Unpin`
-  structs and changed generated destructors to sanitize fields directly,
-  preventing structural-pinning violations and recursive drop through manual
-  whole-value sanitizers.
+- Restricted `SecureSanitizeOnDrop` and `secure_drop_struct!` to
+  `DropSafeSanitize + Unpin`. Generated destructors invoke the complete
+  sanitizer, preserving reviewed aggregate cleanup, while manual sanitizers
+  require an explicit non-recursive destructor-path contract.
+- Exact-pinned the optional `sanitization-derive` dependency to the matching
+  runtime version and enforced that lockstep in repository and release gates,
+  preventing proc-macro/runtime version-skew build failures.
 - Raised the `sanitization-bytes` dependency floor to patched `bytes 1.11.1`
   and added a release-policy check that prevents broadening the published
   requirement back to advisory-affected versions.

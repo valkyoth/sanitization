@@ -165,9 +165,12 @@ rejects skipped fields because every output field must be constructed. The old
 `strict-enum-derive` feature was removed because fail-closed diagnostics are now
 unconditional. Generic `SecureSanitizeOnDrop` structs still need sanitizable
 and `Unpin` type bounds on the struct declaration. The generated destructor
-requires the complete struct to be `Unpin` and sanitizes non-skipped fields
-directly; it does not call a manual whole-value sanitizer. Address-sensitive
-`!Unpin` types need a reviewed pin-aware manual implementation.
+requires the complete struct to implement `DropSafeSanitize + Unpin` and calls
+its complete sanitizer. `#[derive(SecureSanitize)]` provides the drop-safe
+marker automatically. Types with manual aggregate sanitizers must implement
+`DropSafeSanitize` explicitly after reviewing external cleanup, ordering, and
+non-recursive behavior. Address-sensitive `!Unpin` types need a reviewed
+pin-aware manual implementation.
 
 ## Wipe API
 

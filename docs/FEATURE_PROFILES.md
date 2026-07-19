@@ -118,6 +118,11 @@ crates integrate external representations without duplicating that primitive.
 
 Every companion dependency on `sanitization` sets `default-features = false`.
 The proc-macro crate intentionally does not depend on the runtime crate.
+Conversely, the runtime's optional `sanitization-derive` dependency is pinned
+to the exact same release. Generated code may reference runtime APIs introduced
+by that release, so Cargo must not resolve an independently newer proc macro
+with an older runtime. The release script publishes and waits for the derive
+crate before publishing the matching runtime.
 
 ## Default Core Graph
 

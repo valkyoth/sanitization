@@ -241,9 +241,13 @@ struct Credentials {
 }
 ```
 
-`SecureSanitizeOnDrop` is restricted to `Unpin` structs and sanitizes fields
-directly. For generic drop structs, declare `T: SecureSanitize + Unpin` on the
-struct itself. Pinned secret owners require a reviewed pin-aware manual design.
+`SecureSanitizeOnDrop` requires `DropSafeSanitize + Unpin` and invokes the
+complete sanitizer, preserving aggregate cleanup such as external storage and
+ordering. `#[derive(SecureSanitize)]` supplies the drop-safe contract for its
+generated field-wise sanitizer. A reviewed manual aggregate sanitizer must
+implement `DropSafeSanitize` explicitly. For generic drop structs, declare
+`T: SecureSanitize + Unpin` on the struct itself. Pinned secret owners require
+a reviewed pin-aware manual design.
 
 Enum derives are rejected. Safe generated code cannot reach inactive enum
 representation bytes after variant transitions. Model secret storage with a
@@ -465,6 +469,10 @@ by ownership boundary:
 | `sanitization-arrayvec` | `ArrayVec` storage |
 | `sanitization-bytes` | Fixed-capacity `BytesMut` storage |
 | `sanitization-crypto-interop` | SHA-2/BLAKE3 cleanup wrappers and HMAC-SHA2 helpers |
+
+The optional derive dependency is exact-pinned to the runtime's version because
+generated code may reference runtime traits introduced by that same release.
+The release script publishes and waits for the derive crate before the core.
 
 `zeroize` remains broader for retrofitting existing ecosystem types.
 `sanitization` focuses on ownership, lifecycle, explicit exposure, and optional

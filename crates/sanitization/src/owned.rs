@@ -92,6 +92,33 @@ pub trait SecureSanitize {
     fn secure_sanitize(&mut self);
 }
 
+/// Security contract for calling [`SecureSanitize`] from the value's destructor.
+///
+/// Implementing this marker asserts that `secure_sanitize` preserves all
+/// aggregate cleanup behavior when called from `Drop` and cannot destroy,
+/// replace, or otherwise recursively enter destruction of the same value while
+/// that call remains active. The implementation must remain valid when the
+/// value is logically pinned; generated drop code separately requires
+/// [`Unpin`](core::marker::Unpin) before obtaining `&mut Self`.
+///
+/// This is a normal trait because an incorrect implementation violates a
+/// security and availability contract, but must not be relied on for Rust
+/// memory safety. Manual implementations are an explicit review point and
+/// should include a `DROP SANITIZE CONTRACT` comment covering external
+/// storage, ordering requirements, and why the sanitizer cannot recursively
+/// destroy `Self`.
+///
+/// `#[derive(SecureSanitize)]` and [`crate::secure_sanitize_struct!`] implement this
+/// marker automatically for their generated field-wise sanitizers. Types with
+/// reviewed manual aggregate sanitizers must implement it explicitly before
+/// deriving `SecureSanitizeOnDrop`.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not approved for destructor-path sanitization",
+    label = "`SecureSanitizeOnDrop` requires `DropSafeSanitize`",
+    note = "derive `SecureSanitize` for a generated field-wise sanitizer, or explicitly implement `DropSafeSanitize` after reviewing a manual aggregate sanitizer"
+)]
+pub trait DropSafeSanitize: SecureSanitize {}
+
 /// Security contract for secret storage exposed through shared references.
 ///
 /// Implementing this marker asserts:
@@ -442,16 +469,19 @@ macro_rules! secure_sanitize_struct {
                 )*
             }
         }
+
+        impl $crate::DropSafeSanitize for $name {}
     };
 }
 
 /// Declare a struct and generate [`SecureSanitize`] plus [`Drop`].
 ///
 /// This macro owns the type's [`Drop`] implementation. Use
-/// [`secure_sanitize_struct!`] instead when custom drop behavior is required.
+/// [`crate::secure_sanitize_struct!`] instead when custom drop behavior is required.
 /// The generated destructor requires the declared struct to implement
-/// [`Unpin`](core::marker::Unpin) and sanitizes fields directly rather than
-/// calling a whole-value sanitizer.
+/// [`DropSafeSanitize`] and [`Unpin`](core::marker::Unpin), then calls its
+/// complete [`SecureSanitize`] implementation. The generated sanitizer is
+/// field-wise, so the marker is provided automatically.
 ///
 /// This macro intentionally supports named-field structs without generics or
 /// `where` clauses. For generic structs, implement [`SecureSanitize`] and
@@ -491,11 +521,9 @@ macro_rules! secure_drop_struct {
         impl Drop for $name {
             #[inline]
             fn drop(&mut self) {
-                fn require_drop_contract<T: ?Sized + $crate::SecureSanitize + ::core::marker::Unpin>() {}
+                fn require_drop_contract<T: ?Sized + $crate::DropSafeSanitize + ::core::marker::Unpin>() {}
                 require_drop_contract::<Self>();
-                $(
-                    $crate::SecureSanitize::secure_sanitize(&mut self.$field);
-                )*
+                $crate::SecureSanitize::secure_sanitize(self);
             }
         }
     };
