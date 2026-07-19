@@ -484,6 +484,9 @@ pub fn [u8; N]::ct_lt(&self, &Rhs) -> sanitization::ct::Choice
 pub fn sanitization::ct::cmp_fixed<const N: usize>(&[u8; N], &[u8; N]) -> sanitization::ct::CtOrdering
 pub fn sanitization::ct::conditional_copy(&mut [u8], &[u8], sanitization::ct::Choice) -> core::result::Result<(), sanitization::LengthError>
 pub fn sanitization::ct::conditional_swap(&mut [u8], &mut [u8], sanitization::ct::Choice) -> core::result::Result<(), sanitization::LengthError>
+pub fn sanitization::ct::declassified_cmp_fixed<const N: usize>(&[u8; N], &[u8; N], &'static str) -> core::cmp::Ordering
+pub fn sanitization::ct::declassified_eq_fixed<const N: usize>(&[u8; N], &[u8; N], &'static str) -> bool
+pub fn sanitization::ct::declassified_eq_public_len(&[u8], &[u8], &'static str) -> bool
 pub fn sanitization::ct::eq_fixed<const N: usize>(&[u8; N], &[u8; N]) -> sanitization::ct::Choice
 pub fn sanitization::ct::eq_public_len(&[u8], &[u8]) -> sanitization::ct::Choice
 pub fn sanitization::ct::oblivious_lookup<T>(&[T], sanitization::ct::SecretIndex, &T) -> T where T: sanitization::ct::ConditionallySelectable
