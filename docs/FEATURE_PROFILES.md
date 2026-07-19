@@ -63,7 +63,9 @@ let fixed = LockedSecretBytes::<32>::zeroed_with_protection(request)?;
 
 The associated constructors select policy; they do not turn `Preferred`
 controls into runtime guarantees. Inspect `protection_report()` once and use
-`protection_request()` when validating the report.
+`protection_request()` with `report.satisfies(request)` when validating the
+complete profile. Applications may use `report.is_degraded()` for a concise
+fail-closed startup decision.
 
 `strict-compare` is intentionally narrower than a general constant-time
 profile. It strengthens equal-length byte equality on reviewed x86_64 and

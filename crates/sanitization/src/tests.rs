@@ -107,9 +107,38 @@ fn protection_report_can_validate_requested_controls_once() {
         lock_quota_likely: false,
     };
 
+    assert!(report.satisfies(request));
     assert!(report.all_requested_controls_established(request));
+    assert!(!report.is_degraded());
+    assert!(report.memory_is_locked());
+    assert!(!report.guard_pages_established());
+    assert!(report.failed_or_unsupported_controls().next().is_none());
+
     report.dump_exclusion = ProtectionState::Unsupported;
+    assert!(!report.satisfies(request));
     assert!(!report.all_requested_controls_established(request));
+    assert!(report.is_degraded());
+    assert_eq!(
+        report.failed_or_unsupported_controls().next(),
+        Some(ProtectionControl::DumpExclusion)
+    );
+
+    report.dump_exclusion = ProtectionState::Established;
+    report.guard_pages = ProtectionState::CompatibilityOnly;
+    let mut unavailable = report.failed_or_unsupported_controls();
+    assert_eq!(unavailable.next(), Some(ProtectionControl::GuardPages));
+    assert_eq!(unavailable.next(), None);
+
+    report.guard_pages = ProtectionState::Established;
+    assert!(report.guard_pages_established());
+    report.mapping = ProtectionState::Failed { code: 12 };
+    assert!(!report.satisfies(request));
+    assert!(report.is_degraded());
+    assert_eq!(
+        report.failed_or_unsupported_controls().next(),
+        Some(ProtectionControl::Mapping)
+    );
+
     assert!(ProtectionState::NotApplicable.satisfies(Requirement::Required));
     assert!(ProtectionState::Unsupported.satisfies(Requirement::NotRequested));
 }

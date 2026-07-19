@@ -65,7 +65,7 @@ let secret = LockedSecretBytes::<32>::zeroed_hardened_native()?;
 let request = secret.protection_request();
 if !secret
     .protection_report()
-    .all_requested_controls_established(request)
+    .satisfies(request)
 {
     return Err("a preferred runtime protection was unavailable".into());
 }
@@ -77,23 +77,55 @@ Use `*_with_protection` only when a deployment needs a custom combination of
 required, preferred, and unrequested controls.
 
 Applications that require every preferred control to have succeeded can use
-`ProtectionReport::all_requested_controls_established(request)` once after
-construction. The method returns `false` for failed, unsupported, or
-compatibility-only preferred controls. `NotApplicable` satisfies a request for
-empty storage. Applications that accept selected reduced outcomes should still
-inspect the relevant report fields explicitly.
+`ProtectionReport::satisfies(request)` once after construction. The method also
+requires a live or empty mapping, returns `false` for failed, unsupported, or
+compatibility-only requested controls, and treats empty-storage
+`NotApplicable` outcomes as fulfilled. The longer
+`all_requested_controls_established(request)` spelling remains equivalent for
+compatibility.
+
+For operational summaries:
+
+- `is_degraded()` detects failed, unsupported, compatibility-only, or unusable
+  mapping outcomes;
+- `memory_is_locked()` and `guard_pages_established()` answer the two most
+  common strict deployment questions;
+- `failed_or_unsupported_controls()` returns a zero-allocation iterator over
+  unavailable controls in stable report order.
+
+```rust,no_run
+# #[cfg(feature = "profile-hardened-native")]
+# {
+use sanitization::LockedSecretBytes;
+
+let secret = LockedSecretBytes::<32>::zeroed_hardened_native()?;
+let report = secret.protection_report();
+
+if report.is_degraded() {
+    for control in report.failed_or_unsupported_controls() {
+        eprintln!("runtime protection unavailable: {control:?}");
+    }
+    return Err("deployment requires the complete profile".into());
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+# }
+```
+
+These helpers summarize public operational metadata. Applications that accept
+selected reduced outcomes should still inspect the relevant report fields
+explicitly.
 
 ```rust,no_run
 # #[cfg(feature = "memory-lock")]
 # {
-use sanitization::{LockedSecretBytes, ProtectionRequest, ProtectionState};
+use sanitization::{LockedSecretBytes, ProtectionRequest};
 
 let secret = LockedSecretBytes::<32>::zeroed_with_protection(
     ProtectionRequest::locked(),
 )?;
 let report = secret.protection_report();
 
-if report.memory_lock != ProtectionState::Established {
+if !report.memory_is_locked() {
     return Err("deployment requires an established memory lock".into());
 }
 # Ok::<(), Box<dyn std::error::Error>>(())

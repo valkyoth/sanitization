@@ -321,8 +321,9 @@ Runtime hardening is now modeled by:
 Cargo profiles describe compiled capability, never successful runtime
 protection. Read `docs/PROTECTION_REPORT.md` before migrating locked or guarded
 constructors. `Required` controls fail construction; for requests containing
-`Preferred` controls, `ProtectionReport::all_requested_controls_established`
-provides a concise strict check after construction.
+`Preferred` controls, `ProtectionReport::satisfies` provides a concise strict
+check after construction. The longer
+`all_requested_controls_established` spelling remains equivalent.
 
 ## Added 2.0 Facilities
 

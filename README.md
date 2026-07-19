@@ -281,7 +281,7 @@ let key = LockedSecretBytes::<32>::zeroed_hardened_native()?;
 let request = key.protection_request();
 if !key
     .protection_report()
-    .all_requested_controls_established(request)
+    .satisfies(request)
 {
     return Err("a preferred runtime protection was unavailable".into());
 }
@@ -865,8 +865,15 @@ key.try_copy_from_slice(&[7; 32]).unwrap();
 
 let report = key.protection_report();
 assert_eq!(report.memory_lock, ProtectionState::Established);
+assert!(report.memory_is_locked());
 assert_eq!(report.locked_bytes, report.mapped_bytes);
 assert_eq!(report.fork.policy, ForkPolicy::WipeChild);
+
+if report.is_degraded() {
+    for control in report.failed_or_unsupported_controls() {
+        eprintln!("runtime protection unavailable: {control:?}");
+    }
+}
 
 # Ok::<(), sanitization::ProtectionError>(())
 ```

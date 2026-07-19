@@ -526,22 +526,91 @@ pub struct ProtectionReport {
 }
 
 impl ProtectionReport {
-    /// Returns whether every requested control was established or did not
-    /// apply to empty storage.
+    /// Returns whether the mapping is live and every requested control was
+    /// established or did not apply to empty storage.
     ///
     /// This is stricter than construction success: a failed or unsupported
-    /// `Preferred` control returns `false`, even though construction may
-    /// legitimately have returned a live reduced-protection container.
-    /// Controls marked [`Requirement::NotRequested`] are ignored.
+    /// [`Requirement::Preferred`] control returns `false`, even though
+    /// construction may legitimately have returned a live reduced-protection
+    /// container. Controls marked [`Requirement::NotRequested`] are ignored.
     #[must_use]
-    pub fn all_requested_controls_established(&self, request: ProtectionRequest) -> bool {
-        self.memory_lock.satisfies(request.memory_lock)
+    pub const fn satisfies(&self, request: ProtectionRequest) -> bool {
+        matches!(
+            self.mapping,
+            ProtectionState::Established | ProtectionState::NotApplicable
+        ) && self.memory_lock.satisfies(request.memory_lock)
             && self.dump_exclusion.satisfies(request.dump_exclusion)
-            && self.fork.policy == request.fork.policy
+            && fork_policies_match(self.fork.policy, request.fork.policy)
             && self.fork.state.satisfies(request.fork.requirement)
             && self.guard_pages.satisfies(request.guard_pages)
             && self.canary.satisfies(request.canary)
             && self.cache_policy.satisfies(request.cache_policy)
+    }
+
+    /// Returns whether every requested control was established or did not
+    /// apply to empty storage.
+    ///
+    /// This compatibility spelling is equivalent to
+    /// [`ProtectionReport::satisfies`].
+    #[must_use]
+    pub const fn all_requested_controls_established(&self, request: ProtectionRequest) -> bool {
+        self.satisfies(request)
+    }
+
+    /// Returns whether this report records reduced or unusable protection.
+    ///
+    /// A failed, unsupported, or compatibility-only control is degraded.
+    /// Mapping state other than [`ProtectionState::Established`] or
+    /// [`ProtectionState::NotApplicable`] is also degraded. `NotApplicable`
+    /// is accepted for empty storage, and unrequested controls are ignored.
+    #[must_use]
+    pub const fn is_degraded(&self) -> bool {
+        !matches!(
+            self.mapping,
+            ProtectionState::Established | ProtectionState::NotApplicable
+        ) || protection_state_is_unavailable(self.memory_lock)
+            || protection_state_is_unavailable(self.dump_exclusion)
+            || protection_state_is_unavailable(self.fork.state)
+            || protection_state_is_unavailable(self.guard_pages)
+            || protection_state_is_unavailable(self.canary)
+            || protection_state_is_unavailable(self.cache_policy)
+    }
+
+    /// Returns whether the page-lock control was established.
+    ///
+    /// Empty storage reports `NotApplicable` and therefore returns `false`.
+    #[must_use]
+    pub const fn memory_is_locked(&self) -> bool {
+        matches!(self.memory_lock, ProtectionState::Established)
+    }
+
+    /// Returns whether inaccessible guard pages were established.
+    ///
+    /// Empty storage reports `NotApplicable` and therefore returns `false`.
+    #[must_use]
+    pub const fn guard_pages_established(&self) -> bool {
+        matches!(self.guard_pages, ProtectionState::Established)
+    }
+
+    /// Iterates over controls that failed, are unsupported, or are available
+    /// only through a reduced-guarantee compatibility backend.
+    ///
+    /// The iterator allocates no memory and yields controls in stable report
+    /// order: mapping, memory lock, dump exclusion, fork policy, guard pages,
+    /// canary, and cache policy. `NotRequested` and `NotApplicable` controls
+    /// are omitted.
+    pub fn failed_or_unsupported_controls(&self) -> impl Iterator<Item = ProtectionControl> {
+        [
+            unavailable_control(ProtectionControl::Mapping, self.mapping),
+            unavailable_control(ProtectionControl::MemoryLock, self.memory_lock),
+            unavailable_control(ProtectionControl::DumpExclusion, self.dump_exclusion),
+            unavailable_control(ProtectionControl::ForkPolicy, self.fork.state),
+            unavailable_control(ProtectionControl::GuardPages, self.guard_pages),
+            unavailable_control(ProtectionControl::Canary, self.canary),
+            unavailable_control(ProtectionControl::CachePolicy, self.cache_policy),
+        ]
+        .into_iter()
+        .flatten()
     }
 
     #[allow(dead_code)]
@@ -567,6 +636,35 @@ impl ProtectionReport {
             page_granule,
             lock_quota_likely: false,
         }
+    }
+}
+
+const fn protection_state_is_unavailable(state: ProtectionState) -> bool {
+    matches!(
+        state,
+        ProtectionState::Unsupported
+            | ProtectionState::Failed { .. }
+            | ProtectionState::CompatibilityOnly
+    )
+}
+
+const fn fork_policies_match(left: ForkPolicy, right: ForkPolicy) -> bool {
+    matches!(
+        (left, right),
+        (ForkPolicy::Inherit, ForkPolicy::Inherit)
+            | (ForkPolicy::Exclude, ForkPolicy::Exclude)
+            | (ForkPolicy::WipeChild, ForkPolicy::WipeChild)
+    )
+}
+
+fn unavailable_control(
+    control: ProtectionControl,
+    state: ProtectionState,
+) -> Option<ProtectionControl> {
+    if protection_state_is_unavailable(state) {
+        Some(control)
+    } else {
+        None
     }
 }
 

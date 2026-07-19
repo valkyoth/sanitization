@@ -88,9 +88,11 @@ constructors remain the custom-policy path.
 
 When a request contains `Preferred` controls, inspect the report once after
 construction and retain the resulting application state. The convenience
-method `ProtectionReport::all_requested_controls_established(request)` returns
-`false` for failed or unsupported preferred controls and treats empty-storage
-`NotApplicable` outcomes as fulfilled.
+method `ProtectionReport::satisfies(request)` returns `false` for failed,
+unsupported, or compatibility-only requested controls and treats empty-storage
+`NotApplicable` outcomes as fulfilled. `is_degraded()` provides a request-free
+operational summary, while `failed_or_unsupported_controls()` identifies the
+affected controls without allocation.
 
 ```rust,no_run
 # #[cfg(feature = "memory-lock")]
@@ -101,7 +103,7 @@ let request = ProtectionRequest::locked();
 let key = LockedSecretBytes::<32>::zeroed_with_protection(request)?;
 if !key
     .protection_report()
-    .all_requested_controls_established(request)
+    .satisfies(request)
 {
     return Err("a preferred runtime protection was unavailable".into());
 }

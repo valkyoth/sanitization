@@ -2,6 +2,8 @@
 
 ## 2.0.0
 
+- Added zero-allocation `ProtectionReport` summaries for policy satisfaction,
+  degraded state, memory locking, guard pages, and unavailable controls.
 - Added type-associated hardened-native, guarded-native, and hardened-Linux
   constructors for locked, guarded, text, and pooled storage while retaining
   explicit `*_with_protection` constructors for custom deployment policy.

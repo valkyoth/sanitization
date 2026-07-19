@@ -82,6 +82,9 @@ protection outcomes more explicit and fail-closed.
   `LockedSecretBytes::zeroed_hardened_native()` and
   `GuardedSecretVec::with_capacity_guarded_native()`. Custom deployments retain
   the explicit `*_with_protection` policy path.
+- Added `ProtectionReport::satisfies`, `is_degraded`, common-control status
+  helpers, and a zero-allocation unavailable-control iterator while preserving
+  every detailed report field.
 
 ## Verification And Release Evidence
 
