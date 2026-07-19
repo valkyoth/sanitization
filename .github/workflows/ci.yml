@@ -44,6 +44,9 @@ jobs:
           if ! cargo audit --version >/dev/null 2>&1; then
             cargo install cargo-audit --version 0.22.2 --locked
           fi
+          if [ "$(cargo deny --version 2>/dev/null || true)" != "cargo-deny 0.20.2" ]; then
+            cargo install cargo-deny --version 0.20.2 --locked --force
+          fi
           cargo audit --deny warnings
 
       - name: Run checks

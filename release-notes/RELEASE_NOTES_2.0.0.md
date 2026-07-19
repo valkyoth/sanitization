@@ -8,6 +8,10 @@ protection outcomes more explicit and fail-closed.
 Wrapping an existing `bytes::BytesMut` now immediately volatile-clears its
 spare capacity so historical bytes from pre-wrap truncation do not survive.
 
+CI now enforces a source, license, wildcard, and duplicate-version policy with
+`cargo-deny 0.20.2` across every Cargo graph. The rustup fallback installer is
+versioned and SHA-256 pinned instead of executing a downloaded shell script.
+
 The release also refreshes the derive stack to `syn 3.0.0`,
 `proc-macro2 1.0.107`, and `quote 1.0.47`, updates serde to `1.0.229`, and pins
 release-evidence uploads to `actions/upload-artifact v7.0.1`.

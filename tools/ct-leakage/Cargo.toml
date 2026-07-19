@@ -7,7 +7,7 @@ publish = false
 [workspace]
 
 [dependencies]
-sanitization = { path = "../../crates/sanitization" }
+sanitization = { version = "2.0.0", path = "../../crates/sanitization" }
 
 [features]
 default = []

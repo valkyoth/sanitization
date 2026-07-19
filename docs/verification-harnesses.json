@@ -34,8 +34,13 @@
     },
     {
       "name": "concurrency-loom",
-      "claim": "Consume-once, pool reuse, generation, and retired protection-state ordering hold under modeled interleavings.",
+      "claim": "Consume-once, pool reuse, and generation ordering hold under hand-maintained modeled interleavings.",
       "command": "scripts/verify-loom.sh"
+    },
+    {
+      "name": "dependency-policy",
+      "claim": "Every independent Cargo graph uses approved licenses and registries, rejects Git sources and wildcard requirements, and reports duplicate versions.",
+      "command": "scripts/verify-dependency-policy.sh"
     },
     {
       "name": "bounded-kani",

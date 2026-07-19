@@ -2,6 +2,9 @@
 
 ## 2.0.0
 
+- Added an enforced `cargo-deny 0.20.2` policy across all independent Cargo
+  graphs and replaced the CI `curl | sh` rustup fallback with versioned,
+  SHA-256-pinned installer binaries.
 - Clear historical spare-capacity bytes when wrapping an existing
   `bytes::BytesMut`, cover every independent Cargo lockfile with Dependabot,
   and align the security and Loom documentation with the actual guarantees.

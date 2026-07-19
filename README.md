@@ -98,6 +98,10 @@ Recommended native hardening profile:
 sanitization = { version = "2.0.0", features = ["profile-hardened-native"] }
 ```
 
+This profile includes OS-random canaries and `strict-canary-check`. Enabling
+`canary-check` alone uses deterministic address-derived words intended to catch
+accidental corruption; it is not an attacker-resistant integrity control.
+
 Optional derives:
 
 ```toml

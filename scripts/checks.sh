@@ -26,6 +26,7 @@ if cargo audit --version >/dev/null 2>&1; then
 else
     printf 'skipping cargo audit; cargo-audit is not installed\n'
 fi
+scripts/verify-dependency-policy.sh
 cargo test -p sanitization-derive
 cargo test
 cargo test --features alloc

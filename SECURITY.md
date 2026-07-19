@@ -14,6 +14,8 @@ Security-sensitive changes should include:
 
 - tests for default, feature-matrix, target-matrix, WASM compatibility, and
   all-features builds through `scripts/checks.sh`;
+- advisory checks for every lockfile and the source, license, wildcard, and
+  duplicate-version policy in `scripts/verify-dependency-policy.sh`;
 - release-codegen inspection for volatile wipe visibility;
 - bounded Kani harnesses when `cargo-kani` is installed or via the Kani
   workflow;

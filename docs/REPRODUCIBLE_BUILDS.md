@@ -37,3 +37,9 @@ compatible security updates.
 `--locked` rejects lockfile drift. `--frozen` additionally prevents Cargo from
 using the network. Neither flag replaces source review, advisory monitoring,
 artifact reproducibility controls, or deployment hardening.
+
+This repository pins `cargo-deny 0.20.2` in CI and runs
+`scripts/verify-dependency-policy.sh` over every independent Cargo graph. The
+policy in `deny.toml` rejects unknown registries, Git dependencies, wildcard
+requirements, and unapproved licenses while reporting duplicate versions for
+human review.
