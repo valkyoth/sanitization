@@ -150,6 +150,8 @@ Initial memory-access primitives:
 - `ct::eq_fixed(left, right)` for fixed-size arrays;
 - `ct::cmp_fixed(left, right)` for fixed-size byte-array ordering;
 - `ct::eq_public_len(left, right)` for slices where length is explicitly public.
+- reason-bearing `ct::declassified_*` final-decision helpers corresponding to
+  those equality and ordering operations.
 
 Initial implementation targets:
 

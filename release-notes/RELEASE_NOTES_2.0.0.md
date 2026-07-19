@@ -108,6 +108,9 @@ protection outcomes more explicit and fail-closed.
 - Added a CI declassification-reason lint with fail-closed fixtures. Consumer
   call sites must use meaningful direct literals rather than dynamic or
   placeholder labels; human review remains authoritative.
+- Added reason-bearing high-level CT helpers for final fixed equality, fixed
+  ordering, and public-length equality decisions while retaining low-level
+  `Choice` and `CtOrdering` composition APIs.
 - Sealed `wipe::Wipe` to its audited built-in implementations and added a
   downstream compile-fail guard against no-op `WipeOnDrop<T>` implementations.
 - Added concise checked-error composition through `IntegrityResult`,

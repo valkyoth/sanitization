@@ -19,7 +19,8 @@ claim is:
 - no secret-dependent control flow inside the provided primitives;
 - no secret-dependent memory access inside the provided primitives;
 - public length and allocation metadata may affect control flow;
-- explicit declassification is required through `ct::Choice::declassify`;
+- explicit declassification is required through `ct::Choice::declassify` or a
+  reason-bearing high-level `ct::declassified_*` final-decision helper;
 - stronger assembly comparison backends are available only on documented
   targets and features.
 

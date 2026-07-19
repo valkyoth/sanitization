@@ -312,13 +312,19 @@ than a promise of identical wall-clock timing on every CPU, compiler backend,
 or runtime.
 
 ```rust
-use sanitization::ct::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd};
+use sanitization::ct::{
+    declassified_eq_fixed, Choice, ConditionallySelectable, ConstantTimeOrd,
+};
 
 let left = [7u8; 32];
 let right = [7u8; 32];
 
-let equal = left.ct_eq(&right);
-assert!(equal.declassify("authentication comparison result is public"));
+let accepted = declassified_eq_fixed(
+    &left,
+    &right,
+    "authentication comparison result is public",
+);
+assert!(accepted);
 
 let lower = 10u32.ct_cmp(&20);
 assert!(lower.is_less().declassify("range-check result is public"));
@@ -328,10 +334,13 @@ assert_eq!(selected, 20);
 ```
 
 The declassification step is explicit on purpose. Reviewers can search for
-`declassify(` or `declassify_u8(` to find every place where a secret-derived
-value becomes a normal public branch, decision, or raw bit. `Choice`,
-`CtOrdering`, and `Mask<T>` do not implement ordinary equality. Raw mask values
-and normalized choice bytes require reason-bearing declassification.
+`declassify(`, `declassify_u8(`, or `declassified_` to find every place where a
+secret-derived value becomes a normal public branch, decision, ordering, or raw
+bit. `declassified_eq_fixed`, `declassified_cmp_fixed`, and
+`declassified_eq_public_len` are convenience boundaries for final decisions;
+the lower-level functions still return `Choice` or `CtOrdering` for composition.
+`Choice`, `CtOrdering`, and `Mask<T>` do not implement ordinary equality. Raw
+mask values and normalized choice bytes require reason-bearing declassification.
 
 The repository runs `scripts/lint-declassification-reasons.py` in CI. It
 requires a direct, meaningful string literal at consumer call sites and rejects

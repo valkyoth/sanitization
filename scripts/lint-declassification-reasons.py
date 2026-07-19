@@ -21,6 +21,11 @@ METHODS = {
     "try_export_secret_copy",
     "try_export_to_slice",
 }
+FREE_FUNCTION_REASON_INDEX = {
+    "declassified_cmp_fixed": 2,
+    "declassified_eq_fixed": 2,
+    "declassified_eq_public_len": 2,
+}
 PLACEHOLDER_WORDS = {
     "fixme",
     "later",
@@ -248,6 +253,33 @@ def call_arguments(tokens: list[Token], opening_index: int) -> list[list[Token]]
     return None
 
 
+def call_opening_index(tokens: list[Token], name_index: int) -> int | None:
+    next_index = name_index + 1
+    if next_index < len(tokens) and tokens[next_index].value == "(":
+        return next_index
+
+    if (
+        next_index + 2 >= len(tokens)
+        or tokens[next_index].value != ":"
+        or tokens[next_index + 1].value != ":"
+        or tokens[next_index + 2].value != "<"
+    ):
+        return None
+
+    depth = 0
+    for index in range(next_index + 2, len(tokens)):
+        if tokens[index].value == "<":
+            depth += 1
+        elif tokens[index].value == ">":
+            depth -= 1
+            if depth == 0:
+                opening_index = index + 1
+                if opening_index < len(tokens) and tokens[opening_index].value == "(":
+                    return opening_index
+                return None
+    return None
+
+
 def lint_path(path: Path) -> tuple[list[Finding], int]:
     tokens = lex(path.read_text(encoding="utf-8"))
     findings: list[Finding] = []
@@ -255,9 +287,16 @@ def lint_path(path: Path) -> tuple[list[Finding], int]:
     relative = relative_path(path)
 
     for index, method in enumerate(tokens):
-        if method.kind != "ident" or method.value not in METHODS:
+        if method.kind != "ident" or (
+            method.value not in METHODS and method.value not in FREE_FUNCTION_REASON_INDEX
+        ):
             continue
-        if index + 1 >= len(tokens) or tokens[index + 1].value != "(":
+        opening_index = call_opening_index(tokens, index)
+        if opening_index is None:
+            continue
+
+        is_free_function = method.value in FREE_FUNCTION_REASON_INDEX
+        if is_free_function and index >= 1 and tokens[index - 1].value == "fn":
             continue
 
         is_method = index >= 1 and tokens[index - 1].value == "."
@@ -266,13 +305,17 @@ def lint_path(path: Path) -> tuple[list[Finding], int]:
             and tokens[index - 2].value == ":"
             and tokens[index - 1].value == ":"
         )
-        if not is_method and not is_ufcs:
+        if not is_free_function and not is_method and not is_ufcs:
             continue
 
         calls += 1
         location = Finding(relative, method.line, method.column, "")
-        arguments = call_arguments(tokens, index + 1)
-        reason_index = 0 if is_method else 1
+        arguments = call_arguments(tokens, opening_index)
+        reason_index = (
+            FREE_FUNCTION_REASON_INDEX[method.value]
+            if is_free_function
+            else 0 if is_method else 1
+        )
 
         if arguments is None or len(arguments) <= reason_index:
             findings.append(

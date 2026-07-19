@@ -78,6 +78,13 @@ use sanitization::ct::{Choice, ConstantTimeEq};
 let choice = [1u8; 4].ct_eq(&[1u8; 4]);
 assert!(choice.declassify("authentication result is public"));
 assert_eq!(Choice::TRUE.declassify_u8("wire flag is public"), 1);
+
+let accepted = sanitization::ct::declassified_eq_fixed(
+    &[1u8; 4],
+    &[1u8; 4],
+    "authentication result is public",
+);
+assert!(accepted);
 ```
 
 Do not use generic labels such as `"todo"`, `"reason"`, or `"result is
@@ -85,6 +92,10 @@ public"`. The repository's `scripts/lint-declassification-reasons.py` command
 can be added to downstream CI to require reviewable literal reasons. It catches
 common placeholder abuse but does not replace review of whether each public
 boundary is actually authorized.
+
+Use the `declassified_*` convenience functions for final equality or ordering
+decisions. Use `eq_fixed`, `cmp_fixed`, and `eq_public_len` when the result must
+remain a `Choice` or `CtOrdering` for further data-oblivious composition.
 
 The following ordinary extraction or comparison paths were removed:
 

@@ -49,6 +49,16 @@ run_fixture(
     succeeds=True,
 )
 run_fixture(
+    "meaningful-high-level-boundary",
+    'fn check(a: &[u8; 4], b: &[u8; 4]) { let _ = ct::declassified_eq_fixed(a, b, "authentication result is public"); }\n',
+    succeeds=True,
+)
+run_fixture(
+    "meaningful-high-level-boundary-turbofish",
+    'fn check(a: &[u8; 4], b: &[u8; 4]) { let _ = ct::declassified_eq_fixed::<4>(a, b, "authentication result is public"); }\n',
+    succeeds=True,
+)
+run_fixture(
     "meaningful-export",
     'fn check(secret: SecretBytes<4>) { let _ = secret.export_byte("wire header exposes public key byte", 0); }\n',
     succeeds=True,
@@ -83,6 +93,12 @@ run_fixture(
     message="direct string literal",
 )
 run_fixture(
+    "dynamic-high-level-boundary",
+    'fn check(a: &[u8; 4], b: &[u8; 4], reason: &\'static str) { let _ = declassified_eq_fixed(a, b, reason); }\n',
+    succeeds=False,
+    message="direct string literal",
+)
+run_fixture(
     "macro",
     'fn check(choice: Choice) { choice.declassify(concat!("result", " is public")); }\n',
     succeeds=False,
@@ -91,6 +107,18 @@ run_fixture(
 run_fixture(
     "ufcs-todo",
     'fn check(choice: Choice) { Choice::declassify(choice, "todo"); }\n',
+    succeeds=False,
+    message="placeholder word",
+)
+run_fixture(
+    "high-level-boundary-todo",
+    'fn check(a: &[u8; 4], b: &[u8; 4]) { let _ = declassified_cmp_fixed(a, b, "todo"); }\n',
+    succeeds=False,
+    message="placeholder word",
+)
+run_fixture(
+    "high-level-boundary-turbofish-todo",
+    'fn check(a: &[u8; 4], b: &[u8; 4]) { let _ = declassified_eq_fixed::<4>(a, b, "todo"); }\n',
     succeeds=False,
     message="placeholder word",
 )

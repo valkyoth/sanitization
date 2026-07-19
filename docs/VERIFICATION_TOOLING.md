@@ -8,12 +8,12 @@ The machine-readable registry is `docs/verification-harnesses.json`.
 ## Declassification And Export Review Gate
 
 `scripts/lint-declassification-reasons.py` lexes every tracked Rust source and
-checks method-style and UFCS calls to CT declassification methods and the core
-fixed-secret `export_*` methods. Consumer boundaries must provide a direct
-string literal with enough context
-to identify a public, test, verification, wire, return, or reporting boundary.
-The gate rejects dynamic and macro-generated reasons, short generic labels, and
-placeholder words such as `todo`, `fixme`, and `tbd`.
+checks method-style and UFCS calls to CT declassification methods, calls to the
+high-level `declassified_*` CT boundaries, and the core fixed-secret `export_*`
+methods. Consumer boundaries must provide a direct string literal with enough
+context to identify a public, test, verification, wire, return, or reporting
+boundary. The gate rejects dynamic and macro-generated reasons, short generic
+labels, and placeholder words such as `todo`, `fixme`, and `tbd`.
 
 The core CT and owned-secret implementations have a narrow allowlist for
 forwarding a public method's already-supplied `reason` argument to nested
@@ -158,8 +158,8 @@ when the probe was explicitly requested.
 incomplete LLVM artifact. Both validators must reject those fixtures.
 
 `scripts/test-declassification-reasons.py` separately proves that placeholder,
-generic, dynamic, macro-generated, and UFCS reasons fail closed while meaningful
-literal boundaries remain accepted.
+generic, dynamic, macro-generated, UFCS, and high-level helper reasons fail
+closed while meaningful literal boundaries remain accepted.
 
 `scripts/verify-verification-harnesses.py` also ensures:
 

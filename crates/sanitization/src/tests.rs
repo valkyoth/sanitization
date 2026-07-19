@@ -415,6 +415,20 @@ fn ct_arrays_and_public_len_slices_compare() {
             .declassify_u8("test or verification observes normalized choice"),
         0
     );
+    assert!(ct::declassified_eq_fixed(
+        &left,
+        &same,
+        "test exposes fixed equality result"
+    ));
+    assert!(!ct::declassified_eq_public_len(
+        &left,
+        &[1, 2, 3],
+        "test exposes public-length equality result"
+    ));
+    assert_eq!(
+        ct::declassified_cmp_fixed(&left, &different, "test exposes fixed ordering result"),
+        core::cmp::Ordering::Less
+    );
 
     let selected = <[u8; 4]>::conditional_select(&left, &different, ct::Choice::TRUE);
     assert_eq!(selected, different);

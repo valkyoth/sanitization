@@ -1424,11 +1424,41 @@ pub fn eq_fixed<const N: usize>(left: &[u8; N], right: &[u8; N]) -> Choice {
     bytes_eq_equal_len(left, right)
 }
 
+/// Compare fixed-size byte arrays and explicitly declassify the final equality
+/// decision.
+///
+/// This is a convenience boundary for callers that do not need to compose the
+/// returned [`Choice`]. The `reason` remains mandatory so the public decision
+/// is searchable during review.
+#[must_use]
+#[inline]
+pub fn declassified_eq_fixed<const N: usize>(
+    left: &[u8; N],
+    right: &[u8; N],
+    reason: &'static str,
+) -> bool {
+    eq_fixed(left, right).declassify(reason)
+}
+
 /// Compare fixed-size byte arrays in lexicographic byte order without
 /// leaking the first differing byte.
 #[inline]
 pub fn cmp_fixed<const N: usize>(left: &[u8; N], right: &[u8; N]) -> CtOrdering {
     ct_cmp_be_bytes(left, right)
+}
+
+/// Compare fixed-size byte arrays and explicitly declassify the final ordering.
+///
+/// Use [`cmp_fixed`] when the ordering must remain inside the data-oblivious
+/// domain for further composition.
+#[must_use]
+#[inline]
+pub fn declassified_cmp_fixed<const N: usize>(
+    left: &[u8; N],
+    right: &[u8; N],
+    reason: &'static str,
+) -> Ordering {
+    cmp_fixed(left, right).declassify(reason)
 }
 
 /// Compare byte slices where length is explicitly public.
@@ -1439,6 +1469,17 @@ pub fn eq_public_len(left: &[u8], right: &[u8]) -> Choice {
     }
 
     bytes_eq_equal_len(left, right)
+}
+
+/// Compare byte slices with explicitly public lengths and declassify the final
+/// equality decision.
+///
+/// A length mismatch is public and may return before byte comparison. Use
+/// [`declassified_eq_fixed`] when length must not influence control flow.
+#[must_use]
+#[inline]
+pub fn declassified_eq_public_len(left: &[u8], right: &[u8], reason: &'static str) -> bool {
+    eq_public_len(left, right).declassify(reason)
 }
 
 /// Look up one table entry by a secret index using a full-table scan.

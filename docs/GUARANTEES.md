@@ -144,9 +144,12 @@ The data-oblivious guarantees apply to the crate's own primitives:
 - conditional copy, swap, and slice selection operate over public lengths.
 
 Turning a secret-derived value into normal control flow must happen through an
-explicit `declassify(reason)` boundary. The reason string is not a runtime
-security mechanism; it exists to make public-branch decisions searchable and
-reviewable. Repository CI additionally runs
+explicit `declassify(reason)` method or reason-bearing `declassified_*`
+boundary. The high-level fixed equality, fixed ordering, and public-length
+equality helpers perform only this final conversion; their lower-level forms
+remain available for composition. The reason string is not a runtime security
+mechanism; it exists to make public-branch decisions searchable and reviewable.
+Repository CI additionally runs
 `scripts/lint-declassification-reasons.py`, which requires direct call-site
 literals and rejects known placeholder or generic wording. The lint cannot
 decide whether a well-written sentence represents an authorized policy; that

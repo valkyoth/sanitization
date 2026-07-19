@@ -2,6 +2,9 @@
 
 ## 2.0.0
 
+- Added reason-bearing `declassified_eq_fixed`, `declassified_cmp_fixed`, and
+  `declassified_eq_public_len` final-decision helpers, with fail-closed reason
+  lint coverage.
 - Added `IntegrityResult<T>` and `MappedResult<T, E>` aliases plus ordinary
   `?` conversions for common mapped operation errors while preserving the
   integrity/operation distinction.

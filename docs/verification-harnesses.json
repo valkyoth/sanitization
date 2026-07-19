@@ -4,7 +4,7 @@
   "harnesses": [
     {
       "name": "declassification-reason-lint",
-      "claim": "Every Rust CT declassification and core fixed-secret export boundary has a reviewable call-site literal and rejects known placeholder wording.",
+      "claim": "Every Rust CT declassification, high-level CT final-decision, and core fixed-secret export boundary has a reviewable call-site literal and rejects known placeholder wording.",
       "command": "scripts/lint-declassification-reasons.py"
     },
     {
