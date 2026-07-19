@@ -662,6 +662,8 @@ pub sanitization::ProtectionState::Failed::code: i32
 pub sanitization::ProtectionState::NotApplicable
 pub sanitization::ProtectionState::NotRequested
 pub sanitization::ProtectionState::Unsupported
+impl sanitization::ProtectionState
+pub const fn sanitization::ProtectionState::satisfies(self, sanitization::Requirement) -> bool
 pub enum sanitization::Requirement
 pub sanitization::Requirement::NotRequested
 pub sanitization::Requirement::Preferred
@@ -703,6 +705,11 @@ pub fn sanitization::SecretBoxBytesGenerateError<E>::source(&self) -> core::opti
 pub enum sanitization::SecretIntegrityError<E>
 pub sanitization::SecretIntegrityError::Canary(sanitization::CanaryCorruptedError)
 pub sanitization::SecretIntegrityError::Operation(E)
+impl<E> sanitization::SecretIntegrityError<E>
+pub const fn sanitization::SecretIntegrityError<E>::is_canary(&self) -> bool
+pub const fn sanitization::SecretIntegrityError<E>::is_operation(&self) -> bool
+pub fn sanitization::SecretIntegrityError<E>::map_operation<O>(self, impl core::ops::function::FnOnce(E) -> O) -> sanitization::SecretIntegrityError<O>
+pub const fn sanitization::SecretIntegrityError<E>::operation(&self) -> core::option::Option<&E>
 impl<E: core::fmt::Display> core::fmt::Display for sanitization::SecretIntegrityError<E>
 pub fn sanitization::SecretIntegrityError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::convert::From<sanitization::CanaryCorruptedError> for sanitization::SecretIntegrityError<E>
@@ -1239,6 +1246,8 @@ pub sanitization::ProtectionReport::mapping: sanitization::ProtectionState
 pub sanitization::ProtectionReport::memory_lock: sanitization::ProtectionState
 pub sanitization::ProtectionReport::page_granule: usize
 pub sanitization::ProtectionReport::requested_bytes: usize
+impl sanitization::ProtectionReport
+pub fn sanitization::ProtectionReport::all_requested_controls_established(&self, sanitization::ProtectionRequest) -> bool
 pub struct sanitization::ProtectionRequest
 pub sanitization::ProtectionRequest::cache_policy: sanitization::Requirement
 pub sanitization::ProtectionRequest::canary: sanitization::Requirement
@@ -1661,6 +1670,10 @@ pub trait sanitization::MonotonicClock
 pub fn sanitization::MonotonicClock::now(&self) -> u64
 impl<C: sanitization::MonotonicClock + ?core::marker::Sized> sanitization::MonotonicClock for &C
 pub fn &C::now(&self) -> u64
+pub trait sanitization::SecretIntegrityResultExt<T, E>
+pub fn sanitization::SecretIntegrityResultExt::flatten_secret_integrity(self) -> sanitization::SecretIntegrityResult<T, E>
+impl<T, E> sanitization::SecretIntegrityResultExt<T, E> for core::result::Result<core::result::Result<T, E>, sanitization::CanaryCorruptedError>
+pub fn core::result::Result<core::result::Result<T, E>, sanitization::CanaryCorruptedError>::flatten_secret_integrity(self) -> sanitization::SecretIntegrityResult<T, E>
 pub trait sanitization::SecureSanitize
 pub fn sanitization::SecureSanitize::secure_sanitize(&mut self)
 impl sanitization::SecureSanitize for ()
@@ -1865,3 +1878,4 @@ impl<const N: usize> sanitization::StableSharedSecretStorage for sanitization::L
 impl<const N: usize> sanitization::StableSharedSecretStorage for sanitization::SecretBytes<N>
 pub fn sanitization::secure_replace<T: sanitization::SecureSanitize>(&mut T, T)
 pub type sanitization::LockedSecretBytesCheckedCopyError = sanitization::SecretIntegrityError<sanitization::LengthError>
+pub type sanitization::SecretIntegrityResult<T, E> = core::result::Result<T, sanitization::SecretIntegrityError<E>>
