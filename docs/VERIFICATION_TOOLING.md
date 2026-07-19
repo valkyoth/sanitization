@@ -141,3 +141,22 @@ incomplete LLVM artifact. Both validators must reject those fixtures.
 - referenced scripts exist;
 - every tool and fuzz package is `publish = false`;
 - tooling has not entered the publishable workspace.
+
+## Release Package Archives
+
+`scripts/verify-release-packages.py` packages the complete workspace together
+so not-yet-published internal 2.0 dependencies resolve without weakening their
+crates.io version requirements. It then inspects each generated `.crate`
+archive and requires:
+
+- all five packages use the coordinated release version;
+- normalized internal dependencies require that same version and contain no
+  local path;
+- every packaged source, test, example, original manifest, and README matches
+  the reviewed workspace bytes;
+- no unexpected files, symbolic links, parent paths, repository tooling,
+  security reports, or temporary pentest input enter an archive.
+
+The verifier does not replace Cargo's build verification during publication.
+It proves that the archive contents handed to that later step match the
+reviewed release tree.

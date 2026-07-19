@@ -128,8 +128,8 @@ for required in (
         fail(f"scope freeze is missing disposition: {required}")
 
 plan = PLAN.read_text(encoding="utf-8")
-if "| `CP-21` | Accepted |" not in plan or "| `CP-22` | Pentest |" not in plan:
-    fail("implementation plan checkpoint states are not ready for CP-22 review")
+if "| `CP-22` | Accepted |" not in plan or "| `CP-23` | Pentest |" not in plan:
+    fail("implementation plan checkpoint states are not ready for CP-23 review")
 
 if arguments.run_semver_tools:
     version = run(["cargo", "semver-checks", "--version"], {0}).stdout.strip()

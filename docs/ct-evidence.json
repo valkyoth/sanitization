@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "crate": "sanitization",
-  "release_line": "2.0.0 development",
-  "status": "cp20-candidate-evidence",
+  "release_line": "2.0.0",
+  "status": "release-evidence-recorded",
   "rust_min_version": "1.90.0",
   "claim": {
     "summary": "Dependency-free data-oblivious primitives with explicit declassification boundaries and documented target limits.",
@@ -26,11 +26,11 @@
   "targets": [
     {
       "target": "x86_64-unknown-linux-gnu",
-      "tier": "A-candidate",
+      "tier": "A",
       "features": ["asm-compare", "strict-compare"],
       "barrier_strategy": ["branchless source structure", "black_box boundary", "inline assembly comparison backend"],
       "evidence": ["native feature tests", "path-specific release LLVM IR scan", "release assembly scan", "multi-seed portable and strict leakage artifacts", "relative performance baseline", "Kani harnesses", "Miri on supported paths"],
-      "limitations": ["statistical timing runs are target- and environment-specific evidence, not proof", "final release must cite the accepted workflow run and artifact digests"]
+      "limitations": ["statistical timing runs are target- and environment-specific evidence, not proof", "accepted workflow URLs and artifact digests are recorded in docs/release-evidence-2.0.0.json"]
     },
     {
       "target": "aarch64-unknown-linux-gnu",
@@ -85,7 +85,7 @@
         "leakage-harness smoke testing",
         "clippy",
         "docs",
-        "package listing",
+        "package listing and generated archive verification",
         "release codegen",
         "optional Kani"
       ]
@@ -212,10 +212,10 @@
     "prove_next_secret_capacity_never_under_allocates"
   ],
   "release_candidate_requirements": [
-    "attach exact CI run URLs for the release candidate",
+    "preserve exact accepted CI run URLs in docs/release-evidence-2.0.0.json",
     "record exact rustc version and target triples used for release evidence",
     "rerun checks after any compiler, unsafe-code, comparison-backend, or target-tier change",
-    "preserve accepted CP-20 workflow URLs and artifact digests in the final 2.0 release record",
+    "retain docs/release-evidence-2.0.0.json after temporary workflow artifact downloads expire",
     "do not publish stable 2.0.0 with open high or medium pentest findings"
   ]
 }

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased 2.0.0 development
+## 2.0.0
 
 - Replaced the generic copyable `ct::Secret<T>` control marker with
   clear-on-drop `SecretIndex` and `SecretScalar<T>` owners.
@@ -39,6 +39,48 @@
   register-zeroing instructions.
 - Documented locked-mapping resource exhaustion policy and warned against
   placing secret-bearing values in public-backing `CtOption`/`CtResult`.
+- Added `StableSharedSecretStorage` and `StableMutableSecretStorage` contracts,
+  and restricted generic `Secret<T>` exposure to storage whose safe shared or
+  mutable operations cannot release uncleared secret-bearing storage.
+- Changed fixed-size exposure to borrow container-owned storage directly and
+  renamed temporary-copy paths so stack copies are explicit at call sites.
+- Added fixed-allocation `SecretBoxBytes` for runtime-length secrets that must
+  never grow, reallocate, or expose their backing allocation.
+- Reworked native data-oblivious declassification around reason-bearing
+  boundaries and removed ordinary equality/extraction paths from `Choice`,
+  `Mask`, and `CtOrdering`.
+- Replaced the generic copyable CT marker with redacted, non-`Copy`,
+  clear-on-drop `SecretIndex`, `SecretScalar`, `SecretValue`,
+  `SecretCtOption`, and `SecretCtResult` ownership types.
+- Renamed `ReadOnceSecret<T>` to `ConsumeOnceSecret<T>` and made its single
+  scoped access clear on normal return, application error, and unwind.
+- Added `ProtectionRequest`, required/preferred policy, structured
+  `ProtectionReport` outcomes, partial setup reports, and explicit integrity
+  and fork-inheritance policy for native mapped containers.
+- Hardened `SecretPool` with checked fixed-layout accounting, generation-bound
+  canaries, failure quarantine, and public efficiency reporting.
+- Added the opt-in `SealedSecretBytes<N>` review-candidate mapping with guard
+  pages, fallible page-protection transitions, poisoning/retirement, and
+  failure-recovery evidence.
+- Kept representation erasure private to audited built-in plain-data types and
+  deferred public erasure backends and variable-size secure arenas rather than
+  weakening their contracts.
+- Added named hardened-native, guarded-native, and Linux hardening feature
+  profiles while keeping compiled capability separate from achieved runtime
+  protection.
+- Expanded release verification with path-specific codegen matrices,
+  lifecycle allocation probes, Loom models, sanitizer runs, fail-closed
+  fixtures, semantic API snapshots, migration consumers, and package checks.
+- Added multi-seed dudect-style leakage evidence and relative performance
+  baselines on native x86_64 Linux, AArch64 Linux, and Apple Silicon, with
+  compile-only evidence for the documented cross targets.
+- Added complete 1.2.5-to-2.0 migration, storage-contract, protection-report,
+  scope-freeze, target-tier, evidence, and reproducible-build documentation.
+- Recorded the intentional 2.0 semver break set and froze all five publishable
+  crate APIs against the reviewed CP-21 semantic snapshots.
+- Updated all workspace crates, internal dependency requirements, examples,
+  package archives, release tooling, and crates.io-facing documentation for
+  `2.0.0`.
 
 ## 1.2.5
 

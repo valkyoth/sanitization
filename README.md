@@ -41,12 +41,11 @@ internal unsafe boundary.
 
 ## Current Status
 
-The crate is published as stable `1.2.5` on crates.io. The development branch
-is preparing the reviewed breaking security model for `2.0.0`; use
-[MIGRATION_2.0.md](docs/MIGRATION_2.0.md) when testing it downstream. The crate is intended for
-projects that want dependency-free secret ownership and sanitization by
-default, with stronger platform hardening available through explicit feature
-flags.
+The current release line is stable `2.0.0`. It introduces a reviewed breaking
+security model; use [MIGRATION_2.0.md](docs/MIGRATION_2.0.md) when upgrading
+from `1.2.5`. The crate is intended for projects that want dependency-free
+secret ownership and sanitization by default, with stronger platform hardening
+available through explicit feature flags.
 
 Implemented now:
 
@@ -159,7 +158,7 @@ work.
 The minimum supported Rust version is Rust `1.90.0`. New deployments should use
 the pinned stable Rust `1.97.1` until the toolchain policy is updated.
 
-Compatibility evidence for `1.2.5`:
+Compatibility evidence for `2.0.0`:
 
 | Rust | Local Evidence |
 | --- | --- |
@@ -178,42 +177,42 @@ Compatibility evidence for `1.2.5`:
 
 ```toml
 [dependencies]
-sanitization = "1.2.5"
+sanitization = "2.0.0"
 ```
 
 For heap-backed secret containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["alloc"] }
+sanitization = { version = "2.0.0", features = ["alloc"] }
 ```
 
 For memory-locked fixed-size secrets on supported native platforms:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["memory-lock"] }
+sanitization = { version = "2.0.0", features = ["memory-lock"] }
 ```
 
 For derive macros:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["derive"] }
+sanitization = { version = "2.0.0", features = ["derive"] }
 ```
 
 For optional ecosystem interop:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["zeroize-interop", "subtle-interop"] }
+sanitization = { version = "2.0.0", features = ["zeroize-interop", "subtle-interop"] }
 ```
 
 For serde-based config loading:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["serde", "alloc"] }
+sanitization = { version = "2.0.0", features = ["serde", "alloc"] }
 ```
 
 For optional ecosystem wrappers, depend on the separate sister crates only when
@@ -221,9 +220,9 @@ you already use those external libraries:
 
 ```toml
 [dependencies]
-sanitization-arrayvec = "1.2.5"
-sanitization-bytes = "1.2.5"
-sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-arrayvec = "2.0.0"
+sanitization-bytes = "2.0.0"
+sanitization-crypto-interop = { version = "2.0.0", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ## Features
@@ -441,7 +440,7 @@ those host-kernel facilities directly.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["memory-lock", "wasm-compat"] }
+sanitization = { version = "2.0.0", features = ["memory-lock", "wasm-compat"] }
 ```
 
 `memory-lock` without `wasm-compat` is rejected at compile time on WASM so
@@ -552,7 +551,7 @@ Enable `std` when you want the convenience wrapper backed by
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["std"] }
+sanitization = { version = "2.0.0", features = ["std"] }
 ```
 
 ```rust
@@ -855,7 +854,7 @@ must be a hard failure rather than a documented platform limitation:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["require-fork-exclusion"] }
+sanitization = { version = "2.0.0", features = ["require-fork-exclusion"] }
 ```
 
 With this profile, locked constructors and locked guarded constructors return a
@@ -1004,7 +1003,7 @@ mapping or pooled slot.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["canary-check"] }
+sanitization = { version = "2.0.0", features = ["canary-check"] }
 ```
 
 ```rust
@@ -1055,7 +1054,7 @@ system CSPRNG instead of the deterministic address-derived fallback:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["random-canary"] }
+sanitization = { version = "2.0.0", features = ["random-canary"] }
 ```
 
 `random-canary` uses direct platform backends without additional crates: Linux
@@ -1079,7 +1078,7 @@ dependency-free random backend:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["strict-canary-check"] }
+sanitization = { version = "2.0.0", features = ["strict-canary-check"] }
 ```
 
 For many same-size locked secrets on native targets, use
@@ -1165,7 +1164,7 @@ pages on supported Linux, Android, macOS, iOS, Windows, and BSD targets:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["guard-pages"] }
+sanitization = { version = "2.0.0", features = ["guard-pages"] }
 ```
 
 ```rust
@@ -1235,7 +1234,7 @@ can also lock their writable data pages:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["guard-pages", "memory-lock"] }
+sanitization = { version = "2.0.0", features = ["guard-pages", "memory-lock"] }
 ```
 
 ```rust
@@ -1272,7 +1271,7 @@ is inaccessible between accesses:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["page-seal", "canary-check"] }
+sanitization = { version = "2.0.0", features = ["page-seal", "canary-check"] }
 ```
 
 ```rust
@@ -1376,7 +1375,7 @@ the explicit proc-macro dependency tradeoff:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["derive"] }
+sanitization = { version = "2.0.0", features = ["derive"] }
 ```
 
 ```rust
@@ -1481,7 +1480,7 @@ downstream API already requires these ecosystem traits:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["zeroize-interop", "subtle-interop"] }
+sanitization = { version = "2.0.0", features = ["zeroize-interop", "subtle-interop"] }
 ```
 
 ```rust
@@ -1515,7 +1514,7 @@ do not leak secret material.
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["serde", "alloc"] }
+sanitization = { version = "2.0.0", features = ["serde", "alloc"] }
 serde = { version = "1", features = ["derive"] }
 ```
 
@@ -1792,7 +1791,7 @@ evidence:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["multi-pass-clear"] }
+sanitization = { version = "2.0.0", features = ["multi-pass-clear"] }
 ```
 
 ```rust
@@ -1819,7 +1818,7 @@ followed by checked x86_64 `clflush`/`mfence` eviction:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["cache-flush"] }
+sanitization = { version = "2.0.0", features = ["cache-flush"] }
 ```
 
 ```rust
@@ -1857,7 +1856,7 @@ comparisons to cross an explicit compiler boundary:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["asm-compare"] }
+sanitization = { version = "2.0.0", features = ["asm-compare"] }
 ```
 
 The public API does not change. `SecretBytes<N>`, `SecretVec`, `SecretString`,
@@ -1874,7 +1873,7 @@ portable fallback, enable `strict-compare`:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["strict-compare"] }
+sanitization = { version = "2.0.0", features = ["strict-compare"] }
 ```
 
 `strict-compare` currently accepts x86_64 and AArch64 non-Miri builds, where the
@@ -1891,7 +1890,7 @@ register clearing boundary after cryptographic code:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["register-scrub"] }
+sanitization = { version = "2.0.0", features = ["register-scrub"] }
 ```
 
 ```rust
@@ -1928,7 +1927,7 @@ Enable `split-secret` for fixed-size N-of-N XOR split storage:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["split-secret"] }
+sanitization = { version = "2.0.0", features = ["split-secret"] }
 ```
 
 ```rust
@@ -1964,7 +1963,7 @@ surface for hardware-backed secret providers:
 
 ```toml
 [dependencies]
-sanitization = { version = "1.2.5", features = ["hardware-secrets"] }
+sanitization = { version = "2.0.0", features = ["hardware-secrets"] }
 ```
 
 ```rust
@@ -2017,9 +2016,9 @@ buffer libraries:
 
 ```toml
 [dependencies]
-sanitization-arrayvec = "1.2.5"
-sanitization-bytes = "1.2.5"
-sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-arrayvec = "2.0.0"
+sanitization-bytes = "2.0.0"
+sanitization-crypto-interop = { version = "2.0.0", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ```rust
@@ -2060,7 +2059,7 @@ RAII scratch-buffer cleanup:
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-crypto-interop = { version = "2.0.0", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ```rust
@@ -2184,7 +2183,9 @@ cargo run --release --manifest-path tools/performance-baseline/Cargo.toml -- \
 
 `docs/EVIDENCE.md` records the current target tiers, proof scope, codegen checks,
 and non-guarantees for the native `ct` work. `docs/ct-evidence.json` mirrors the
-same evidence in a machine-readable candidate format for release review.
+same evidence in a machine-readable release format, and
+`docs/release-evidence-2.0.0.json` preserves the accepted workflow URLs and
+GitHub artifact digests for this release.
 `docs/LEAKAGE_TESTS.md` records the metadata, commands, and scope expected for
 dudect-style timing/leakage runs.
 
@@ -2217,7 +2218,7 @@ This release adds no new concurrency primitives or unsafe trait
 implementations. Kani and Miri remain targeted evidence, not replacements for
 native testing or external review.
 
-To capture local release-evidence metadata for an alpha, RC, or pentest handoff:
+To capture local release-evidence metadata for a release or pentest handoff:
 
 ```bash
 scripts/evidence-report.py
@@ -2249,12 +2250,16 @@ For crates.io releases, publish the derive crate first, then the main crate,
 then the integration wrapper crates:
 
 ```bash
+scripts/release_crates.py --version 2.0.0 --prepare-only
 scripts/release_crates.py --require-tag
 ```
 
-The script runs the local checks, publishes in dependency order, and pauses
-after `sanitization-derive` and `sanitization` so crates.io can index each
-dependency before the dependent crate is published. During preflight it writes
+The preparation mode runs the local gates and compares every generated `.crate`
+archive with the reviewed workspace files without requiring the final pentest
+report or tag. Publication additionally requires the permanent release report,
+publishes in dependency order, and pauses after `sanitization-derive` and
+`sanitization` so crates.io can index each dependency before the dependent
+crate is published. During preflight the script writes
 `target/release-evidence-<version>.json` with the local commit, dirty-state,
 rustc, target, Kani, and Miri metadata for the release handoff.
 

@@ -4,7 +4,8 @@
 This script intentionally pauses after publishing dependency crates so crates.io
 has time to index them before publishing dependents.
 
-During preflight it also writes a local release-evidence snapshot to:
+During preflight it validates every generated crate archive and writes a local
+release-evidence snapshot to:
 
     target/release-evidence-<version>.json
 
@@ -106,6 +107,27 @@ def verify_versions(expected_version: str) -> None:
             )
 
 
+def verify_publish_order() -> None:
+    import json
+
+    parsed = json.loads(
+        capture(["cargo", "metadata", "--no-deps", "--format-version", "1"])
+    )
+    positions = {package: index for index, package in enumerate(ALL_PACKAGES)}
+    for package in parsed["packages"]:
+        name = package["name"]
+        if name not in positions:
+            continue
+        for dependency in package["dependencies"]:
+            dependency_name = dependency["name"]
+            if dependency_name not in positions or dependency.get("kind") == "dev":
+                continue
+            if positions[dependency_name] >= positions[name]:
+                raise RuntimeError(
+                    f"publish order places {dependency_name} after dependent {name}"
+                )
+
+
 def verify_latest_rust() -> None:
     subprocess.run(
         ["scripts/check-latest-rust.py"],
@@ -114,16 +136,19 @@ def verify_latest_rust() -> None:
     )
 
 
-def verify_release_artifacts(version: str) -> None:
-    tag = f"v{version}"
+def verify_release_artifacts(version: str, *, require_pentest: bool) -> None:
     release_notes = ROOT / "release-notes" / f"RELEASE_NOTES_{version}.md"
-    pentest_report = ROOT / "security" / "pentest" / f"{tag}.md"
     scratch_pentest = ROOT / "PENTEST.md"
 
     if scratch_pentest.exists():
         raise RuntimeError("root PENTEST.md is temporary scratch input and must be removed")
     if not release_notes.is_file():
         raise RuntimeError(f"missing release notes: {release_notes.relative_to(ROOT)}")
+    if not require_pentest:
+        return
+
+    tag = f"v{version}"
+    pentest_report = ROOT / "security" / "pentest" / f"{tag}.md"
     if not pentest_report.is_file():
         raise RuntimeError(f"missing pentest report: {pentest_report.relative_to(ROOT)}")
 
@@ -234,6 +259,13 @@ def run_preflight(args: argparse.Namespace) -> None:
     write_release_evidence(args.version, dry_run=args.dry_run)
 
 
+def verify_release_packages(version: str, *, dry_run: bool) -> None:
+    run(
+        ["scripts/verify-release-packages.py", "--version", version],
+        dry_run=dry_run,
+    )
+
+
 def selected_steps(start_at: str) -> tuple[str, ...]:
     try:
         index = ALL_PACKAGES.index(start_at)
@@ -263,6 +295,14 @@ def main() -> int:
         help="Print the release commands without running them or waiting.",
     )
     parser.add_argument(
+        "--prepare-only",
+        action="store_true",
+        help=(
+            "Run release preparation and archive validation without requiring "
+            "the final pentest report/tag or publishing crates."
+        ),
+    )
+    parser.add_argument(
         "--allow-dirty",
         action="store_true",
         help="Allow publishing from a dirty worktree and pass --allow-dirty to cargo.",
@@ -289,28 +329,39 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if args.prepare_only and args.require_tag:
+        parser.error("--prepare-only cannot be combined with --require-tag")
+
     require_clean_tree(allow_dirty=args.allow_dirty or args.dry_run)
     verify_versions(args.version)
+    verify_publish_order()
     verify_latest_rust()
-    verify_release_artifacts(args.version)
-    check_release_tag(args.version, require_tag=args.require_tag)
+    verify_release_artifacts(args.version, require_pentest=not args.prepare_only)
+    if not args.prepare_only:
+        check_release_tag(args.version, require_tag=args.require_tag)
 
     steps = selected_steps(args.start_at)
 
     print(f"Workspace root: {ROOT}")
     print(f"Release version: {args.version}")
-    print("Publish sequence:")
+    print("Publish sequence:" if not args.prepare_only else "Validated package sequence:")
     for package in steps:
         print(f"  - {package}")
     print()
 
-    if not args.yes:
+    if not args.prepare_only and not args.yes:
         answer = input("Type the release version to start publishing: ").strip()
         if answer != args.version:
             print("Version confirmation did not match; aborting.", file=sys.stderr)
             return 1
 
     run_preflight(args)
+    verify_release_packages(args.version, dry_run=args.dry_run)
+
+    if args.prepare_only:
+        print()
+        print("Release preparation and package archive validation completed.")
+        return 0
 
     for package in steps:
         publish(package, args)

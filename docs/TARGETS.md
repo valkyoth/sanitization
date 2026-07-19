@@ -22,7 +22,7 @@ runner image are recorded in each artifact rather than implied by this table.
 
 | Target/profile | Tier | Runner/evidence class | Evidence |
 | --- | --- | --- | --- |
-| `x86_64-unknown-linux-gnu` | A candidate | Native `ubuntu-24.04` | All-feature functional tests, path-specific release codegen scan, relative performance baseline, and portable/strict multi-seed leakage runs. |
+| `x86_64-unknown-linux-gnu` | A | Native `ubuntu-24.04` | All-feature functional tests, path-specific release codegen scan, relative performance baseline, and portable/strict multi-seed leakage runs. |
 | `aarch64-unknown-linux-gnu` | B native | Native `ubuntu-24.04-arm` | All-feature functional tests, AArch64 release codegen scan, relative performance baseline, and portable/strict multi-seed leakage runs. |
 | `x86_64-pc-windows-msvc` | B native | Native `windows-2025` | Portable-native feature tests, x86_64 release codegen scan, and relative performance baseline; no timing claim. |
 | `aarch64-apple-darwin` | B native | Native `macos-15` | Portable-native feature tests, AArch64 release codegen scan, relative performance baseline, and portable/strict multi-seed leakage runs. |
@@ -59,9 +59,9 @@ Profiles describe compiled capability. The matching `ProtectionRequest`
 describes required/preferred policy, and each runtime `ProtectionReport`
 records achieved controls. See `docs/FEATURE_PROFILES.md`.
 
-## Release-Candidate Requirements
+## Release Requirements
 
-A stable `2.0.0` candidate should attach or cite:
+A stable `2.0.0` release record cites:
 
 - exact rustc version;
 - exact target triple;
@@ -78,8 +78,8 @@ installed targets, and optional Kani/Miri tool availability for this evidence.
 
 Use the `CP-20 target evidence` workflow artifacts for target classification.
 Do not describe a cross-compiled manifest as native evidence. Artifact
-retention is temporary, so final release evidence must preserve the accepted
-workflow run URLs and artifact digests in the 2.0 release record.
+retention is temporary, so `docs/release-evidence-2.0.0.json` preserves the
+accepted workflow run URLs and GitHub artifact digests.
 
 Targets without this evidence should remain Tier B or Tier C rather than being
 promoted by assumption.

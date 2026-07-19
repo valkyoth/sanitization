@@ -106,6 +106,11 @@
       "name": "semantic-public-api",
       "claim": "Rustdoc-derived public API output for every publishable crate matches the CP-21 candidate when cargo-public-api 0.52.0 is available.",
       "command": "scripts/capture-2.0-public-api.py"
+    },
+    {
+      "name": "release-package-archives",
+      "claim": "Every generated crate archive contains the reviewed workspace sources, coordinated release versions, and no forbidden repository-only material.",
+      "command": "scripts/verify-release-packages.py --version 2.0.0"
     }
   ]
 }

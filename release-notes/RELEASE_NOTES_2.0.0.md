@@ -1,0 +1,103 @@
+# Release 2.0.0
+
+Version 2.0.0 is a security-model release. It preserves the dependency-free,
+`no_std` default and canonical volatile wipe backend while making generic
+storage, exposure, data-oblivious control state, derive behavior, and native
+protection outcomes more explicit and fail-closed.
+
+## Ownership And Exposure
+
+- Added `StableSharedSecretStorage` and `StableMutableSecretStorage` contracts.
+  Generic `Secret<T>` exposure now requires an explicit storage-stability
+  attestation covering safe shared access, interior mutation, mutable access,
+  callbacks, guards, trait methods, and destruction.
+- Fixed-size containers now expose their owned storage directly. APIs that
+  create temporary copies are named `expose_secret_copy` or
+  `try_expose_secret_copy` so the extra secret lifetime is visible.
+- Added `SecretBoxBytes` for fixed-allocation runtime-length secret bytes that
+  never grow, reallocate, or expose their private backing allocation.
+- Renamed `ReadOnceSecret<T>` to `ConsumeOnceSecret<T>`. Its single scoped
+  shared access is claimed atomically and cleared on normal return, returned
+  errors, and panic unwinding.
+
+## Data-Oblivious State
+
+- Made `Choice`, masks, and `CtOrdering` declassification reason-bearing and
+  removed ordinary equality or raw extraction paths that bypassed the review
+  boundary.
+- Replaced the generic copyable CT marker with redacted, non-`Copy`,
+  clear-on-drop `SecretIndex` and `SecretScalar<T>` owners.
+- Added `PublicValue<T>`, `SecretValue<T>`, `SecretCtOption`, and
+  `SecretCtResult` so dummy, unselected, mapped, and panic-path secret values
+  receive explicit cleanup.
+- Renamed `strict-ct` to `strict-compare` to state its actual scope:
+  assembly-backed equal-length byte equality on reviewed native targets.
+- Expanded Kani, codegen, leakage, panic-unwind, ownership-transition, and
+  zero-sized/drop-bearing test coverage for the native CT API.
+
+## Derives And Companion Crates
+
+- Made enum sanitization derives fail closed unless inactive-variant storage is
+  explicitly acknowledged. Assignment between enum variants still requires
+  `secure_replace` or a stable-layout wrapper to clear the old representation.
+- Required every skipped derive field to include a non-empty reason and
+  rejected duplicate, malformed, empty, or misplaced helper attributes.
+- Kept constant-time derives struct-only and field-wise; enums, unions, and
+  unsafe selection skips remain compile failures.
+- Corrected `sanitization-arrayvec` so live values are sanitized and dropped
+  before the complete inline backing region, including historical spare bytes,
+  is volatile-cleared.
+- Added secure ArrayVec `pop` and `truncate` handling with valid destructor
+  ordering and stale-slot cleanup.
+
+## Wiping And Native Hardening
+
+- Consolidated clearing behind the canonical safe `sanitization::wipe` API and
+  private sealed `wipe_backend`; removed misleading best-effort and
+  `unsafe-wipe` compatibility surfaces.
+- Added `wipe::WipeOnDrop<T>` for the audited built-in plain-data set. Public
+  downstream representation-erasure implementations remain intentionally
+  unsupported.
+- Added `ProtectionRequest`, required/preferred policy, structured
+  `ProtectionReport` outcomes, and partial setup reports so compiled features
+  are not confused with achieved runtime protection.
+- Made fork inheritance, dump exclusion, memory locking, guard pages, and
+  canary integrity explicit per-container policy outcomes.
+- Hardened `SecretPool` with checked fixed-layout accounting, generation-bound
+  canaries, failure quarantine, and efficiency reporting.
+- Added opt-in `SealedSecretBytes<N>` with guard pages, fallible page sealing,
+  poisoning/retirement after unsafe transition failures, and multi-page fault
+  recovery tests. This remains a reviewed optional facility with documented
+  platform limits, not an infallible secrecy guarantee.
+- Reworked cache eviction and SIMD/vector scrubbing to report supported,
+  executed, limited, and unsupported outcomes instead of implying universal
+  hardware coverage.
+- Added named hardened-native, guarded-native, and Linux hardening profiles;
+  runtime requests and reports remain authoritative over feature selection.
+
+## Verification And Release Evidence
+
+- Added path-specific LLVM IR and assembly checks across optimization, LTO,
+  panic, and codegen-unit profiles.
+- Added lifecycle allocation-quarantine probes, Loom concurrency models,
+  sanitizer jobs, fail-closed negative fixtures, Miri/Kani coverage, and
+  downstream migration builds.
+- Added repeated multi-seed dudect-style leakage runs and relative performance
+  baselines for x86_64 Linux, AArch64 Linux, and Apple Silicon.
+- Recorded native and compile-only target tiers, exact accepted workflow URLs,
+  and GitHub artifact SHA-256 digests in the 2.0 release evidence record.
+- Added semantic public-API snapshots and semver review for all five
+  publishable crates, freezing the CP-21 API before final release metadata.
+- Added complete migration, storage-contract, protection-report, scope,
+  guarantees, non-guarantees, target, evidence, and verification-tooling docs.
+- Updated package archive validation and publication tooling for all five
+  `2.0.0` crates in dependency order.
+
+## Migration
+
+This release contains intentional source-breaking changes. Read
+[`docs/MIGRATION_2.0.md`](https://github.com/valkyoth/sanitization/blob/main/docs/MIGRATION_2.0.md)
+before upgrading from `1.2.5`. The migration guide covers generic storage
+bounds, direct versus copied exposure, CT declassification, derives, wipe API
+renames, ArrayVec behavior, consume-once ownership, native protection policy,
+feature profiles, and deferred experimental facilities.

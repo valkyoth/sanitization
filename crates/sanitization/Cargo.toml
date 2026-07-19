@@ -27,7 +27,7 @@ default-runtime-dependencies = 0
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(miri)'] }
 
 [dependencies]
-sanitization-derive = { version = "1.2.5", path = "../sanitization-derive", optional = true }
+sanitization-derive = { version = "2.0.0", path = "../sanitization-derive", optional = true }
 serde = { version = "1", default-features = false, features = ["alloc"], optional = true }
 subtle = { version = "2", default-features = false, optional = true }
 zeroize = { version = "1", default-features = false, optional = true }

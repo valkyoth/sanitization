@@ -163,3 +163,4 @@ cargo package -p sanitization --allow-dirty --list >/dev/null
 cargo package -p sanitization-arrayvec --allow-dirty --list >/dev/null
 cargo package -p sanitization-bytes --allow-dirty --list >/dev/null
 cargo package -p sanitization-crypto-interop --allow-dirty --list >/dev/null
+scripts/verify-release-packages.py

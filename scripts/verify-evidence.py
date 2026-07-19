@@ -17,6 +17,7 @@ EVIDENCE = (
     else ROOT / "docs/ct-evidence.json"
 )
 SOURCE_ROOT = ROOT / "crates" / "sanitization" / "src"
+RELEASE_EVIDENCE = ROOT / "docs" / "release-evidence-2.0.0.json"
 
 REQUIRED_TOP_LEVEL = {
     "schema_version",
@@ -66,6 +67,107 @@ def require_check_coverage(checks: list[dict[str, Any]], name: str, needles: lis
                     fail(f"checks[{name}].coverage must mention {needle!r}")
             return
     fail(f"missing required check entry: {name}")
+
+
+def verify_release_evidence() -> None:
+    try:
+        release = json.loads(RELEASE_EVIDENCE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"{RELEASE_EVIDENCE.name} is unavailable or invalid: {error}")
+
+    if release.get("schema_version") != 1 or release.get("release") != "2.0.0":
+        fail("2.0 release evidence has an invalid schema or release version")
+    commit = release.get("implementation_commit")
+    if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        fail("2.0 release evidence has an invalid implementation commit")
+
+    compiler = release.get("compiler")
+    if not isinstance(compiler, dict) or compiler.get("release") != "1.97.1":
+        fail("2.0 release evidence has an invalid compiler record")
+    if re.fullmatch(r"[0-9a-f]{40}", str(compiler.get("commit_hash"))) is None:
+        fail("2.0 release evidence has an invalid compiler commit")
+
+    targets = release.get("target_matrix")
+    expected_targets = {
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc",
+        "aarch64-apple-darwin",
+        "x86_64-unknown-freebsd",
+        "aarch64-linux-android",
+        "aarch64-apple-ios",
+        "thumbv7em-none-eabihf",
+        "riscv32imac-unknown-none-elf",
+        "wasm32-unknown-unknown",
+        "wasm32-wasip1",
+        "wasm32-wasip2",
+    }
+    if not isinstance(targets, list) or len(targets) != len(expected_targets):
+        fail("2.0 release evidence target matrix is incomplete")
+    target_names: set[str] = set()
+    for index, target in enumerate(targets):
+        if not isinstance(target, dict):
+            fail(f"release target_matrix[{index}] must be an object")
+        for key in ("target", "host", "tier", "evidence_kind", "features"):
+            require_string(target.get(key), f"release target_matrix[{index}].{key}")
+        target_names.add(target["target"])
+    if target_names != expected_targets:
+        fail("2.0 release evidence target matrix has missing or unexpected targets")
+
+    workflows = release.get("workflow_runs")
+    if not isinstance(workflows, list) or len(workflows) != 5:
+        fail("2.0 release evidence must record all five accepted workflow runs")
+    workflow_names: set[str] = set()
+    for index, workflow in enumerate(workflows):
+        if not isinstance(workflow, dict):
+            fail(f"release workflow_runs[{index}] must be an object")
+        name = workflow.get("name")
+        url = workflow.get("url")
+        if not isinstance(name, str) or not name:
+            fail(f"release workflow_runs[{index}].name must be non-empty")
+        if not isinstance(url, str) or re.fullmatch(
+            r"https://github\.com/valkyoth/sanitization/actions/runs/[0-9]+", url
+        ) is None:
+            fail(f"release workflow_runs[{index}].url is invalid")
+        if workflow.get("conclusion") != "success":
+            fail(f"release workflow {name!r} was not successful")
+        workflow_names.add(name)
+    required_workflows = {
+        "CP-20 target evidence",
+        "Security evidence tooling",
+        "Miri Verification",
+        "Kani Verification",
+        "Rust CI",
+    }
+    if workflow_names != required_workflows:
+        fail("2.0 release evidence workflow set is incomplete")
+
+    artifacts = release.get("target_evidence_artifacts")
+    if not isinstance(artifacts, list) or len(artifacts) != 15:
+        fail("2.0 release evidence must record all 15 CP-20 artifacts")
+    artifact_names: set[str] = set()
+    artifact_ids: set[int] = set()
+    for index, artifact in enumerate(artifacts):
+        if not isinstance(artifact, dict):
+            fail(f"release target_evidence_artifacts[{index}] must be an object")
+        name = artifact.get("name")
+        artifact_id = artifact.get("id")
+        size = artifact.get("size_in_bytes")
+        digest = artifact.get("digest")
+        if not isinstance(name, str) or not name.startswith("cp20-"):
+            fail(f"release artifact {index} has an invalid name")
+        if not isinstance(artifact_id, int) or artifact_id <= 0:
+            fail(f"release artifact {name!r} has an invalid id")
+        if not isinstance(size, int) or size <= 0:
+            fail(f"release artifact {name!r} has an invalid size")
+        if not isinstance(digest, str) or re.fullmatch(
+            r"sha256:[0-9a-f]{64}", digest
+        ) is None:
+            fail(f"release artifact {name!r} has an invalid digest")
+        artifact_names.add(name)
+        artifact_ids.add(artifact_id)
+    if len(artifact_names) != len(artifacts) or len(artifact_ids) != len(artifacts):
+        fail("2.0 release evidence contains duplicate artifact names or ids")
 
 
 def main() -> int:
@@ -184,8 +286,9 @@ def main() -> int:
     require_string_list(
         data["release_candidate_requirements"], "release_candidate_requirements"
     )
+    verify_release_evidence()
 
-    print("docs/ct-evidence.json validated")
+    print("docs/ct-evidence.json and 2.0 release evidence validated")
     return 0
 
 

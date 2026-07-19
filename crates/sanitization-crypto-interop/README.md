@@ -39,7 +39,7 @@ the same feature profile across both crates; it is disabled by default.
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "1.2.5", features = ["sha2", "blake3", "hmac-sha2"] }
+sanitization-crypto-interop = { version = "2.0.0", features = ["sha2", "blake3", "hmac-sha2"] }
 ```
 
 ## SHA-2
@@ -99,7 +99,7 @@ scope for high-assurance deployments.
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "1.2.5", features = ["hmac-sha2"] }
+sanitization-crypto-interop = { version = "2.0.0", features = ["hmac-sha2"] }
 ```
 
 ```rust

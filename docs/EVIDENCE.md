@@ -8,8 +8,8 @@ The same information is also summarized in machine-readable form in
 `docs/ct-evidence.json`. The named harness registry is
 `docs/verification-harnesses.json`. CP-20 generates dated per-commit artifacts
 with exact CI run URLs, rustc versions, target triples, feature sets, and
-native/compile-only classification. Final release records must cite the
-accepted workflow run and artifact digests.
+native/compile-only classification. The accepted 2.0 workflow runs and GitHub
+artifact digests are preserved in `docs/release-evidence-2.0.0.json`.
 
 ## Scope
 
@@ -45,16 +45,16 @@ The crate does not claim:
 
 | Target/profile | Tier | Evidence |
 | --- | --- | --- |
-| `x86_64-unknown-linux-gnu`, release portable/`strict-compare` | Tier A candidate | Native tests, path-specific codegen, relative performance, and multi-seed leakage artifacts |
+| `x86_64-unknown-linux-gnu`, release portable/`strict-compare` | Tier A | Native tests, path-specific codegen, relative performance, and multi-seed leakage artifacts |
 | `aarch64-unknown-linux-gnu`, release portable/`strict-compare` | Tier B native | Native tests, AArch64 codegen, relative performance, and multi-seed leakage artifacts |
 | `x86_64-pc-windows-msvc` | Tier B native | Native feature tests, x86_64 codegen, and relative performance; no timing claim |
 | `aarch64-apple-darwin` | Tier B native | Native tests, AArch64 codegen, relative performance, and multi-seed leakage artifacts |
 | BSD, Android, iOS, embedded ARM/RISC-V | Tier B or B/C compile-only | Cross-compilation manifests; no native runtime or timing claim |
 | WASM `wasm32-*` | Tier C | API/build compatibility and documented reduced volatile/memory-lock guarantees; no strong JIT timing claim |
 
-Tier A candidate means the repository has automated evidence collection, but a
-stable release must still preserve the exact rustc version, target triple,
-feature set, accepted CI run, and artifact digests that produced the evidence.
+Tier A means the exact accepted workflow run and artifact digests are preserved
+in the 2.0 release evidence record. It remains target-specific statistical and
+codegen evidence, not proof of identical timing or universal hardware behavior.
 
 ## Automated Checks
 
@@ -258,16 +258,18 @@ Permanent documentation that constrains the claims:
 - `docs/PROTECTION_REPORT.md`: runtime protection request and outcome semantics;
 - `docs/MIGRATION_2.0.md`: the reviewed 1.2.5-to-2.0 source migration;
 - `docs/SCOPE_2.0.0.md`: included and explicitly deferred 2.0 facilities;
+- `docs/release-evidence-2.0.0.json`: accepted workflow URLs and GitHub
+  artifact digests for the 2.0 behavior baseline;
 - `docs/baselines/2.0/CP-22_API_FREEZE.md`: reproducible semantic API and
   semver close-out against 1.2.5 and CP-21;
 - `docs/THREAT_MODEL.md`: guarantees, residual risks, WASM limits, canary limits;
 - `docs/SAFETY.md`: unsafe boundaries and invariants;
-- `docs/ROADMAP.md`: 1.2 target tiers and release checkpoint gates.
+- `docs/ROADMAP.md`: implemented architecture and release checkpoint gates.
 
 ## Open Evidence Gaps
 
-- CP-20 workflow artifacts are per commit and expire. CP-22/CP-23 must preserve
-  the accepted run URLs and artifact digests in the final release record.
+- CP-20 workflow artifact downloads expire. The release record preserves their
+  accepted URLs, metadata, and GitHub-reported digests, but not the ZIP payloads.
 - Hosted-runner leakage results do not control affinity, frequency scaling,
   turbo/boost, or SMT unless the report explicitly records otherwise. They are
   repeated falsification attempts, not proof.

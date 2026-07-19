@@ -129,8 +129,8 @@ its retest.
 | `CP-19` | Accepted |
 | `CP-20` | Accepted |
 | `CP-21` | Accepted |
-| `CP-22` | Pentest |
-| `CP-23` | Planned |
+| `CP-22` | Accepted |
+| `CP-23` | Pentest |
 
 Allowed status values are `Planned`, `Implementing`, `Pentest`, `Remediating`,
 `Retest`, `Accepted`, and `Deferred`. `Deferred` is valid only for an optional

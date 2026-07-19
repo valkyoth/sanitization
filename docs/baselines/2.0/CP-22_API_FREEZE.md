@@ -69,6 +69,7 @@ may change before the final release.
 ## Independent Close-Out
 
 This document records the reproducible API and semver portion of CP-22. The
-independent CP-22 pentest covers the full CP-00 through CP-22 implementation
-range. CP-22 remains in `Pentest` state until that review is accepted and no
-open finding contradicts the documented guarantees.
+independent CP-22 review covered the full CP-00 through CP-22 implementation
+range and was accepted with no open finding contradicting the documented
+guarantees. CP-23 may change only coordinated release metadata,
+documentation, package validation, and publication tooling.
