@@ -141,11 +141,13 @@ declassification boundary.
 
 ## Derive Macros
 
-Enum sanitization derives are rejected because ordinary variant assignment can
-leave inactive bytes in the enum allocation. Replace secret-bearing enums with
-a struct whose secret storage has a stable layout and whose public state is a
-separate tag. If an enum is unavoidable, implement `SecureSanitize` manually
-and use `secure_replace(&mut value, replacement)` before every transition.
+`SecureSanitize` and `SecureSanitizeOnDrop` enum derives are rejected because
+ordinary variant assignment can leave inactive bytes in the enum allocation.
+Final-drop sanitization cannot repair history from earlier transitions. Replace
+secret-bearing enums with a struct whose secret storage has a stable layout and
+whose public state is a separate tag. If an enum is unavoidable, implement its
+sanitization and drop policy manually and use
+`secure_replace(&mut value, replacement)` before every transition.
 
 Skipped fields now require a reason:
 

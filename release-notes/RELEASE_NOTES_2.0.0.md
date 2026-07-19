@@ -41,9 +41,10 @@ protection outcomes more explicit and fail-closed.
 
 ## Derives And Companion Crates
 
-- Rejected enum sanitization derives because generated safe code cannot clear
-  inactive variant storage. Reviewed manual enums must use `secure_replace`
-  before every transition; stable-layout struct wrappers are preferred.
+- Rejected enum `SecureSanitize` and `SecureSanitizeOnDrop` derives because
+  generated safe code cannot clear inactive variant storage and final-drop
+  cleanup cannot repair prior transitions. Reviewed manual enums must use
+  `secure_replace` before every transition; stable-layout structs are preferred.
 - Required every skipped derive field to include a non-empty reason and
   rejected duplicate, malformed, empty, or misplaced helper attributes.
 - Kept constant-time derives struct-only and field-wise; enums, unions, and

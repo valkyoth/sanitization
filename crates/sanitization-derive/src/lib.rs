@@ -33,6 +33,12 @@ pub fn derive_secure_sanitize(input: TokenStream) -> TokenStream {
 
 /// Derive `Drop` by calling `sanitization::SecureSanitize::secure_sanitize`.
 ///
+/// Enums are rejected even when they have a manual `SecureSanitize`
+/// implementation. Calling that implementation at final drop cannot clear
+/// inactive bytes retained by ordinary variant transitions. Use a stable-layout
+/// struct state machine, or a reviewed manual `Drop` implementation together
+/// with `sanitization::secure_replace` before every enum transition.
+///
 /// # Generics
 ///
 /// For structs with type parameters that hold sanitizable data, the parameter
@@ -146,11 +152,20 @@ fn expand_secure_sanitize_on_drop(input: &DeriveInput) -> Result<TokenStream2> {
     validate_field_options(&input.data)?;
     let crate_path = crate_path(&options);
 
-    if matches!(input.data, Data::Union(_)) {
-        return Err(Error::new_spanned(
-            input,
-            "SecureSanitizeOnDrop cannot be derived for unions",
-        ));
+    match &input.data {
+        Data::Struct(_) => {}
+        Data::Enum(_) => {
+            return Err(Error::new_spanned(
+                input,
+                "SecureSanitizeOnDrop cannot be derived for enums because final-drop sanitization cannot clear inactive bytes retained by earlier variant transitions; use a stable-layout struct state machine or a reviewed manual Drop implementation with secure_replace before every transition",
+            ))
+        }
+        Data::Union(_) => {
+            return Err(Error::new_spanned(
+                input,
+                "SecureSanitizeOnDrop cannot be derived for unions",
+            ))
+        }
     }
 
     let name = &input.ident;

@@ -608,7 +608,10 @@ has an audited target-specific backend and matching evidence.
 
 ### 5.1 Enums fail closed
 
-Enum `SecureSanitize` derives must reject unconditionally.
+Enum `SecureSanitize` and `SecureSanitizeOnDrop` derives must reject
+unconditionally. A manual `SecureSanitize` implementation does not make a drop
+derive acceptable because final-drop cleanup cannot repair inactive bytes
+retained by earlier variant transitions.
 
 The diagnostic must explain:
 
@@ -645,7 +648,8 @@ Add compile-pass and compile-fail coverage for:
 - generics and struct-level `Drop` bounds;
 - `PhantomData`;
 - crate-path override;
-- enum derive rejection;
+- enum rejection for every derive, including `SecureSanitizeOnDrop` paired with
+  a manual `SecureSanitize` implementation;
 - missing and empty skip reasons;
 - duplicate and malformed attributes;
 - unions;

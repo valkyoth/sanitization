@@ -22,8 +22,9 @@
   `try_replace_from_*` and `try_replace_from_fallible_*` operation families.
 - Renamed public-backing CT state to `PublicCtOption` and `PublicCtResult` so
   copyable/unredacted backing data carries an explicit public classification.
-- Rejected all `SecureSanitize` enum derives; inactive variant bytes cannot be
-  reached by generated safe code, so there is no acknowledgement escape hatch.
+- Rejected all `SecureSanitize` and `SecureSanitizeOnDrop` enum derives;
+  inactive variant bytes cannot be reached by generated safe code, and
+  final-drop cleanup cannot repair history from earlier transitions.
 - Replaced fixed `SecretBytes` byte and temporary-copy helpers with
   reason-bearing `export_*` boundaries covered by the repository reason lint.
 - Added `sanitize_then_abort` for deliberate `std` fatal paths while retaining

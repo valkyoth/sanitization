@@ -116,6 +116,26 @@ enum Bad {
 }'
 
 run_expected_failure \
+    "enum-sanitize-on-drop-rejected" \
+    '"derive"' \
+    "SecureSanitizeOnDrop cannot be derived for enums because final-drop sanitization cannot clear inactive bytes retained by earlier variant transitions" \
+    'use sanitization::{SecureSanitize, SecureSanitizeOnDrop};
+
+#[derive(SecureSanitizeOnDrop)]
+enum Bad {
+    A([u8; 4]),
+    B,
+}
+
+impl SecureSanitize for Bad {
+    fn secure_sanitize(&mut self) {
+        if let Self::A(bytes) = self {
+            bytes.secure_sanitize();
+        }
+    }
+}'
+
+run_expected_failure \
     "sanitize-skip-reason-required" \
     '"derive"' \
     "#[sanitization(skip)] requires a non-empty reason" \
