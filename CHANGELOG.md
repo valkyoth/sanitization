@@ -81,6 +81,8 @@
 - Updated all workspace crates, internal dependency requirements, examples,
   package archives, release tooling, and crates.io-facing documentation for
   `2.0.0`.
+- Made dependency-audit detection use Cargo's subcommand lookup and audited
+  every committed tooling lockfile from one already-fetched advisory database.
 
 ## 1.2.5
 

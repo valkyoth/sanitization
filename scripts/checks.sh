@@ -7,8 +7,8 @@ scripts/verify-feature-profiles.py
 scripts/verify-verification-harnesses.py
 scripts/test-verification-fail-closed.py
 scripts/test-latest-rust.py
-if command -v cargo-audit >/dev/null 2>&1; then
-    cargo audit --deny warnings
+if cargo audit --version >/dev/null 2>&1; then
+    cargo audit --no-fetch --deny warnings
     for lockfile in \
         fuzz/Cargo.lock \
         tools/consume-once-loom/Cargo.lock \
@@ -16,9 +16,10 @@ if command -v cargo-audit >/dev/null 2>&1; then
         tools/ct-leakage/Cargo.lock \
         tools/direct-exposure-codegen/Cargo.lock \
         tools/downstream-migration/Cargo.lock \
-        tools/lifecycle-probes/Cargo.lock
+        tools/lifecycle-probes/Cargo.lock \
+        tools/performance-baseline/Cargo.lock
     do
-        cargo audit --deny warnings --file "$lockfile"
+        cargo audit --no-fetch --deny warnings --file "$lockfile"
     done
 else
     printf 'skipping cargo audit; cargo-audit is not installed\n'

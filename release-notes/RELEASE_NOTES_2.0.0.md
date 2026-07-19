@@ -92,6 +92,8 @@ protection outcomes more explicit and fail-closed.
   guarantees, non-guarantees, target, evidence, and verification-tooling docs.
 - Updated package archive validation and publication tooling for all five
   `2.0.0` crates in dependency order.
+- Updated dependency-audit detection to use Cargo's subcommand registry and
+  scan every committed workspace, fuzz, and tooling lockfile.
 
 ## Migration
 
