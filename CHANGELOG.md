@@ -2,6 +2,11 @@
 
 ## 2.0.0
 
+- Added `wipe::maybe_uninit` for canonical volatile clearing of non-live
+  `MaybeUninit<T>` storage without constructing references to uninitialized
+  byte values.
+- Corrected `sanitization-arrayvec` spare-capacity clearing to use the typed
+  uninitialized-storage wipe API, closing an invalid-reference boundary.
 - Verify pool-slot canaries during `Drop` before clearing can rewrite them, so
   corruption is cleared and quarantined even when no later accessor runs.
 - Store random expected canaries in private non-`Copy`, clear-on-drop owners,

@@ -15,34 +15,21 @@ use sanitization::SecureSanitize;
 #[cfg(test)]
 extern crate std;
 
-#[allow(unsafe_code)]
 mod backing_wipe {
     use arrayvec::ArrayVec;
-    use core::{mem, slice};
 
     pub(super) fn wipe_spare<T, const CAP: usize>(inner: &mut ArrayVec<T, CAP>) {
         let spare = inner.spare_capacity_mut();
-        let byte_len = mem::size_of_val(spare);
-        if byte_len == 0 {
-            return;
-        }
-
-        // SAFETY: `ArrayVec::spare_capacity_mut` returns a writable
-        // `MaybeUninit<T>` slice covering every non-live inline slot. Viewing
-        // that storage as bytes is valid because `u8` has alignment one and
-        // every byte pattern is valid for `MaybeUninit<T>`. `size_of_val`
-        // obtains the slice's complete byte length without separate
-        // `CAP * size_of::<T>()` arithmetic. No live `T` is included.
-        let bytes = unsafe { slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), byte_len) };
-        sanitization::wipe::bytes(bytes);
+        sanitization::wipe::maybe_uninit(spare);
     }
 
     #[cfg(test)]
+    #[allow(unsafe_code)]
     pub(super) unsafe fn spare_is_zero_after_wipe<T, const CAP: usize>(
         inner: &mut ArrayVec<T, CAP>,
     ) -> bool {
         let spare = inner.spare_capacity_mut();
-        let byte_len = mem::size_of_val(spare);
+        let byte_len = core::mem::size_of_val(spare);
         if byte_len == 0 {
             return true;
         }
@@ -50,7 +37,7 @@ mod backing_wipe {
         // SAFETY: The caller guarantees every spare byte was initialized by
         // `wipe_spare` after the most recent operation that changed the live
         // range. Reading those initialized bytes as `u8` is valid.
-        let bytes = unsafe { slice::from_raw_parts(spare.as_ptr().cast::<u8>(), byte_len) };
+        let bytes = unsafe { core::slice::from_raw_parts(spare.as_ptr().cast::<u8>(), byte_len) };
         bytes.iter().all(|byte| *byte == 0)
     }
 }
@@ -269,6 +256,15 @@ mod tests {
         // that invokes `wipe_spare`, which initializes every byte in the
         // current spare region to zero.
         assert!(unsafe { backing_wipe::spare_is_zero_after_wipe(&mut secrets.inner) });
+    }
+
+    #[test]
+    fn empty_arrayvec_wipes_never_initialized_spare() {
+        let mut secrets = SecretArrayVec::<u8, 1>::new();
+
+        secrets.clear_secret();
+
+        assert_backing_is_zero(&mut secrets);
     }
 
     #[test]

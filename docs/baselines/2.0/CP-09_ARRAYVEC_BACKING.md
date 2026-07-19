@@ -23,19 +23,19 @@ No live `T` is raw-zeroed. The byte length comes from `size_of_val` on the
 stable spare-capacity slice, avoiding separate capacity multiplication. A
 zero-sized backing region is an explicit no-op.
 
-## Unsafe Boundary
+## Wipe Boundary
 
-The sister crate contains one allowed unsafe module. It converts the writable
-`MaybeUninit<T>` spare slice into a mutable byte slice. This is valid because:
+The sister crate passes the writable `MaybeUninit<T>` spare slice directly to
+`sanitization::wipe::maybe_uninit`. The core helper performs raw volatile byte
+writes without constructing a reference to uninitialized `u8` values. This is
+valid because:
 
 - the slice contains no live values;
 - every returned slot is writable inline storage owned by the `ArrayVec`;
-- `u8` has alignment one;
-- every byte pattern is valid for `MaybeUninit<T>`; and
-- the byte view does not outlive the exclusive spare-capacity borrow.
+- the core helper only writes and never reads the storage; and
+- the exclusive spare-capacity borrow remains live for the complete wipe.
 
-The helper uses `sanitization::wipe::bytes` and introduces no second wipe
-implementation.
+The companion introduces no second wipe implementation.
 
 ## Operation Coverage
 

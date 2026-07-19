@@ -29,8 +29,10 @@ candidate also verifies pool-slot integrity during destruction, clears
 crate-owned random-canary metadata, routes the native CT and crypto verification
 surfaces through strict assembly equality, adds path-specific codegen evidence,
 and retains fail-closed lifecycle and initialization source gates plus an
-explicit deployment responsibility matrix. It therefore requires another
-full-range review before a permanent report can be accepted.
+explicit deployment responsibility matrix. The final remediation also adds a
+typed `MaybeUninit<T>` wipe path and routes ArrayVec spare-capacity cleanup
+through it, eliminating references to uninitialized byte values. It therefore
+requires another full-range review before a permanent report can be accepted.
 
 The final CP-23 candidate is the exact commit immediately preceding the
 permanent pentest report. After all implementation, remediation, documentation,

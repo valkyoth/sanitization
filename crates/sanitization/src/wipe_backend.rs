@@ -113,11 +113,11 @@ fn ordered_volatile_store(ptr: *mut u8, len: usize, value: u8) {
 
     let mut offset = 0;
     while offset < len {
-        // SAFETY: Callers pass a pointer and length from either a live
-        // mutable byte slice or the full capacity of an owned contiguous
-        // allocation. Each computed address is allocated and writable for a
-        // single byte, including spare capacity, and is never read through
-        // this pointer.
+        // SAFETY: Callers pass a pointer and length from a live mutable byte
+        // slice, a `MaybeUninit<T>` slice, or the full capacity of an owned
+        // contiguous allocation. Each computed address is allocated and
+        // writable for a single byte, including spare or uninitialized
+        // capacity, and is never read through this pointer.
         unsafe {
             ptr::write_volatile(ptr.add(offset), value);
         }

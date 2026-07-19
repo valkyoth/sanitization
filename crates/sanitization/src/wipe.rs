@@ -7,6 +7,7 @@
 
 #[cfg(feature = "alloc")]
 use alloc::{string::String, vec::Vec};
+use core::mem::MaybeUninit;
 
 mod sealed {
     pub trait Sealed {}
@@ -32,6 +33,18 @@ pub fn bytes(bytes: &mut [u8]) {
 #[inline(never)]
 pub fn array<const N: usize>(bytes: &mut [u8; N]) {
     self::bytes(bytes);
+}
+
+/// Clear the complete byte representation of uninitialized storage.
+///
+/// This accepts `MaybeUninit<T>` rather than manufacturing a `u8` reference
+/// to bytes that may be uninitialized. No `T` is read, dropped, or
+/// reconstructed. The caller must still ensure that the slice contains no
+/// live values whose destructor or invariants need to be preserved.
+#[inline(never)]
+pub fn maybe_uninit<T>(storage: &mut [MaybeUninit<T>]) {
+    let byte_len = core::mem::size_of_val(storage);
+    crate::wipe_backend::erase(storage.as_mut_ptr().cast::<u8>(), byte_len);
 }
 
 /// Clear a mutable byte slice using an explicit zero, `0xFF`, zero pattern.

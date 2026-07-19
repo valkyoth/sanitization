@@ -33,6 +33,8 @@ for projects that already use `arrayvec`. Live values are sanitized and
 dropped before the wrapper volatile-clears the complete inline
 `MaybeUninit<T>` backing region, including bytes left by earlier pop, truncate,
 clear, reuse, or wrapping operations.
+Spare storage is passed directly to `sanitization::wipe::maybe_uninit`; the
+wrapper never constructs references to uninitialized byte values.
 `SecretArrayVec::from_arrayvec` is intentionally a runtime constructor in 2.0
 because it clears historical spare bytes immediately.
 

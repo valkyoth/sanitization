@@ -218,6 +218,10 @@ wipe::bytes(&mut bytes);
 assert_eq!(bytes, [0; 32]);
 ```
 
+Use `wipe::maybe_uninit` for non-live `MaybeUninit<T>` storage such as an
+allocator or fixed-capacity container's spare slots. It performs volatile
+writes without constructing references to uninitialized byte values.
+
 With `alloc`, `wipe::vec` and `wipe::string` clear the reachable allocation.
 `WipeOnDrop<T>` is available only for audited built-in byte/text types. Custom
 structured types should implement `SecureSanitize` and use `Secret<T>` or the

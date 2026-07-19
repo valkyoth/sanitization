@@ -5,6 +5,11 @@ Version 2.0.0 is a security-model release. It preserves the dependency-free,
 storage, exposure, data-oblivious control state, derive behavior, and native
 protection outcomes more explicit and fail-closed.
 
+`wipe::maybe_uninit` now clears non-live `MaybeUninit<T>` storage without
+constructing references to uninitialized byte values. The
+`sanitization-arrayvec` companion uses this typed path for complete inline
+spare-capacity cleanup.
+
 Wrapping an existing `bytes::BytesMut` now immediately volatile-clears its
 spare capacity so historical bytes from pre-wrap truncation do not survive.
 
