@@ -110,9 +110,10 @@ protection outcomes more explicit and fail-closed.
   placeholder labels; human review remains authoritative.
 - Sealed `wipe::Wipe` to its audited built-in implementations and added a
   downstream compile-fail guard against no-op `WipeOnDrop<T>` implementations.
-- Added concise checked-error composition through `SecretIntegrityResult`,
-  `SecretIntegrityResultExt`, operation-error mapping helpers, and one-shot
-  requested-protection report validation.
+- Added concise checked-error composition through `IntegrityResult`,
+  `MappedResult`, the descriptive `SecretIntegrityResult` alias,
+  `SecretIntegrityResultExt`, common `?` conversions, operation-error mapping
+  helpers, and one-shot requested-protection report validation.
 - Documented recommended library propagation, mapped text, fail-stop, and
   application error-boundary patterns without collapsing distinct failures
   into one global error enum.

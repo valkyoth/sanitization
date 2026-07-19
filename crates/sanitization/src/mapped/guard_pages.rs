@@ -316,6 +316,13 @@ impl fmt::Display for GuardPageError {
 #[cfg(feature = "std")]
 impl std::error::Error for GuardPageError {}
 
+impl From<GuardPageError> for SecretIntegrityError<GuardPageError> {
+    #[inline]
+    fn from(error: GuardPageError) -> Self {
+        Self::Operation(error)
+    }
+}
+
 /// Error returned when fallible guarded byte generation fails.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GuardedSecretVecGenerateError<E> {

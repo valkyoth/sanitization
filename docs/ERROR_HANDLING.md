@@ -26,7 +26,7 @@ produce `Result<Result<T, E>, CanaryCorruptedError>`. Import
 # #[cfg(feature = "memory-lock")]
 # {
 use sanitization::{
-    LockedSecretBytes, SecretIntegrityError, SecretIntegrityResult,
+    LockedSecretBytes, MappedResult, SecretIntegrityError,
     SecretIntegrityResultExt,
 };
 
@@ -36,7 +36,7 @@ fn parse_key(bytes: &[u8; 32]) -> Result<u8, &'static str> {
 
 fn read_key(
     key: &LockedSecretBytes<32>,
-) -> SecretIntegrityResult<u8, &'static str> {
+) -> MappedResult<u8, &'static str> {
     key.try_expose_secret(parse_key).flatten_secret_integrity()
 }
 
@@ -54,6 +54,18 @@ match read_key(&key) {
 # Ok::<(), Box<dyn std::error::Error>>(())
 # }
 ```
+
+Use `IntegrityResult<T>` for operations whose only failure is
+`CanaryCorruptedError`. Use `MappedResult<T, E>` when a mapped operation also
+has an operation-specific error. `SecretIntegrityResult<T, E>` is retained as
+an equivalent descriptive alias.
+
+`CanaryCorruptedError`, `LengthError`, `MemoryLockError`, and `GuardPageError`
+support ordinary `?` propagation into their corresponding `MappedResult`.
+Rust's coherence rules prevent a blanket `From<E>` implementation because it
+would overlap the canary conversion when `E = CanaryCorruptedError`. Convert
+other application errors explicitly with `SecretIntegrityError::Operation`,
+`map_err`, or `flatten_secret_integrity()`.
 
 `SecretIntegrityError::map_operation` maps only the operation error into an
 application error while preserving canary corruption. `is_canary`,

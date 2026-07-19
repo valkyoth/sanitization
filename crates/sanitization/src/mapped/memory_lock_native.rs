@@ -278,6 +278,13 @@ impl fmt::Display for MemoryLockError {
 #[cfg(feature = "std")]
 impl std::error::Error for MemoryLockError {}
 
+impl From<MemoryLockError> for SecretIntegrityError<MemoryLockError> {
+    #[inline]
+    fn from(error: MemoryLockError) -> Self {
+        Self::Operation(error)
+    }
+}
+
 /// Error returned when constructing [`LockedSecretBytes`] from a slice.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LockedSecretBytesError {

@@ -1088,10 +1088,13 @@ helpers are the only mapped accessors that panic on corruption.
 
 Fallible exposure closures can import `SecretIntegrityResultExt` and call
 `flatten_secret_integrity()` to avoid nested results while preserving separate
-canary and operation failures. `SecretIntegrityResult<T, E>` shortens public
-signatures, and `SecretIntegrityError::map_operation` maps application errors
-without erasing corruption. See [ERROR_HANDLING.md](docs/ERROR_HANDLING.md) for
-library propagation, mapped-text, fail-stop, and protection-report patterns.
+canary and operation failures. Use `IntegrityResult<T>` for canary-only
+operations and `MappedResult<T, E>` when an operation-specific error is also
+possible. `SecretIntegrityResult<T, E>` remains an equivalent descriptive
+alias. Common crate errors support ordinary `?` propagation, while
+`SecretIntegrityError::map_operation` maps application errors without erasing
+corruption. See [ERROR_HANDLING.md](docs/ERROR_HANDLING.md) for library
+propagation, mapped-text, fail-stop, and protection-report patterns.
 
 Standalone canaries are derived from the mapping address and a fixed mask on
 native mapped backends. Deterministic pool-slot canaries additionally mix in a

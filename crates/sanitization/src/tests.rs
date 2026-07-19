@@ -37,6 +37,92 @@ fn secret_integrity_error_adapters_preserve_error_classification() {
         operation.map_operation(u16::from),
         SecretIntegrityError::Operation(7_u16)
     );
+
+    fn canary_only() -> IntegrityResult<()> {
+        Err(CanaryCorruptedError)
+    }
+
+    fn propagate_canary() -> MappedResult<(), LengthError> {
+        canary_only()?;
+        Ok(())
+    }
+
+    fn propagate_length() -> MappedResult<(), LengthError> {
+        Err(LengthError {
+            expected: 4,
+            actual: 3,
+        })?;
+        Ok(())
+    }
+
+    assert_eq!(
+        propagate_canary(),
+        Err(SecretIntegrityError::Canary(CanaryCorruptedError))
+    );
+    assert_eq!(
+        propagate_length(),
+        Err(SecretIntegrityError::Operation(LengthError {
+            expected: 4,
+            actual: 3,
+        }))
+    );
+}
+
+#[cfg(feature = "memory-lock")]
+#[test]
+fn memory_lock_errors_propagate_into_mapped_results() {
+    fn operation() -> MappedResult<(), MemoryLockError> {
+        Err(MemoryLockError {
+            operation: MemoryLockOperation::Lock,
+            errno: 1,
+        })?;
+        Ok(())
+    }
+
+    assert!(matches!(
+        operation(),
+        Err(SecretIntegrityError::Operation(MemoryLockError {
+            operation: MemoryLockOperation::Lock,
+            errno: 1,
+        }))
+    ));
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    ),
+    not(miri)
+))]
+#[test]
+fn guard_page_errors_propagate_into_mapped_results() {
+    fn operation() -> MappedResult<(), GuardPageError> {
+        Err(GuardPageError {
+            operation: GuardPageOperation::Lock,
+            errno: 1,
+        })?;
+        Ok(())
+    }
+
+    assert!(matches!(
+        operation(),
+        Err(SecretIntegrityError::Operation(GuardPageError {
+            operation: GuardPageOperation::Lock,
+            errno: 1,
+        }))
+    ));
 }
 
 #[test]

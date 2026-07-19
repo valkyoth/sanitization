@@ -2,6 +2,9 @@
 
 ## 2.0.0
 
+- Added `IntegrityResult<T>` and `MappedResult<T, E>` aliases plus ordinary
+  `?` conversions for common mapped operation errors while preserving the
+  integrity/operation distinction.
 - Added zero-allocation `ProtectionReport` summaries for policy satisfaction,
   degraded state, memory locking, guard pages, and unavailable controls.
 - Added type-associated hardened-native, guarded-native, and hardened-Linux
@@ -104,9 +107,10 @@
   reject dynamic, short, generic, and placeholder audit labels in CI.
 - Sealed `wipe::Wipe` to the audited byte slice, byte array, `Vec<u8>`, and
   `String` implementations so `WipeOnDrop<T>` cannot wrap a downstream no-op.
-- Added `SecretIntegrityResult`, `SecretIntegrityResultExt`, and classification
-  helpers so fallible mapped exposure composes without nested results or loss
-  of the canary/operation distinction.
+- Added `MappedResult`, its descriptive `SecretIntegrityResult` alias,
+  `SecretIntegrityResultExt`, and classification helpers so fallible mapped
+  exposure composes without nested results or loss of the canary/operation
+  distinction.
 - Added concise protection-report validation and documented library,
   application-error, mapped-text, and fail-stop handling patterns.
 - Added `AllowlistedSecret<T, P>`, `SecretStoragePolicy<T>`, and

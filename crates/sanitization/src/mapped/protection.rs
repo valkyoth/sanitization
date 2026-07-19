@@ -13,6 +13,10 @@ impl fmt::Display for CanaryCorruptedError {
 #[cfg(feature = "std")]
 impl std::error::Error for CanaryCorruptedError {}
 
+/// Result alias for mapped operations that can fail only because integrity
+/// canaries were corrupted.
+pub type IntegrityResult<T> = Result<T, CanaryCorruptedError>;
+
 /// Error returned by an operation that checks mapped-secret integrity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SecretIntegrityError<E> {
@@ -24,7 +28,10 @@ pub enum SecretIntegrityError<E> {
 
 /// Result alias for mapped operations that distinguish integrity corruption
 /// from an operation-specific failure.
-pub type SecretIntegrityResult<T, E> = Result<T, SecretIntegrityError<E>>;
+pub type MappedResult<T, E> = Result<T, SecretIntegrityError<E>>;
+
+/// Descriptive compatibility alias for [`MappedResult`].
+pub type SecretIntegrityResult<T, E> = MappedResult<T, E>;
 
 impl<E> SecretIntegrityError<E> {
     /// Returns `true` when integrity-canary verification failed.
@@ -67,7 +74,7 @@ impl<E> SecretIntegrityError<E> {
 ///
 /// ```rust,no_run
 /// # #[cfg(feature = "memory-lock")]
-/// # fn example() -> sanitization::SecretIntegrityResult<(), &'static str> {
+/// # fn example() -> sanitization::MappedResult<(), &'static str> {
 /// use sanitization::{LockedSecretBytes, SecretIntegrityResultExt};
 ///
 /// let key = LockedSecretBytes::<4>::from_array([1, 2, 3, 4])
@@ -82,12 +89,12 @@ impl<E> SecretIntegrityError<E> {
 pub trait SecretIntegrityResultExt<T, E> {
     /// Converts the outer canary error to [`SecretIntegrityError::Canary`] and
     /// the closure error to [`SecretIntegrityError::Operation`].
-    fn flatten_secret_integrity(self) -> SecretIntegrityResult<T, E>;
+    fn flatten_secret_integrity(self) -> MappedResult<T, E>;
 }
 
 impl<T, E> SecretIntegrityResultExt<T, E> for Result<Result<T, E>, CanaryCorruptedError> {
     #[inline]
-    fn flatten_secret_integrity(self) -> SecretIntegrityResult<T, E> {
+    fn flatten_secret_integrity(self) -> MappedResult<T, E> {
         match self {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(error)) => Err(SecretIntegrityError::Operation(error)),
@@ -122,6 +129,13 @@ impl<E> From<CanaryCorruptedError> for SecretIntegrityError<E> {
     #[inline]
     fn from(error: CanaryCorruptedError) -> Self {
         Self::Canary(error)
+    }
+}
+
+impl From<crate::LengthError> for SecretIntegrityError<crate::LengthError> {
+    #[inline]
+    fn from(error: crate::LengthError) -> Self {
+        Self::Operation(error)
     }
 }
 

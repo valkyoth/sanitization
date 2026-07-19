@@ -286,9 +286,13 @@ deployment policy.
 When an exposure closure is itself fallible, import
 `SecretIntegrityResultExt` and call `flatten_secret_integrity()` to convert
 `Result<Result<T, E>, CanaryCorruptedError>` into the concise
-`SecretIntegrityResult<T, E>` alias. This preserves the integrity/operation
-distinction without nested matching. See `docs/ERROR_HANDLING.md` for mapped
-text and application-error patterns.
+`MappedResult<T, E>` alias. Use `IntegrityResult<T>` for operations that can
+fail only because canaries are corrupted. `SecretIntegrityResult<T, E>` remains
+an equivalent descriptive alias. Common crate operation errors support `?`;
+custom errors can use `SecretIntegrityError::Operation`, `map_err`, or
+`map_operation`. This preserves the integrity/operation distinction without
+nested matching. See `docs/ERROR_HANDLING.md` for mapped text and
+application-error patterns.
 
 ```rust,no_run
 # #[cfg(feature = "memory-lock")]

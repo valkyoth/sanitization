@@ -13,10 +13,11 @@ use crate::{ct, SecureSanitize};
 #[path = "mapped/protection.rs"]
 mod protection;
 pub use protection::{
-    CanaryCorruptedError, ForkPolicy, ForkProtectionReport, ForkProtectionRequest,
-    ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport, ProtectionRequest,
-    ProtectionState, Requirement, RollbackReport, RollbackState, SecretIntegrityError,
-    SecretIntegrityResult, SecretIntegrityResultExt, SecretPoolReport, SecretPoolSlotId,
+    CanaryCorruptedError, ForkPolicy, ForkProtectionReport, ForkProtectionRequest, IntegrityResult,
+    MappedResult, ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport,
+    ProtectionRequest, ProtectionState, Requirement, RollbackReport, RollbackState,
+    SecretIntegrityError, SecretIntegrityResult, SecretIntegrityResultExt, SecretPoolReport,
+    SecretPoolSlotId,
 };
 
 #[cfg(all(
