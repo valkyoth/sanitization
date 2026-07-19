@@ -642,10 +642,16 @@ assert_eq!(first_byte, 7);
 ```
 
 Fixed locked secrets and pool slots use the same naming:
-`expose_secret` borrows protected storage after integrity checks, while
-`expose_secret_copy` creates a guarded plaintext copy. Split-secret storage has
+`try_expose_secret` borrows protected storage after integrity checks, while
+`try_expose_secret_copy` creates a guarded plaintext copy. Split-secret storage has
 no contiguous plaintext to borrow and therefore offers only reconstruction and
 explicit copy exposure.
+
+Mapped containers make runtime fallibility visible in operation names:
+checked exposure, mutation, replacement, comparison, copy, and cache operations
+begin with `try_`. Explicit `*_or_panic` helpers are available where a
+fail-stop application policy is appropriate. Constructors keep conventional
+Rust names such as `from_slice` and `zeroed` while returning `Result`.
 
 The complete breaking-change inventory, including generic exposure, CT
 declassification, derives, wipe helpers, mapped integrity results, and
@@ -658,8 +664,8 @@ For 1.x-to-2.0 migration:
 | `SecretBytes::expose_secret` | unchanged name | now borrows owned storage directly |
 | `SecretBytes::expose_secret_volatile` | `export_secret_copy` | reason-bearing copy that is cleared after the callback |
 | `ExpiringSecretBytes::try_expose_secret_volatile` | `try_export_secret_copy` | expiration-checked reason-bearing copy exposure |
-| `LockedSecretBytes::with_secret` | `expose_secret` | direct protected-storage exposure |
-| `SecretPoolSlot::with_secret` | `expose_secret` | direct pooled-slot exposure |
+| `LockedSecretBytes::with_secret` | `try_expose_secret` | checked direct protected-storage exposure |
+| `SecretPoolSlot::with_secret` | `try_expose_secret` | checked direct pooled-slot exposure |
 
 ## Updating and Clearing Fixed-Size Secrets
 
@@ -837,7 +843,7 @@ let request = ProtectionRequest {
 };
 
 let mut key = LockedSecretBytes::<32>::zeroed_with_protection(request)?;
-key.copy_from_slice(&[7; 32]).unwrap();
+key.try_copy_from_slice(&[7; 32]).unwrap();
 
 let report = key.protection_report();
 assert_eq!(report.memory_lock, ProtectionState::Established);
@@ -897,28 +903,29 @@ let decoded_key = LockedSecretBytes::<32>::try_from_fill(|output| {
 })
 .unwrap();
 
-assert!(key.constant_time_eq(&[7; 32]));
-assert!(fallible_key.constant_time_eq(&[7; 32]));
-assert!(decoded_key.constant_time_eq(&[7; 32]));
+assert_eq!(key.try_constant_time_eq(&[7; 32]), Ok(true));
+assert_eq!(fallible_key.try_constant_time_eq(&[7; 32]), Ok(true));
+assert_eq!(decoded_key.try_constant_time_eq(&[7; 32]), Ok(true));
 
-key.expose_secret(|bytes| {
+key.try_expose_secret(|bytes| {
     assert_eq!(bytes.len(), 32);
-});
+})?;
 
-key.replace_from_slice(&[8; 32]).unwrap();
-key.replace_from_array([9; 32]).unwrap();
-key.replace_from_fn(|index| index as u8).unwrap();
-key.try_replace_from_fn(|index| Ok::<u8, &'static str>(index as u8))
+key.try_replace_from_slice(&[8; 32]).unwrap();
+key.try_replace_from_array([9; 32]).unwrap();
+key.try_replace_from_fn(|index| index as u8).unwrap();
+key.try_replace_from_fallible_fn(|index| Ok::<u8, &'static str>(index as u8))
     .unwrap();
-key.try_replace_from_fill(|output| {
+key.try_replace_from_fallible_fill(|output| {
     output.copy_from_slice(&[3; 32]);
     Ok::<(), &'static str>(())
 })
 .unwrap();
 
 key.secure_clear();
-assert!(key.constant_time_eq(&[0; 32]));
+assert_eq!(key.try_constant_time_eq(&[0; 32]), Ok(true));
 key.into_cleared();
+# Ok::<(), sanitization::CanaryCorruptedError>(())
 ```
 
 `LockedSecretBytes<N>` does not use the Rust global allocator for the secret
@@ -939,9 +946,9 @@ available for fixed arrays and clears its owned input array before returning.
 Use `from_fill` or `try_from_fill` when an encoder, decoder, KDF, or RNG can
 write into a caller-provided `&mut [u8; N]`; this avoids staging plaintext in
 an unlocked temporary buffer before moving it into locked storage.
-Use `replace_from_array`, `replace_from_slice`, `replace_from_fn`, or
-`try_replace_from_fn` when rotating the whole locked value. Use
-`replace_from_fill` or `try_replace_from_fill` for in-place decoder-style
+Use `try_replace_from_array`, `try_replace_from_slice`, `try_replace_from_fn`,
+or `try_replace_from_fallible_fn` when rotating the whole locked value. Use
+`try_replace_from_fill` or `try_replace_from_fallible_fill` for in-place decoder-style
 replacement. Array replacement clears its owned input array. Fallible generated
 or filled replacement keeps the old locked value unchanged on error.
 
@@ -962,18 +969,18 @@ let decoded = LockedSecretVec::try_from_capacity(16, |output| {
 })
 .unwrap();
 
-assert!(token.constant_time_eq(b"session-key"));
-assert!(generated.constant_time_eq(b"session-key"));
-assert!(decoded.constant_time_eq(b"session-key"));
+assert_eq!(token.try_constant_time_eq(b"session-key"), Ok(true));
+assert_eq!(generated.try_constant_time_eq(b"session-key"), Ok(true));
+assert_eq!(decoded.try_constant_time_eq(b"session-key"), Ok(true));
 
-token.extend_from_slice(b"-v2").unwrap();
-token.replace_from_slice(b"rotated-session-key").unwrap();
-token.replace_from_fn(16, |index| index as u8).unwrap();
+token.try_extend_from_slice(b"-v2").unwrap();
+token.try_replace_from_slice(b"rotated-session-key").unwrap();
+token.try_replace_from_fn(16, |index| index as u8).unwrap();
 token
-    .try_replace_from_fn(16, |index| Ok::<u8, &'static str>(index as u8))
+    .try_replace_from_fallible_fn(16, |index| Ok::<u8, &'static str>(index as u8))
     .unwrap();
 token
-    .try_replace_from_capacity(32, |output| {
+    .try_replace_from_fallible_capacity(32, |output| {
         output[..7].copy_from_slice(b"decoded");
         Ok::<usize, &'static str>(7)
     })
@@ -990,11 +997,11 @@ semantics while exposing only UTF-8-safe access:
 use sanitization::{LockedSecretString, LockedSecretVec};
 
 let mut token = LockedSecretString::from_secret_str("bearer-token").unwrap();
-token.push_str("-v2").unwrap();
+token.try_push_str("-v2").unwrap();
 token
     .try_with_secret_mut(|text| text.make_ascii_uppercase())
     .unwrap();
-assert!(token.constant_time_eq("BEARER-TOKEN-V2"));
+assert_eq!(token.try_constant_time_eq("BEARER-TOKEN-V2"), Ok(true));
 
 let locked_bytes: LockedSecretVec = token.into();
 let token = LockedSecretString::try_from(locked_bytes).unwrap();
@@ -1034,10 +1041,10 @@ use sanitization::LockedSecretBytes;
 
 let key = LockedSecretBytes::<32>::from_array([7; 32]).unwrap();
 
-let first = key.expose_secret(|bytes| bytes[0]).unwrap();
+let first = key.try_expose_secret(|bytes| bytes[0]).unwrap();
 
 assert_eq!(first, 7);
-assert_eq!(key.constant_time_eq(&[7; 32]), Ok(true));
+assert_eq!(key.try_constant_time_eq(&[7; 32]), Ok(true));
 ```
 
 With `canary-check`, non-empty `LockedSecretBytes<N>` mappings,
@@ -1047,13 +1054,12 @@ With `canary-check`, non-empty `LockedSecretBytes<N>` mappings,
 [ 8-byte canary ][ N-byte secret ][ 8-byte canary ]
 ```
 
-Existing exposure APIs such as `expose_secret`, `copy_to_slice`, and
-`constant_time_eq` verify the canaries before reading secret bytes and return a
+Checked operations such as `try_expose_secret`, `try_copy_to_slice`, and
+`try_constant_time_eq` verify the canaries before reading secret bytes and return a
 structured integrity error. Mutation, growth, replacement, and copying also
 verify first. If corruption is detected, the full mapping or slot is
-volatile-cleared before the error is returned. Compatibility aliases ending in
-`_checked` remain available, while explicitly named `_or_panic` helpers are the
-only mapped accessors that panic on corruption.
+volatile-cleared before the error is returned. Explicitly named `_or_panic`
+helpers are the only mapped accessors that panic on corruption.
 
 Fallible exposure closures can import `SecretIntegrityResultExt` and call
 `flatten_secret_integrity()` to avoid nested results while preserving separate
@@ -1132,10 +1138,10 @@ assert_eq!(pool.capacity_slots(), 64);
 assert_eq!(arena.payload_capacity_bytes, 32 * 64);
 assert_eq!(arena.live_slots, 2);
 assert_ne!(first_id, second.slot_id());
-assert_eq!(first.constant_time_eq(&[7; 32]), Ok(true));
-assert_eq!(second.expose_secret(|bytes| bytes[0]), Ok(0));
+assert_eq!(first.try_constant_time_eq(&[7; 32]), Ok(true));
+assert_eq!(second.try_expose_secret(|bytes| bytes[0]), Ok(0));
 
-first.replace_from_slice(&[8; 32]).unwrap();
+first.try_replace_from_slice(&[8; 32]).unwrap();
 first.secure_clear();
 
 drop(first); // clears this slot and returns it to the pool
@@ -1206,14 +1212,14 @@ let generated = GuardedSecretVec::try_from_fn(11, |index| {
 })
 .unwrap();
 
-assert!(token.constant_time_eq(b"session-key"));
-assert!(generated.constant_time_eq(b"session-key"));
-token.extend_from_slice(b"-v2").unwrap();
-assert_eq!(token.with_secret(|bytes| bytes.len()), 14);
-token.replace_from_slice(b"rotated-session-key").unwrap();
-token.replace_from_fn(16, |index| index as u8).unwrap();
+assert_eq!(token.try_constant_time_eq(b"session-key"), Ok(true));
+assert_eq!(generated.try_constant_time_eq(b"session-key"), Ok(true));
+token.try_extend_from_slice(b"-v2").unwrap();
+assert_eq!(token.try_with_secret(|bytes| bytes.len()), Ok(14));
+token.try_replace_from_slice(b"rotated-session-key").unwrap();
+token.try_replace_from_fn(16, |index| index as u8).unwrap();
 token
-    .try_replace_from_fn(16, |index| Ok::<u8, &'static str>(index as u8))
+    .try_replace_from_fallible_fn(16, |index| Ok::<u8, &'static str>(index as u8))
     .unwrap();
 
 token.clear_secret();
@@ -1227,8 +1233,8 @@ token.into_cleared();
 use sanitization::{GuardedSecretString, GuardedSecretVec};
 
 let mut token = GuardedSecretString::from_secret_str("session-token").unwrap();
-token.push_str("-v2").unwrap();
-assert!(token.constant_time_eq("session-token-v2"));
+token.try_push_str("-v2").unwrap();
+assert_eq!(token.try_constant_time_eq("session-token-v2"), Ok(true));
 
 let guarded_bytes: GuardedSecretVec = token.into();
 let token = GuardedSecretString::try_from(guarded_bytes).unwrap();
@@ -1242,7 +1248,8 @@ global allocator for the secret bytes. Use `GuardedSecretVec::from_fn` when
 bytes can be generated directly into the guarded mapping; use `try_from_fn` for
 fallible generators. Use `from_slice` when loading bytes from an existing
 runtime buffer.
-Use `replace_from_slice`, `replace_from_fn`, or `try_replace_from_fn` when
+Use `try_replace_from_slice`, `try_replace_from_fn`, or
+`try_replace_from_fallible_fn` when
 rotating or replacing the entire guarded value. Fallible generated replacement
 keeps the old value unchanged on generator error. Linux guarded mappings keep
 the no-libc page granules used by the raw syscall backend: 4 KiB on `x86_64`
@@ -1273,7 +1280,7 @@ use sanitization::GuardedSecretVec;
 let token = GuardedSecretVec::locked_from_slice(b"session-key").unwrap();
 
 assert!(token.is_memory_locked());
-assert!(token.constant_time_eq(b"session-key"));
+assert_eq!(token.try_constant_time_eq(b"session-key"), Ok(true));
 ```
 
 Locked guarded mappings preserve the lock state when they grow. Guard pages are
@@ -1310,14 +1317,14 @@ use sanitization::SealedSecretBytes;
 let mut key = SealedSecretBytes::<32>::from_array([7; 32]).unwrap();
 assert!(key.is_sealed());
 
-let first = key.with_secret(|bytes| bytes[0]).unwrap();
+let first = key.try_with_secret(|bytes| bytes[0]).unwrap();
 assert_eq!(first, 7);
 assert!(key.is_sealed());
 
-key.with_secret_mut(|bytes| bytes[0] = 9).unwrap();
+key.try_with_secret_mut(|bytes| bytes[0] = 9).unwrap();
 let mut expected = [7; 32];
 expected[0] = 9;
-assert_eq!(key.constant_time_eq(&expected), Ok(true));
+assert_eq!(key.try_constant_time_eq(&expected), Ok(true));
 ```
 
 Every access requires `&mut self`. The implementation temporarily changes the
@@ -1896,7 +1903,7 @@ assert!(key.constant_time_eq(&[0; 32]));
 With `alloc`, `cache_flush_sanitize_vec` and `cache_flush_sanitize_string`
 clear the full allocation capacity before flushing the allocation's cache
 lines. With both `guard-pages` and `cache-flush`, `GuardedSecretVec` also
-provides checked `clear_secret_and_flush` for its full writable data region.
+provides `try_clear_secret_and_flush` for its full writable data region.
 On x86_64, the backend checks CPUID `CLFSH`, obtains and validates the reported
 line size, uses overflow-checked range arithmetic, and reports the bytes and
 cache lines covered. Unsupported CPUs, architectures, and Miri return
@@ -1916,8 +1923,10 @@ comparisons to cross an explicit compiler boundary:
 sanitization = { version = "2.0.0", features = ["asm-compare"] }
 ```
 
-The public API does not change. `SecretBytes<N>`, `SecretVec`, `SecretString`,
-and `LockedSecretBytes<N>` still use their normal `constant_time_eq` methods.
+The comparison implementation changes without changing each type's API shape.
+Owned `SecretBytes<N>`, `SecretVec`, and `SecretString` use
+`constant_time_eq`; mapped `LockedSecretBytes<N>` uses
+`try_constant_time_eq` because integrity verification can fail.
 Length mismatch remains public metadata and returns immediately. Unsupported
 targets, Miri, and builds without `asm-compare` use the portable Rust fallback.
 The portable fallback is designed to avoid data-dependent early exit, but it is

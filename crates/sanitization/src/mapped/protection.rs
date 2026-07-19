@@ -73,7 +73,7 @@ impl<E> SecretIntegrityError<E> {
 /// let key = LockedSecretBytes::<4>::from_array([1, 2, 3, 4])
 ///     .expect("test environment permits memory locking");
 /// let parsed = key
-///     .expose_secret(|bytes| bytes.first().copied().ok_or("empty key"))
+///     .try_expose_secret(|bytes| bytes.first().copied().ok_or("empty key"))
 ///     .flatten_secret_integrity()?;
 /// assert_eq!(parsed, 1);
 /// # Ok(())

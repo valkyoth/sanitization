@@ -2,6 +2,11 @@
 
 ## 2.0.0
 
+- Renamed checked mapped-container operations to a consistent `try_*` surface,
+  removed redundant `*_checked` aliases, and reserved `*_or_panic` for explicit
+  fail-stop policy.
+- Distinguished infallible generation callbacks from fallible callbacks with
+  `try_replace_from_*` and `try_replace_from_fallible_*` operation families.
 - Renamed public-backing CT state to `PublicCtOption` and `PublicCtResult` so
   copyable/unredacted backing data carries an explicit public classification.
 - Rejected all `SecureSanitize` enum derives; inactive variant bytes cannot be

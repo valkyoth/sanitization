@@ -51,8 +51,8 @@ Direct borrowing and temporary-copy exposure now have distinct names:
 | `SecretBytes::expose_secret_volatile` | `export_secret_copy(reason, ...)` | Explicitly creates and clears a reason-bearing stack copy. |
 | `ExpiringSecretBytes::try_expose_secret_volatile` | `try_export_secret_copy(reason, ...)` | Expiration-checked temporary copy. |
 | `MonotonicExpiringSecretBytes::try_expose_secret_volatile` | `try_export_secret_copy(reason, ...)` | Counter-checked temporary copy. |
-| `LockedSecretBytes::with_secret` | `expose_secret` | Direct protected-storage exposure after integrity checks. |
-| `SecretPoolSlot::with_secret` | `expose_secret` | Direct pooled-storage exposure after integrity checks. |
+| `LockedSecretBytes::with_secret` | `try_expose_secret` | Checked direct protected-storage exposure. |
+| `SecretPoolSlot::with_secret` | `try_expose_secret` | Checked direct pooled-storage exposure. |
 
 Prefer direct exposure:
 
@@ -64,7 +64,7 @@ let marker = key.expose_secret(|bytes| bytes[0]);
 assert_eq!(marker, 7);
 ```
 
-Use `expose_secret_copy` only when an external API requires independent
+Use `try_expose_secret_copy` only when an external API requires independent
 storage. Split-secret storage cannot expose contiguous owned plaintext and
 therefore retains only explicit reconstruction/copy APIs.
 
@@ -266,6 +266,14 @@ slots, and guarded bytes/strings.
 | `GuardedSecretVec` | exposure, mutation, extension, replacement, comparison, and clear-and-flush |
 | `GuardedSecretString` | exposure, mutation, append, replacement, comparison, and clear-and-flush |
 
+All checked mapped operations now begin with `try_`; for example,
+`expose_secret` becomes `try_expose_secret`, `constant_time_eq` becomes
+`try_constant_time_eq`, and `clear_secret_and_flush` becomes
+`try_clear_secret_and_flush`. The redundant `*_checked` aliases were removed.
+Where the supplied generator or fill callback can itself fail, use the
+`try_replace_from_fallible_*` family. Explicit `*_or_panic` helpers remain for
+applications that intentionally choose fail-stop behavior.
+
 The exact error depends on whether the operation can also fail for a length,
 capacity, UTF-8, mapping, or cache-flush reason. Propagate the returned
 `Result`, or match `SecretIntegrityError::Canary` separately from
@@ -288,8 +296,8 @@ text and application-error patterns.
 use sanitization::LockedSecretBytes;
 
 let mut key = LockedSecretBytes::<4>::zeroed()?;
-key.copy_from_slice(&[1, 2, 3, 4])?;
-let first = key.expose_secret(|bytes| bytes[0])?;
+key.try_copy_from_slice(&[1, 2, 3, 4])?;
+let first = key.try_expose_secret(|bytes| bytes[0])?;
 assert_eq!(first, 1);
 # Ok::<(), Box<dyn std::error::Error>>(())
 # }

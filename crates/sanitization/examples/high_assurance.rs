@@ -42,11 +42,11 @@ fn main() {
     ))]
     {
         let mut key = LockedSecretBytes::<32>::from_fn(|_| 9).unwrap();
-        assert_eq!(key.constant_time_eq(&[9; 32]), Ok(true));
-        key.replace_from_array([8; 32]).unwrap();
-        key.try_replace_from_fn(|_| Ok::<u8, &'static str>(7))
+        assert_eq!(key.try_constant_time_eq(&[9; 32]), Ok(true));
+        key.try_replace_from_array([8; 32]).unwrap();
+        key.try_replace_from_fallible_fn(|_| Ok::<u8, &'static str>(7))
             .unwrap();
-        assert_eq!(key.constant_time_eq(&[7; 32]), Ok(true));
+        assert_eq!(key.try_constant_time_eq(&[7; 32]), Ok(true));
         key.into_cleared();
     }
 
@@ -58,8 +58,8 @@ fn main() {
     ))]
     {
         let mut token = LockedSecretString::from_secret_str("session-token").unwrap();
-        token.push_str("-v2").unwrap();
-        assert_eq!(token.constant_time_eq("session-token-v2"), Ok(true));
+        token.try_push_str("-v2").unwrap();
+        assert_eq!(token.try_constant_time_eq("session-token-v2"), Ok(true));
     }
 
     #[cfg(feature = "cache-flush")]
@@ -82,20 +82,22 @@ fn main() {
     ))]
     {
         let mut token = GuardedSecretVec::from_slice(b"session-key").unwrap();
-        token.extend_from_slice(b"-v2").unwrap();
-        assert_eq!(token.with_secret(|bytes| bytes.len()), Ok(14));
+        token.try_extend_from_slice(b"-v2").unwrap();
+        assert_eq!(token.try_with_secret(|bytes| bytes.len()), Ok(14));
         token
-            .replace_from_fn(11, |index| b"session-key"[index])
+            .try_replace_from_fn(11, |index| b"session-key"[index])
             .unwrap();
         token
-            .try_replace_from_fn(12, |index| Ok::<u8, &'static str>(b"session-key!"[index]))
+            .try_replace_from_fallible_fn(12, |index| {
+                Ok::<u8, &'static str>(b"session-key!"[index])
+            })
             .unwrap();
-        assert_eq!(token.constant_time_eq(b"session-key!"), Ok(true));
+        assert_eq!(token.try_constant_time_eq(b"session-key!"), Ok(true));
         token.into_cleared();
 
         let mut text = GuardedSecretString::from_secret_str("session-token").unwrap();
-        text.push_str("-v2").unwrap();
-        assert_eq!(text.constant_time_eq("session-token-v2"), Ok(true));
+        text.try_push_str("-v2").unwrap();
+        assert_eq!(text.try_constant_time_eq("session-token-v2"), Ok(true));
     }
 
     #[cfg(all(
@@ -109,11 +111,13 @@ fn main() {
         let mut token =
             GuardedSecretVec::locked_from_fn(11, |index| b"session-key"[index]).unwrap();
         assert!(token.is_memory_locked());
-        assert_eq!(token.constant_time_eq(b"session-key"), Ok(true));
+        assert_eq!(token.try_constant_time_eq(b"session-key"), Ok(true));
         token
-            .try_replace_from_fn(12, |index| Ok::<u8, &'static str>(b"session-key!"[index]))
+            .try_replace_from_fallible_fn(12, |index| {
+                Ok::<u8, &'static str>(b"session-key!"[index])
+            })
             .unwrap();
         assert!(token.is_memory_locked());
-        assert_eq!(token.constant_time_eq(b"session-key!"), Ok(true));
+        assert_eq!(token.try_constant_time_eq(b"session-key!"), Ok(true));
     }
 }

@@ -463,7 +463,7 @@ Operation:
   boundary with checked end-address arithmetic.
 - The module executes `clflush` for every covered cache line, followed by
   `mfence`.
-- `GuardedSecretVec::clear_secret_and_flush` clears the full writable data
+- `GuardedSecretVec::try_clear_secret_and_flush` clears the full writable data
   region before flushing the cache lines covering that same region.
 - Unsupported CPUs, architectures, and Miri expose the checked API but do not
   execute `clflush`.
@@ -520,7 +520,7 @@ Operations:
   payload. Public payload pointers are offset past the prefix canary. Exposure,
   mutation, growth, replacement, and comparison verify both canaries before
   reading or modifying the secret payload.
-- `replace_from_slice` either clears the current writable region before
+- `try_replace_from_slice` either clears the current writable region before
   in-place replacement, or creates a new guarded mapping with the same lock
   state and clears the old mapping before it is unmapped.
 - Generated replacement creates a new guarded mapping with the same lock state
@@ -636,7 +636,7 @@ The unsafe boundary is intentionally small:
 ## Safe Temporary Buffers
 
 `SecretBytes::replace_from_array`, `ExpiringSecretBytes::replace_from_array`,
-and `LockedSecretBytes::replace_from_array` take ownership of a `[u8; N]`,
+and `LockedSecretBytes::try_replace_from_array` take ownership of a `[u8; N]`,
 copy it into the target secret storage, and clear the owned input array with
 the volatile wipe backend. Locked array replacement uses a fresh locked mapping;
 if mapping setup fails, the owned input array is still cleared and the old

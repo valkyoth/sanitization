@@ -6,6 +6,11 @@ mutation, replacement, comparison, and cache operations still return `Result`.
 This prevents enabling a hardening feature from changing downstream function
 signatures.
 
+These checked operations use a `try_*` prefix. Explicit `*_or_panic` helpers
+encode a deliberate fail-stop application policy; libraries should normally
+propagate or map the checked result. Constructors retain conventional Rust
+names such as `from_slice` and `zeroed` even though platform setup can fail.
+
 The crate deliberately does not combine integrity, capacity, UTF-8, generator,
 mapping, and cache failures into one global error enum. Those errors have
 different recovery policies and not every application enables every facility.
@@ -32,7 +37,7 @@ fn parse_key(bytes: &[u8; 32]) -> Result<u8, &'static str> {
 fn read_key(
     key: &LockedSecretBytes<32>,
 ) -> SecretIntegrityResult<u8, &'static str> {
-    key.expose_secret(parse_key).flatten_secret_integrity()
+    key.try_expose_secret(parse_key).flatten_secret_integrity()
 }
 
 let key = LockedSecretBytes::<32>::from_array([7; 32])?;

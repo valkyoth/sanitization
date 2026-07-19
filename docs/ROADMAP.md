@@ -333,9 +333,9 @@ Implemented dynamic rotation helpers:
 - `SecretBytes::try_replace_from_fn`;
 - `SecretBytes::into_cleared`;
 - `LockedSecretBytes::try_from_fn`;
-- `LockedSecretBytes::replace_from_array`;
-- `LockedSecretBytes::replace_from_slice`;
-- `LockedSecretBytes::replace_from_fn`;
+- `LockedSecretBytes::try_replace_from_array`;
+- `LockedSecretBytes::try_replace_from_slice`;
+- `LockedSecretBytes::try_replace_from_fn`;
 - `LockedSecretBytes::try_replace_from_fn`;
 - `LockedSecretBytes::into_cleared`;
 - `SecretVec::default`;
@@ -353,7 +353,7 @@ Implemented dynamic rotation helpers:
 - `ExpiringSecretBytes::into_cleared`;
 - `GuardedSecretVec::try_from_fn`;
 - `GuardedSecretVec::locked_try_from_fn`;
-- `GuardedSecretVec::replace_from_fn`;
+- `GuardedSecretVec::try_replace_from_fn`;
 - `GuardedSecretVec::try_replace_from_fn`;
 - `GuardedSecretVec::into_cleared`;
 - `SecretString::default`;
@@ -579,7 +579,7 @@ Current implementation:
   skipping the wipe performed by sanitizing helpers.
 - `SecretBytes<N>`, `SecretVec`, `SecretString`, and `LockedSecretBytes<N>`
   have explicit clear-and-flush methods when the feature is available.
-- `GuardedSecretVec` also has checked `clear_secret_and_flush` when both
+- `GuardedSecretVec` also has `try_clear_secret_and_flush` when both
   `guard-pages` and `cache-flush` are enabled.
 
 Remaining work:

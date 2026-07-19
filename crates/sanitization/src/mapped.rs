@@ -276,7 +276,7 @@ impl LockedSecretString {
         mut inner: LockedSecretVec,
     ) -> Result<Self, SecretTextIntegrityError> {
         let valid = inner
-            .with_secret(|bytes| core::str::from_utf8(bytes).map(|_| ()))
+            .try_with_secret(|bytes| core::str::from_utf8(bytes).map(|_| ()))
             .map_err(SecretTextIntegrityError::Canary)?;
         if let Err(error) = valid {
             inner.clear_secret();
@@ -327,7 +327,7 @@ impl LockedSecretString {
         inspect: impl FnOnce(&str) -> R,
     ) -> Result<R, SecretTextIntegrityError> {
         self.inner
-            .with_secret(|bytes| core::str::from_utf8(bytes).map(inspect))
+            .try_with_secret(|bytes| core::str::from_utf8(bytes).map(inspect))
             .map_err(SecretTextIntegrityError::Canary)?
             .map_err(SecretTextIntegrityError::Utf8)
     }
@@ -339,47 +339,52 @@ impl LockedSecretString {
         edit: impl FnOnce(&mut str) -> R,
     ) -> Result<R, SecretTextIntegrityError> {
         self.inner
-            .with_secret_mut(|bytes| core::str::from_utf8_mut(bytes).map(edit))
+            .try_with_secret_mut(|bytes| core::str::from_utf8_mut(bytes).map(edit))
             .map_err(SecretTextIntegrityError::Canary)?
             .map_err(SecretTextIntegrityError::Utf8)
     }
 
-    /// Compatibility alias for [`LockedSecretString::try_with_secret`].
+    /// Run a closure with shared access, panicking on integrity or UTF-8 failure.
     #[inline]
-    pub fn expose_secret_checked<R>(
-        &self,
-        inspect: impl FnOnce(&str) -> R,
-    ) -> Result<R, SecretTextIntegrityError> {
-        self.inner
-            .expose_secret_checked(|bytes| core::str::from_utf8(bytes).map(inspect))
-            .map_err(SecretTextIntegrityError::Canary)?
-            .map_err(SecretTextIntegrityError::Utf8)
+    pub fn with_secret_or_panic<R>(&self, inspect: impl FnOnce(&str) -> R) -> R {
+        self.try_with_secret(inspect)
+            .unwrap_or_else(|_| panic!("locked secret text access failed"))
+    }
+
+    /// Run a closure with mutable access, panicking on integrity or UTF-8 failure.
+    #[inline]
+    pub fn with_secret_mut_or_panic<R>(&mut self, edit: impl FnOnce(&mut str) -> R) -> R {
+        self.try_with_secret_mut(edit)
+            .unwrap_or_else(|_| panic!("locked secret text mutation failed"))
     }
 
     /// Append UTF-8 text, preserving locked storage across growth.
     #[inline]
-    pub fn push_str(&mut self, text: &str) -> Result<(), SecretIntegrityError<MemoryLockError>> {
-        self.inner.extend_from_slice(text.as_bytes())
+    pub fn try_push_str(
+        &mut self,
+        text: &str,
+    ) -> Result<(), SecretIntegrityError<MemoryLockError>> {
+        self.inner.try_extend_from_slice(text.as_bytes())
     }
 
     /// Replace all text while preserving locked-storage semantics.
     #[inline]
-    pub fn replace_from_secret_str(
+    pub fn try_replace_from_secret_str(
         &mut self,
         text: &str,
     ) -> Result<(), SecretIntegrityError<MemoryLockError>> {
-        self.inner.replace_from_slice(text.as_bytes())
+        self.inner.try_replace_from_slice(text.as_bytes())
     }
 
     /// Replace all text from an owned string and clear the source allocation.
     #[cfg(feature = "alloc")]
     #[inline]
-    pub fn replace_from_string(
+    pub fn try_replace_from_string(
         &mut self,
         text: String,
     ) -> Result<(), SecretIntegrityError<MemoryLockError>> {
         let source = SecretString::from_string(text);
-        self.inner.replace_from_slice(source.inner.as_slice())
+        self.inner.try_replace_from_slice(source.inner.as_slice())
     }
 
     /// Clear the full locked mapping and reset the text length.
@@ -391,23 +396,23 @@ impl LockedSecretString {
     /// Clear the locked mapping, then flush its cache lines.
     #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn clear_secret_and_flush(
+    pub fn try_clear_secret_and_flush(
         &mut self,
     ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
-        self.inner.clear_secret_and_flush()
+        self.inner.try_clear_secret_and_flush()
     }
 
     /// Compare against UTF-8 text without early exit for equal-length inputs.
     #[inline]
-    pub fn constant_time_eq(&self, other: &str) -> Result<bool, CanaryCorruptedError> {
-        self.inner.constant_time_eq(other.as_bytes())
+    pub fn try_constant_time_eq(&self, other: &str) -> Result<bool, CanaryCorruptedError> {
+        self.inner.try_constant_time_eq(other.as_bytes())
     }
 
     /// Compare after integrity verification, panicking on canary corruption.
     #[must_use]
     #[inline]
     pub fn constant_time_eq_or_panic(&self, other: &str) -> bool {
-        self.constant_time_eq(other)
+        self.try_constant_time_eq(other)
             .expect("locked secret canary corrupted")
     }
 
@@ -632,7 +637,7 @@ impl GuardedSecretString {
         mut inner: GuardedSecretVec,
     ) -> Result<Self, SecretTextIntegrityError> {
         let valid = inner
-            .with_secret(|bytes| core::str::from_utf8(bytes).map(|_| ()))
+            .try_with_secret(|bytes| core::str::from_utf8(bytes).map(|_| ()))
             .map_err(SecretTextIntegrityError::Canary)?;
         if let Err(error) = valid {
             inner.clear_secret();
@@ -683,7 +688,7 @@ impl GuardedSecretString {
         inspect: impl FnOnce(&str) -> R,
     ) -> Result<R, SecretTextIntegrityError> {
         self.inner
-            .with_secret(|bytes| core::str::from_utf8(bytes).map(inspect))
+            .try_with_secret(|bytes| core::str::from_utf8(bytes).map(inspect))
             .map_err(SecretTextIntegrityError::Canary)?
             .map_err(SecretTextIntegrityError::Utf8)
     }
@@ -695,47 +700,49 @@ impl GuardedSecretString {
         edit: impl FnOnce(&mut str) -> R,
     ) -> Result<R, SecretTextIntegrityError> {
         self.inner
-            .with_secret_mut(|bytes| core::str::from_utf8_mut(bytes).map(edit))
+            .try_with_secret_mut(|bytes| core::str::from_utf8_mut(bytes).map(edit))
             .map_err(SecretTextIntegrityError::Canary)?
             .map_err(SecretTextIntegrityError::Utf8)
     }
 
-    /// Compatibility alias for [`GuardedSecretString::try_with_secret`].
+    /// Run a closure with shared access, panicking on integrity or UTF-8 failure.
     #[inline]
-    pub fn expose_secret_checked<R>(
-        &self,
-        inspect: impl FnOnce(&str) -> R,
-    ) -> Result<R, SecretTextIntegrityError> {
-        self.inner
-            .expose_secret_checked(|bytes| core::str::from_utf8(bytes).map(inspect))
-            .map_err(SecretTextIntegrityError::Canary)?
-            .map_err(SecretTextIntegrityError::Utf8)
+    pub fn with_secret_or_panic<R>(&self, inspect: impl FnOnce(&str) -> R) -> R {
+        self.try_with_secret(inspect)
+            .unwrap_or_else(|_| panic!("guarded secret text access failed"))
+    }
+
+    /// Run a closure with mutable access, panicking on integrity or UTF-8 failure.
+    #[inline]
+    pub fn with_secret_mut_or_panic<R>(&mut self, edit: impl FnOnce(&mut str) -> R) -> R {
+        self.try_with_secret_mut(edit)
+            .unwrap_or_else(|_| panic!("guarded secret text mutation failed"))
     }
 
     /// Append UTF-8 text, preserving guarded and lock-state semantics.
     #[inline]
-    pub fn push_str(&mut self, text: &str) -> Result<(), SecretIntegrityError<GuardPageError>> {
-        self.inner.extend_from_slice(text.as_bytes())
+    pub fn try_push_str(&mut self, text: &str) -> Result<(), SecretIntegrityError<GuardPageError>> {
+        self.inner.try_extend_from_slice(text.as_bytes())
     }
 
     /// Replace all text while preserving guarded and lock-state semantics.
     #[inline]
-    pub fn replace_from_secret_str(
+    pub fn try_replace_from_secret_str(
         &mut self,
         text: &str,
     ) -> Result<(), SecretIntegrityError<GuardPageError>> {
-        self.inner.replace_from_slice(text.as_bytes())
+        self.inner.try_replace_from_slice(text.as_bytes())
     }
 
     /// Replace all text from an owned string and clear the source allocation.
     #[cfg(feature = "alloc")]
     #[inline]
-    pub fn replace_from_string(
+    pub fn try_replace_from_string(
         &mut self,
         text: String,
     ) -> Result<(), SecretIntegrityError<GuardPageError>> {
         let source = SecretString::from_string(text);
-        self.inner.replace_from_slice(source.inner.as_slice())
+        self.inner.try_replace_from_slice(source.inner.as_slice())
     }
 
     /// Clear the full writable guarded region and reset the text length.
@@ -747,23 +754,23 @@ impl GuardedSecretString {
     /// Clear the writable guarded region, then flush its cache lines.
     #[cfg(feature = "cache-flush")]
     #[inline(never)]
-    pub fn clear_secret_and_flush(
+    pub fn try_clear_secret_and_flush(
         &mut self,
     ) -> Result<crate::cache_flush::CacheFlushReport, crate::cache_flush::CacheFlushError> {
-        self.inner.clear_secret_and_flush()
+        self.inner.try_clear_secret_and_flush()
     }
 
     /// Compare against UTF-8 text without early exit for equal-length inputs.
     #[inline]
-    pub fn constant_time_eq(&self, other: &str) -> Result<bool, CanaryCorruptedError> {
-        self.inner.constant_time_eq(other.as_bytes())
+    pub fn try_constant_time_eq(&self, other: &str) -> Result<bool, CanaryCorruptedError> {
+        self.inner.try_constant_time_eq(other.as_bytes())
     }
 
     /// Compare after integrity verification, panicking on canary corruption.
     #[must_use]
     #[inline]
     pub fn constant_time_eq_or_panic(&self, other: &str) -> bool {
-        self.constant_time_eq(other)
+        self.try_constant_time_eq(other)
             .expect("guarded secret canary corrupted")
     }
 

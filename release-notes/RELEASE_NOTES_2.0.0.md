@@ -7,6 +7,10 @@ protection outcomes more explicit and fail-closed.
 
 ## Ownership And Exposure
 
+- Renamed checked mapped-container operations to `try_*`, removed redundant
+  `*_checked` aliases, and kept `*_or_panic` only for deliberate fail-stop
+  application policy. Fallible generator callbacks use explicit
+  `try_replace_from_fallible_*` names.
 - Added `StableSharedSecretStorage` and `StableMutableSecretStorage` contracts.
   Generic `Secret<T>` exposure now requires an explicit storage-stability
   attestation covering safe shared access, interior mutation, mutable access,
