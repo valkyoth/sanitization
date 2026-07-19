@@ -19,6 +19,11 @@ snapshots were recaptured through the source checkpoint recorded in
 validation do not change the rustdoc API surface and are covered by dedicated
 compile-failure gates.
 
+Before the final main-branch review, the derive dependency stack was refreshed
+to `syn 3.0.0`, `proc-macro2 1.0.107`, and `quote 1.0.47`. This major proc-macro
+parser update requires the complete derive pass/fail matrix and downstream
+migration tests to pass; it does not replace the final external review.
+
 ## Semver Results
 
 Every normal library target was checked against `v1.2.5` under both an assumed

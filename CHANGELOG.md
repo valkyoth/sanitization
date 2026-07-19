@@ -2,6 +2,9 @@
 
 ## 2.0.0
 
+- Updated the derive stack to `syn 3.0.0`, `proc-macro2 1.0.107`, and
+  `quote 1.0.47`; updated serde to `1.0.229` and the evidence workflow to
+  `actions/upload-artifact v7.0.1`.
 - Reworked the README into progressive essential, protected, and advanced
   levels, with separate feature and advanced-usage references.
 - Added reason-bearing `declassified_eq_fixed`, `declassified_cmp_fixed`, and
