@@ -109,6 +109,13 @@ Memory locking reduces swap/pagefile exposure for the crate's owned locked
 storage when the OS accepts the lock. It does not make RAM unreadable to the OS
 or to privileged attackers.
 
+The crate cannot force destructors to run after `SIGKILL`, aborting OOM,
+`panic = "abort"`, `process::abort`, `mem::forget`, `Box::leak`, or
+`ManuallyDrop` misuse. The supplied storage-policy lint can reject the latter
+three source patterns inside application-designated sensitive roots, but the
+application controls those roots and exemptions. See
+`docs/DEPLOYMENT_HARDENING.md` for the deployment responsibility matrix.
+
 A compiled feature or successful mapping allocation does not prove that every
 requested control was established. Callers must inspect `ProtectionReport`.
 Even a report showing established locking, dump exclusion, an exclude or
@@ -156,6 +163,12 @@ closure is running. The closure may copy or export bytes, trigger signals, call
 unsafe reentry paths, or abort the process before the unwind guard runs.
 No-access page protection does not stop privileged remapping, kernel or
 hypervisor access, DMA, hibernation, or external copies.
+
+Canaries are corruption detectors, not memory authentication. Pre/post checks
+can observe adjacent damage before or after normal scoped access, but cannot
+prevent arbitrary modification by an attacker who can also rewrite owner
+metadata. Keeping a MAC key in the same compromised process does not close that
+gap.
 
 If `Drop` cannot change an already sealed page back to read/write, it cannot
 perform the normal volatile clear and instead attempts to unlock and release

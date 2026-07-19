@@ -94,6 +94,10 @@ checked direct initialization for an already-created locked fixed-size mapping,
 with pre/post canary verification and typed callback failure. These are
 corrections to unreleased fallibility and integrity guarantees, and both source
 and semantic snapshots must be refreshed before the next freeze review.
+The latest close-out hardening adds normal-return post-exposure canary checks,
+persistent poison state for standalone mapped owners, destructor-bypass and
+discarded-result source gates, and a deployment responsibility matrix. These
+changes do not replace the required fresh full-range review.
 These changes refine unreleased 2.0 contracts rather than silently modifying a
 published API.
 

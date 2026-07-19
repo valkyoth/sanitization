@@ -13,6 +13,16 @@
       "command": "scripts/test-declassification-reasons.py"
     },
     {
+      "name": "fail-closed-initialization-lint",
+      "claim": "Production secret-storage source does not discard try_* initialization results or call the lossy pool allocate() shape.",
+      "command": "scripts/lint-fail-closed-initialization.py --root crates/sanitization/src --exclude-file crates/sanitization/src/tests.rs"
+    },
+    {
+      "name": "fail-closed-initialization-lint-fixtures",
+      "claim": "The initialization lint accepts checked propagation and rejects discarded try_* results and lossy pool allocation.",
+      "command": "scripts/test-fail-closed-initialization-lint.py"
+    },
+    {
       "name": "path-specific-codegen",
       "claim": "Public secret and CT paths reach the reviewed backend without forbidden substitutions.",
       "command": "scripts/verify-codegen.sh"

@@ -199,7 +199,8 @@ With the `canary-check` feature, non-empty `LockedSecretBytes<N>` mappings,
 canary before and after the secret bytes. `GuardedSecretVec` places one canary
 before the payload and one immediately after the initialized payload. Exposure,
 mutation, replacement, and comparison APIs verify both canaries before reading
-or modifying the secret. Ordinary APIs clear the mapping or slot and return
+or modifying the secret. Scoped exposure APIs also verify them after the
+closure returns normally. Ordinary APIs clear the mapping or slot and return
 `CanaryCorruptedError` or `SecretIntegrityError`; explicitly named
 `_or_panic` helpers preserve panic-on-corruption behavior. This can detect overwrites
 that stay inside the writable mapping but reach the canary words, including
@@ -361,7 +362,9 @@ limit. For many same-size secrets on an untrusted or high-volume path,
 pre-allocate a bounded `SecretPool<N, SLOTS>` during trusted startup and treat
 pool exhaustion as an explicit availability policy.
 
-Canary corruption clears and permanently quarantines the affected pool slot,
+Canary corruption clears and permanently poisons standalone locked or guarded
+owners. Rewriting canaries during a later clear does not make those owners
+usable again. Pool corruption clears and permanently quarantines the affected slot,
 reducing usable capacity until the pool is replaced. `quarantined_slots()` and
 `arena_report().quarantined_slots` expose only aggregate public telemetry so an
 application can reject service or terminate under its own policy. They do not
@@ -372,6 +375,11 @@ pooled canaries. They do not prevent a privileged attacker from modifying
 metadata, are not unforgeable tokens, and eventually wrap. The safe stale-handle
 defense is the lifetime-bound non-clone slot handle plus the atomic allocation
 bitmap.
+
+Operational controls for abort paths, destructor bypass, privileged attackers,
+WASM, swap/hibernation, and canary response are separated by responsibility in
+`docs/DEPLOYMENT_HARDENING.md`. Those controls do not expand the library's
+claims against a compromised kernel or process.
 
 `arena_report()` helps operators compare payload capacity with reserved,
 mapped, and locked bytes. It does not read `RLIMIT_MEMLOCK`, Windows working-set

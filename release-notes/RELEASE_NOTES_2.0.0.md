@@ -102,6 +102,9 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
 - Made pool integrity failure clear and permanently quarantine the affected
   slot. Added aggregate quarantine telemetry without exposing addresses,
   canary values, or secret bytes.
+- Added pre/post integrity verification around normal mapped exposure and
+  persistent poison state for standalone locked and guarded owners. Clearing
+  physical canary words no longer makes a corrupted owner reusable.
 - Added opt-in `SealedSecretBytes<N>` with guard pages, fallible page sealing,
   poisoning/retirement after unsafe transition failures, and multi-page fault
   recovery tests. This remains a reviewed optional facility with documented
@@ -123,7 +126,8 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
   every detailed report field.
 - Added a dependency-free downstream storage-policy lint and compile-checked
   private-policy example. Sensitive roots can reject direct `Secret<T>`,
-  marker impls outside approved files, and public policy types in CI.
+  marker impls outside approved files, public policy types, and destructor
+  bypass through `mem::forget`, `Box::leak`, or `ManuallyDrop` in CI.
 
 ## Verification And Release Evidence
 
@@ -147,6 +151,12 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
 - Added a CI declassification-reason lint with fail-closed fixtures. Consumer
   call sites must use meaningful direct literals rather than dynamic or
   placeholder labels; human review remains authoritative.
+- Added a fail-closed initialization lint that rejects discarded `try_*`
+  results and lossy pool allocation in production source, with negative
+  fixtures for both classes.
+- Added a deployment-hardening responsibility matrix covering abort behavior,
+  private policy gates, native protection reports, privileged attackers, WASM,
+  canary response, swap/hibernation, and explicit cleanup.
 - Added reason-bearing high-level CT helpers for final fixed equality, fixed
   ordering, and public-length equality decisions while retaining low-level
   `Choice` and `CtOrdering` composition APIs.

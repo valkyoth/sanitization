@@ -6,6 +6,9 @@ use core::{
     sync::atomic::{compiler_fence, Ordering},
 };
 
+#[cfg(feature = "canary-check")]
+use core::cell::Cell;
+
 use super::{
     CanaryCorruptedError, ForkPolicy, ForkProtectionRequest, ProtectionControl, ProtectionError,
     ProtectionFailure, ProtectionReport, ProtectionRequest, ProtectionState, Requirement,
@@ -520,6 +523,8 @@ pub struct GuardedSecretVec {
     locked: bool,
     request: ProtectionRequest,
     report: ProtectionReport,
+    #[cfg(feature = "canary-check")]
+    poisoned: Cell<bool>,
     #[cfg(feature = "random-canary")]
     canary: [u8; CANARY_SIZE],
 }
@@ -700,6 +705,8 @@ impl GuardedSecretVec {
             locked,
             request,
             report,
+            #[cfg(feature = "canary-check")]
+            poisoned: Cell::new(false),
             #[cfg(feature = "random-canary")]
             canary,
         };
@@ -842,7 +849,9 @@ impl GuardedSecretVec {
         inspect: impl FnOnce(&[u8]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
-        Ok(inspect(self.as_slice()))
+        let result = inspect(self.as_slice());
+        self.verify_integrity()?;
+        Ok(result)
     }
 
     /// Run a closure with mutable access to initialized secret bytes.
@@ -852,7 +861,10 @@ impl GuardedSecretVec {
         edit: impl FnOnce(&mut [u8]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
-        Ok(edit(self.as_mut_slice()))
+        let result = edit(self.as_mut_slice());
+        compiler_fence(Ordering::SeqCst);
+        self.verify_integrity()?;
+        Ok(result)
     }
 
     /// Append bytes, growing into a new guarded mapping if needed.
@@ -1010,7 +1022,7 @@ impl GuardedSecretVec {
         }
         #[cfg(feature = "canary-check")]
         {
-            if self.canaries_intact() {
+            if !self.poisoned.get() && self.canaries_intact() {
                 Ok(())
             } else {
                 self.clear_after_canary_failure();
@@ -1221,6 +1233,7 @@ impl GuardedSecretVec {
     #[cfg(feature = "canary-check")]
     #[inline]
     fn clear_after_canary_failure(&self) {
+        self.poisoned.set(true);
         // Fail-closed clearing intentionally mutates the owned guarded
         // mapping through `&self`. `GuardedSecretVec` is `Send` but not
         // `Sync`, so safe code cannot run this concurrently through shared
@@ -1670,6 +1683,8 @@ impl<const N: usize> SealedSecretBytes<N> {
             };
         }
 
+        let integrity_result = self.inner.verify_integrity().map_err(Into::into);
+
         #[cfg(test)]
         let seal_result = if core::mem::take(&mut self.fail_next_seal) {
             match simulate_partial_transition(
@@ -1692,7 +1707,7 @@ impl<const N: usize> SealedSecretBytes<N> {
         match seal_result {
             Ok(()) => {
                 self.state = SealedState::Sealed;
-                Ok(())
+                integrity_result
             }
             Err(error) => {
                 self.retire_after_transition_failure();

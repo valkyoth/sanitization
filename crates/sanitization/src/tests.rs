@@ -3993,16 +3993,14 @@ fn sealed_secret_explicit_close_reports_unmap_failure() {
 #[test]
 fn sealed_secret_bytes_fail_closed_on_canary_corruption() {
     let mut secret = SealedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
-    secret.corrupt_canary_for_test().unwrap();
-
     assert_eq!(
-        secret.try_with_secret(|_| ()),
+        secret.corrupt_canary_for_test(),
         Err(SealedSecretAccessError::Canary(CanaryCorruptedError))
     );
     assert!(secret.is_sealed());
     assert_eq!(
-        secret.try_with_secret(|bytes| *bytes).unwrap(),
-        [0, 0, 0, 0]
+        secret.try_with_secret(|_| ()),
+        Err(SealedSecretAccessError::Canary(CanaryCorruptedError))
     );
 }
 
@@ -4547,6 +4545,8 @@ fn locked_secret_vec_canaries_detect_corruption() {
         secret.try_constant_time_eq(b"secret"),
         Err(CanaryCorruptedError)
     );
+    secret.clear_secret();
+    assert_eq!(secret.verify_integrity(), Err(CanaryCorruptedError));
 }
 
 #[cfg(all(
@@ -4626,6 +4626,8 @@ fn locked_secret_canary_checked_apis_detect_corruption() {
         secret.try_constant_time_eq(&[1, 2, 3, 4]),
         Err(CanaryCorruptedError)
     );
+    secret.secure_clear();
+    assert_eq!(secret.verify_integrity(), Err(CanaryCorruptedError));
 }
 
 #[cfg(all(
@@ -4835,6 +4837,31 @@ fn mapped_initializers_preserve_injected_csprng_failures() {
     ));
     assert_eq!(locked_input, [0; 4]);
 
+    let infallible_fill_ran = core::cell::Cell::new(false);
+    crate::canary::fail_next_fill_for_test();
+    assert!(matches!(
+        LockedSecretBytes::<4>::from_fill(|_| infallible_fill_ran.set(true)),
+        Err(LockedSecretInitError::Allocation(MemoryLockError {
+            operation: MemoryLockOperation::Random,
+            errno: -3,
+        }))
+    ));
+    assert!(!infallible_fill_ran.get());
+
+    let fallible_fill_ran = core::cell::Cell::new(false);
+    crate::canary::fail_next_fill_for_test();
+    assert!(matches!(
+        LockedSecretBytes::<4>::try_from_fill(|_| {
+            fallible_fill_ran.set(true);
+            Ok::<(), &'static str>(())
+        }),
+        Err(LockedSecretBytesFillError::Memory(MemoryLockError {
+            operation: MemoryLockOperation::Random,
+            errno: -3,
+        }))
+    ));
+    assert!(!fallible_fill_ran.get());
+
     let pool = match SecretPool::<4, 1>::new() {
         Ok(pool) => pool,
         Err(_) => return,
@@ -5015,6 +5042,8 @@ fn secret_pool_slot_canaries_detect_corruption() {
         slot.try_constant_time_eq(&[1, 2, 3, 4]),
         Err(CanaryCorruptedError)
     );
+    slot.secure_clear();
+    assert_eq!(slot.verify_integrity(), Err(CanaryCorruptedError));
     drop(slot);
     assert_eq!(pool.quarantined_slots(), 1);
     assert_eq!(pool.available_slots(), 0);
@@ -5260,6 +5289,8 @@ fn guarded_secret_vec_canaries_detect_corruption() {
         secret.try_constant_time_eq(&[1, 2, 3, 4]),
         Err(CanaryCorruptedError)
     );
+    secret.clear_secret();
+    assert_eq!(secret.verify_integrity(), Err(CanaryCorruptedError));
 }
 
 #[cfg(all(

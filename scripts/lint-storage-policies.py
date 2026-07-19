@@ -22,6 +22,11 @@ POLICY_DECLARATION = re.compile(
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\{",
     re.MULTILINE,
 )
+LIFECYCLE_ESCAPES = (
+    ("forget", re.compile(r"\bforget\s*\(")),
+    ("Box::leak", re.compile(r"\bBox\s*::\s*leak\s*\(")),
+    ("ManuallyDrop", re.compile(r"\bManuallyDrop\b")),
+)
 
 SKIPPED_DIRECTORIES = {".git", "target", "vendor"}
 
@@ -221,6 +226,13 @@ def main() -> int:
                     f"{relative(path)}:{line_number(stripped, match.start())}: "
                     "direct Secret<T>/Secret:: use is forbidden; use "
                     "AllowlistedSecret<T, Policy>"
+                )
+
+        for name, pattern in LIFECYCLE_ESCAPES:
+            for match in pattern.finditer(stripped):
+                failures.append(
+                    f"{relative(path)}:{line_number(stripped, match.start())}: "
+                    f"destructor-bypass primitive {name} is forbidden in a sensitive root"
                 )
 
         if path in policy_files:

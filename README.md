@@ -435,6 +435,7 @@ High-assurance users should read these documents in order:
 5. [Target tiers](docs/TARGETS.md)
 6. [Evidence](docs/EVIDENCE.md)
 7. [Error handling](docs/ERROR_HANDLING.md)
+8. [Deployment hardening](docs/DEPLOYMENT_HARDENING.md)
 
 ## Rust Version Support
 

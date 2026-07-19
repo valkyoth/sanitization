@@ -4,6 +4,9 @@ use core::{
     sync::atomic::{compiler_fence, AtomicBool, AtomicUsize, Ordering},
 };
 
+#[cfg(feature = "canary-check")]
+use core::cell::Cell;
+
 #[cfg(all(test, feature = "std", target_os = "linux"))]
 unsafe extern "C" {
     fn fork() -> i32;
@@ -554,6 +557,8 @@ pub struct LockedSecretBytes<const N: usize> {
     locked: bool,
     request: ProtectionRequest,
     report: ProtectionReport,
+    #[cfg(feature = "canary-check")]
+    poisoned: Cell<bool>,
     #[cfg(feature = "random-canary")]
     canary: [u8; CANARY_SIZE],
 }
@@ -606,6 +611,8 @@ impl<const N: usize> LockedSecretBytes<N> {
                 locked: false,
                 request,
                 report,
+                #[cfg(feature = "canary-check")]
+                poisoned: Cell::new(false),
                 #[cfg(feature = "random-canary")]
                 canary: [0; CANARY_SIZE],
             });
@@ -630,6 +637,8 @@ impl<const N: usize> LockedSecretBytes<N> {
             locked: setup.locked,
             request,
             report: setup.report,
+            #[cfg(feature = "canary-check")]
+            poisoned: Cell::new(false),
             #[cfg(feature = "random-canary")]
             canary,
         };
@@ -812,15 +821,16 @@ impl<const N: usize> LockedSecretBytes<N> {
     /// ```no_run
     /// use sanitization::{LockedSecretBytes, ProtectionRequest};
     ///
-    /// let request = ProtectionRequest::profile_hardened_native();
-    /// let secret = LockedSecretBytes::<32>::zeroed_with_protection(request)?
+    /// let request = ProtectionRequest::locked();
+    /// let secret = LockedSecretBytes::<32>::zeroed_with_protection(request)
+    ///     .expect("required memory protection must be available")
     ///     .try_init_with(|output| {
     ///         output.fill(0x42);
-    ///         Ok::<(), std::io::Error>(())
-    ///     })?;
+    ///         Ok::<(), ()>(())
+    ///     })
+    ///     .expect("in-place initialization must succeed");
     ///
     /// assert_eq!(secret.try_constant_time_eq(&[0x42; 32]), Ok(true));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn try_init_with<E>(
         mut self,
@@ -1091,7 +1101,9 @@ impl<const N: usize> LockedSecretBytes<N> {
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
-        Ok(inspect(self.as_array()))
+        let result = inspect(self.as_array());
+        self.verify_integrity()?;
+        Ok(result)
     }
 
     /// Verify integrity, copy into temporary stack storage, and expose the copy.
@@ -1118,7 +1130,7 @@ impl<const N: usize> LockedSecretBytes<N> {
             return Ok(());
         }
         #[cfg(feature = "canary-check")]
-        if self.canaries_intact() {
+        if !self.poisoned.get() && self.canaries_intact() {
             Ok(())
         } else {
             self.clear_after_canary_failure();
@@ -1297,6 +1309,7 @@ impl<const N: usize> LockedSecretBytes<N> {
     #[cfg(feature = "canary-check")]
     #[inline]
     fn clear_after_canary_failure(&self) {
+        self.poisoned.set(true);
         if self.map_len != 0 {
             // Fail-closed clearing intentionally mutates the owned mapping
             // through `&self`. `LockedSecretBytes` is `Send` but not
@@ -1540,6 +1553,8 @@ pub struct LockedSecretVec {
     locked: bool,
     request: ProtectionRequest,
     report: ProtectionReport,
+    #[cfg(feature = "canary-check")]
+    poisoned: Cell<bool>,
     #[cfg(feature = "random-canary")]
     canary: [u8; CANARY_SIZE],
 }
@@ -1588,6 +1603,8 @@ impl LockedSecretVec {
                 locked: false,
                 request,
                 report,
+                #[cfg(feature = "canary-check")]
+                poisoned: Cell::new(false),
                 #[cfg(feature = "random-canary")]
                 canary: [0; CANARY_SIZE],
             });
@@ -1632,6 +1649,8 @@ impl LockedSecretVec {
             locked: setup.locked,
             request,
             report: setup.report,
+            #[cfg(feature = "canary-check")]
+            poisoned: Cell::new(false),
             #[cfg(feature = "random-canary")]
             canary,
         };
@@ -1815,7 +1834,9 @@ impl LockedSecretVec {
         inspect: impl FnOnce(&[u8]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
-        Ok(inspect(self.as_slice()))
+        let result = inspect(self.as_slice());
+        self.verify_integrity()?;
+        Ok(result)
     }
 
     /// Run a closure with mutable access to initialized secret bytes.
@@ -1825,7 +1846,10 @@ impl LockedSecretVec {
         edit: impl FnOnce(&mut [u8]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
-        Ok(edit(self.as_mut_slice()))
+        let result = edit(self.as_mut_slice());
+        compiler_fence(Ordering::SeqCst);
+        self.verify_integrity()?;
+        Ok(result)
     }
 
     /// Append bytes, growing into a new locked mapping if needed.
@@ -2065,7 +2089,7 @@ impl LockedSecretVec {
             return Ok(());
         }
         #[cfg(feature = "canary-check")]
-        if self.canaries_intact() {
+        if !self.poisoned.get() && self.canaries_intact() {
             Ok(())
         } else {
             self.clear_after_canary_failure();
@@ -2283,6 +2307,7 @@ impl LockedSecretVec {
     #[cfg(feature = "canary-check")]
     #[inline]
     fn clear_after_canary_failure(&self) {
+        self.poisoned.set(true);
         if self.map_len != 0 {
             // Fail-closed clearing intentionally mutates the owned mapping
             // through `&self`. `LockedSecretVec` is `Send` but not `Sync`.
@@ -2830,6 +2855,7 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
 
     #[cfg(all(test, feature = "canary-check"))]
     #[inline]
+    #[allow(dead_code)]
     pub(crate) fn fail_next_initialization_integrity_for_test(&self) {
         self.fail_next_initialization_integrity
             .store(true, Ordering::Release);
@@ -3066,7 +3092,9 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
-        Ok(inspect(self.as_array()))
+        let result = inspect(self.as_array());
+        self.verify_integrity()?;
+        Ok(result)
     }
 
     /// Verify integrity, copy into temporary stack storage, and expose the copy.
@@ -3089,7 +3117,10 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
         inspect: impl FnOnce(&mut [u8; N]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
-        Ok(inspect(self.as_array_mut()))
+        let result = inspect(self.as_array_mut());
+        compiler_fence(Ordering::SeqCst);
+        self.verify_integrity()?;
+        Ok(result)
     }
 
     /// Verify this slot's canaries.
@@ -3100,7 +3131,8 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
             return Ok(());
         }
         #[cfg(feature = "canary-check")]
-        if self.canaries_intact() {
+        if !self.pool.quarantined[self.slot_index].load(Ordering::Acquire) && self.canaries_intact()
+        {
             Ok(())
         } else {
             self.clear_after_canary_failure();

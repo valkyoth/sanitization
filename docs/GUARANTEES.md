@@ -110,8 +110,10 @@ The stronger native storage types guarantee:
   while restricting safe exposure to valid UTF-8;
 - failed constructors do not intentionally leak successfully created mappings;
 - canary-enabled mappings verify prefix/suffix integrity before exposure,
-  mutation, replacement, copying, and comparison, clear corrupted storage, and
-  return a structured error from ordinary APIs;
+  mutation, replacement, copying, and comparison; scoped exposure verifies
+  again after normal closure return. Corruption clears storage, permanently
+  poisons standalone owners or quarantines pool slots, and returns a structured
+  error from ordinary APIs;
 - guarded dynamic storage places inaccessible guard pages around the writable
   region on supported native targets.
 - `GuardedSecretString` delegates its storage lifecycle to

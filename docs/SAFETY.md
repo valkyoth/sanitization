@@ -345,10 +345,15 @@ Invariant:
 - Canary verification compares both prefix and suffix with the expected value
   using the crate constant-time slice comparison helper and boolean `&`, so both
   canaries are checked without data-dependent early exit at this layer.
+- Scoped locked and pooled exposure verifies integrity before access and again
+  after the closure returns normally. Mutable exposure places a compiler fence
+  before the post-access check.
 - If canary verification fails, the full mapping is volatile-cleared before
   the ordinary operation returns `CanaryCorruptedError` or
-  `SecretIntegrityError`. Explicitly named `_or_panic` helpers retain
-  panic-on-corruption behavior for compatibility and trait bridges.
+  `SecretIntegrityError`. Standalone locked owners remain permanently poisoned
+  even if a later clear rewrites the physical canary words. Explicitly named
+  `_or_panic` helpers retain panic-on-corruption behavior for compatibility and
+  trait bridges.
 - Secret bytes are not copied into the mapping until platform setup succeeds:
   Linux dump exclusion, the requested fork policy, and `mlock`;
   FreeBSD core-dump exclusion and `mlock`; Android/macOS/iOS/other-BSD
@@ -548,7 +553,10 @@ Operations:
   the payload and an 8-byte suffix canary immediately after the initialized
   payload. Public payload pointers are offset past the prefix canary. Exposure,
   mutation, growth, replacement, and comparison verify both canaries before
-  reading or modifying the secret payload.
+  reading or modifying the secret payload. Scoped exposure also verifies after
+  normal closure return; mutable exposure fences before that check.
+- Canary failure volatile-clears and permanently poisons the guarded owner.
+  Reinitializing canary bytes during a later clear does not restore access.
 - `try_replace_from_slice` either clears the current writable region before
   in-place replacement, or creates a new guarded mapping with the same lock
   state and clears the old mapping before it is unmapped.
@@ -607,9 +615,10 @@ Invariant:
   access window. All payload access goes through that guard, which attempts to
   reseal on normal return and during panic unwinding before the borrow is
   released.
-- Canary verification occurs only after the page becomes readable. Corruption
-  clears the writable region, restores a zeroed fixed payload and fresh
-  canaries, and returns an integrity error after resealing.
+- Canary verification occurs only after the page becomes readable and is
+  repeated before the access window is resealed. Corruption clears the writable
+  region, leaves the underlying guarded owner poisoned, and returns an
+  integrity error after resealing.
 - A failed unseal, reseal, or initial seal may have changed only part of the
   requested range. The state becomes poisoned immediately. Cleanup applies a
   read/write transition to each page independently and wipes only if every

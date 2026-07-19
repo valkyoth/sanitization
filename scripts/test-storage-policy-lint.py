@@ -80,6 +80,27 @@ def main() -> int:
         if result.returncode != 0:
             raise AssertionError(result.stderr)
 
+        for expression, name in (
+            ("core::mem::forget(key);", "forget"),
+            ("Box::leak(Box::new(key));", "Box::leak"),
+            (
+                "let _held = core::mem::ManuallyDrop::new(key);",
+                "ManuallyDrop",
+            ),
+        ):
+            module.write_text(
+                "use sanitization::{AllowlistedSecret, SecretBytes};\n"
+                "type Key = AllowlistedSecret<SecretBytes<32>, crate::policy::Approved>;\n"
+                "fn retain(key: Key) { "
+                + expression
+                + " }\n",
+                encoding="utf-8",
+            )
+            require_failure(
+                run(root, policy),
+                f"destructor-bypass primitive {name} is forbidden",
+            )
+
         policy.write_text(
             "use sanitization::{define_secret_storage_policy, SecretBytes};\n"
             "define_secret_storage_policy! {\n"

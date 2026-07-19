@@ -33,14 +33,31 @@ application policy.
 sensitive Rust roots, private policy files, and the only files permitted to
 implement storage-stability markers. It rejects direct generic `Secret<T>`
 usage, marker implementations outside that explicit list, and policy types
-broader than private or `pub(crate)`. `scripts/test-storage-policy-lint.py`
-provides positive and fail-closed fixtures, and `scripts/checks.sh` runs both
-the fixtures and the compile-checked policy example.
+broader than private or `pub(crate)`. It also rejects `mem::forget`,
+`Box::leak`, and `ManuallyDrop` in sensitive roots so reviewed owners cannot
+bypass destructor cleanup through ordinary source.
+`scripts/test-storage-policy-lint.py` provides positive and fail-closed
+fixtures, and `scripts/checks.sh` runs both the fixtures and the compile-checked
+policy example.
 
 The lint is deliberately dependency-free and lexical. It complements the
 compiler-enforced `AllowlistedSecret` policy but cannot prove marker semantics
 or fully interpret generated Rust. Downstream repository review must control
 the scanned roots, exemptions, generated source, and policy-file ownership.
+
+## Fail-Closed Initialization Gate
+
+`scripts/lint-fail-closed-initialization.py` rejects discarded `try_*` results
+and calls to the lossy pool `allocate()` helper in production roots. This keeps
+allocation, CSPRNG, generator, length, and integrity failures observable rather
+than collapsing them into ignored results or apparent exhaustion. The core
+check excludes the crate's fault-injection test module; downstream projects
+should point it at production source only.
+
+`scripts/test-fail-closed-initialization-lint.py` verifies accepted checked
+propagation and fail-closed behavior for both prohibited forms. The gate is
+lexical and conservative, so human review remains responsible for aliases,
+macro expansion, and unsafe or generated code.
 
 ## Path-Specific Codegen
 

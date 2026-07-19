@@ -22,9 +22,12 @@ refreshed semantic snapshots; behavioral macro restrictions require dedicated
 compile-failure evidence.
 
 The freeze was most recently reopened to prevent mapped constructors from
-suppressing CSPRNG or canary failures and to make dynamic secret generation
-report capacity and allocation failure. The refreshed candidate therefore
-requires another full-range review before a permanent report can be accepted.
+suppressing CSPRNG or canary failures, make dynamic secret generation report
+capacity and allocation failure, verify canaries after normal mapped exposure,
+and permanently poison corrupted standalone mapped owners. The refreshed
+candidate also adds fail-closed lifecycle and initialization source gates plus
+an explicit deployment responsibility matrix. It therefore requires another
+full-range review before a permanent report can be accepted.
 
 The final CP-23 candidate is the exact commit immediately preceding the
 permanent pentest report. After all implementation, remediation, documentation,

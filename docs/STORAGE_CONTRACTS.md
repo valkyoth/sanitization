@@ -156,6 +156,8 @@ The lint:
   scanned sensitive sources unless a file is explicitly exempted;
 - rejects `StableSharedSecretStorage` and `StableMutableSecretStorage`
   implementations outside `--allow-marker-file` paths;
+- rejects `mem::forget`, `Box::leak`, and `ManuallyDrop` in scanned sensitive
+  roots because those primitives can bypass destructor-based cleanup;
 - requires at least one `define_secret_storage_policy!` declaration in every
   `--policy-file`; and
 - rejects policy visibility broader than private or `pub(crate)`.
@@ -166,6 +168,11 @@ and marker files small, require security
 review for changes to either allow-list, and use code owners or equivalent
 repository controls around them. `--allow-generic-secret-file` exists for a
 reviewed migration boundary but should normally be absent in production.
+
+The destructor-bypass rule is deliberately conservative and may reject a
+non-secret use in the same sensitive root. Move that code outside the root or
+review the root boundary; do not weaken the secret-owner rule with a broad
+exemption.
 
 This is a source-review gate, not a Rust parser or proof system. Macro indirection
 or generated code can evade textual checks. Compile the policy, inspect the

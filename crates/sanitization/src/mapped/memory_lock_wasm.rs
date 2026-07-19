@@ -4,6 +4,9 @@ use core::{
     sync::atomic::{compiler_fence, AtomicBool, AtomicUsize, Ordering},
 };
 
+#[cfg(feature = "canary-check")]
+use core::cell::Cell;
+
 use super::{
     CanaryCorruptedError, ForkPolicy, ProtectionControl, ProtectionError, ProtectionFailure,
     ProtectionReport, ProtectionRequest, ProtectionState, Requirement, RollbackReport,
@@ -356,6 +359,8 @@ pub struct LockedSecretBytes<const N: usize> {
     storage: UnsafeCell<WasmLockedStorage<N>>,
     request: ProtectionRequest,
     report: ProtectionReport,
+    #[cfg(feature = "canary-check")]
+    poisoned: Cell<bool>,
     #[cfg(feature = "random-canary")]
     canary: [u8; CANARY_SIZE],
 }
@@ -384,6 +389,8 @@ impl<const N: usize> LockedSecretBytes<N> {
             storage: UnsafeCell::new(WasmLockedStorage::zeroed()),
             request,
             report,
+            #[cfg(feature = "canary-check")]
+            poisoned: Cell::new(false),
             #[cfg(feature = "random-canary")]
             canary: random_canary_value().map_err(|error| {
                 let mut partial_report = report;
@@ -780,7 +787,9 @@ impl<const N: usize> LockedSecretBytes<N> {
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
-        Ok(inspect(self.as_array()))
+        let result = inspect(self.as_array());
+        self.verify_integrity()?;
+        Ok(result)
     }
 
     /// Verify integrity, copy into temporary stack storage, and expose the copy.
@@ -804,7 +813,7 @@ impl<const N: usize> LockedSecretBytes<N> {
             return Ok(());
         }
         #[cfg(feature = "canary-check")]
-        if self.canaries_intact() {
+        if !self.poisoned.get() && self.canaries_intact() {
             Ok(())
         } else {
             self.clear_after_canary_failure();
@@ -937,6 +946,7 @@ impl<const N: usize> LockedSecretBytes<N> {
     #[cfg(feature = "canary-check")]
     #[inline]
     fn clear_after_canary_failure(&self) {
+        self.poisoned.set(true);
         // Fail-closed clearing intentionally mutates secret storage through
         // `&self`. This type is `Send` but deliberately not `Sync`, so safe
         // code cannot run this concurrently through shared references.
@@ -1361,6 +1371,7 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
 
     #[cfg(all(test, feature = "canary-check"))]
     #[inline]
+    #[allow(dead_code)]
     pub(crate) fn fail_next_initialization_integrity_for_test(&self) {
         self.fail_next_initialization_integrity
             .store(true, Ordering::Release);
@@ -1562,7 +1573,9 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
         inspect: impl FnOnce(&[u8; N]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
-        Ok(inspect(self.as_array()))
+        let result = inspect(self.as_array());
+        self.verify_integrity()?;
+        Ok(result)
     }
 
     /// Verify integrity, copy into temporary stack storage, and expose the copy.
@@ -1585,7 +1598,10 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
         inspect: impl FnOnce(&mut [u8; N]) -> R,
     ) -> Result<R, CanaryCorruptedError> {
         self.verify_integrity()?;
-        Ok(inspect(self.as_array_mut()))
+        let result = inspect(self.as_array_mut());
+        compiler_fence(Ordering::SeqCst);
+        self.verify_integrity()?;
+        Ok(result)
     }
 
     /// Verify this slot's canaries.
@@ -1596,7 +1612,8 @@ impl<'pool, const N: usize, const SLOTS: usize> SecretPoolSlot<'pool, N, SLOTS> 
             return Ok(());
         }
         #[cfg(feature = "canary-check")]
-        if self.canaries_intact() {
+        if !self.pool.quarantined[self.slot_index].load(Ordering::Acquire) && self.canaries_intact()
+        {
             Ok(())
         } else {
             self.clear_after_canary_failure();
