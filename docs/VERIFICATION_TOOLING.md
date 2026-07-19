@@ -27,6 +27,21 @@ prove that a reviewer examined the boundary. High-assurance review must still
 search for declassification and export calls and assess each reason against
 application policy.
 
+## High-Assurance Storage Policy Gate
+
+`scripts/lint-storage-policies.py` lets downstream applications designate
+sensitive Rust roots, private policy files, and the only files permitted to
+implement storage-stability markers. It rejects direct generic `Secret<T>`
+usage, marker implementations outside that explicit list, and policy types
+broader than private or `pub(crate)`. `scripts/test-storage-policy-lint.py`
+provides positive and fail-closed fixtures, and `scripts/checks.sh` runs both
+the fixtures and the compile-checked policy example.
+
+The lint is deliberately dependency-free and lexical. It complements the
+compiler-enforced `AllowlistedSecret` policy but cannot prove marker semantics
+or fully interpret generated Rust. Downstream repository review must control
+the scanned roots, exemptions, generated source, and policy-file ownership.
+
 ## Path-Specific Codegen
 
 `tools/direct-exposure-codegen` exports named downstream functions for:

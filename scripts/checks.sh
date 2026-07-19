@@ -7,6 +7,10 @@ scripts/verify-feature-profiles.py
 scripts/verify-verification-harnesses.py
 scripts/test-declassification-reasons.py
 scripts/lint-declassification-reasons.py
+scripts/test-storage-policy-lint.py
+scripts/lint-storage-policies.py \
+    --root crates/sanitization/examples/high_assurance_policy.rs \
+    --policy-file crates/sanitization/examples/high_assurance_policy.rs
 scripts/test-verification-fail-closed.py
 scripts/test-latest-rust.py
 if cargo audit --version >/dev/null 2>&1; then

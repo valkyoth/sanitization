@@ -136,6 +136,44 @@ keeps approval authority inside the application crate.
 This mechanism centralizes review; it does not prove an attestation correct.
 The application must still review each storage contract and each rationale.
 
+### High-Assurance CI Enforcement
+
+For closed production modules, make `AllowlistedSecret<T, P>` the only generic
+secret owner and run the repository's dependency-free policy lint in
+downstream CI:
+
+```sh
+python3 scripts/lint-storage-policies.py \
+  --root crates/application/src/high_assurance \
+  --root crates/application/src/approved_storage.rs \
+  --policy-file crates/application/src/approved_storage.rs \
+  --allow-marker-file crates/application/src/approved_storage_types.rs
+```
+
+The lint:
+
+- rejects direct `Secret<T>`, `Secret::...`, and renamed `Secret` imports in
+  scanned sensitive sources unless a file is explicitly exempted;
+- rejects `StableSharedSecretStorage` and `StableMutableSecretStorage`
+  implementations outside `--allow-marker-file` paths;
+- requires at least one `define_secret_storage_policy!` declaration in every
+  `--policy-file`; and
+- rejects policy visibility broader than private or `pub(crate)`.
+
+The macro itself requires a written rationale that is neither empty nor
+composed solely of ASCII whitespace for every exact approved type. Keep policy
+and marker files small, require security
+review for changes to either allow-list, and use code owners or equivalent
+repository controls around them. `--allow-generic-secret-file` exists for a
+reviewed migration boundary but should normally be absent in production.
+
+This is a source-review gate, not a Rust parser or proof system. Macro indirection
+or generated code can evade textual checks. Compile the policy, inspect the
+expanded API when necessary, and retain human review of every marker contract.
+The checked crate example is
+`crates/sanitization/examples/high_assurance_policy.rs`; the lint's negative
+fixtures are in `scripts/test-storage-policy-lint.py`.
+
 ## Why There Is No Storage Derive
 
 A proc macro can inspect fields and add field bounds, but it cannot inspect

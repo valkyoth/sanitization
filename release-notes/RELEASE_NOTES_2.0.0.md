@@ -115,6 +115,9 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
 - Added `ProtectionReport::satisfies`, `is_degraded`, common-control status
   helpers, and a zero-allocation unavailable-control iterator while preserving
   every detailed report field.
+- Added a dependency-free downstream storage-policy lint and compile-checked
+  private-policy example. Sensitive roots can reject direct `Secret<T>`,
+  marker impls outside approved files, and public policy types in CI.
 
 ## Verification And Release Evidence
 

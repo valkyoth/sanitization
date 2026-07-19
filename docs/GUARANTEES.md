@@ -66,6 +66,10 @@ and the guarantee remains conditional on both the marker implementation and
 the policy review being correct. Keeping `P` private or `pub(crate)` prevents
 dependencies from naming that deployment policy.
 
+`scripts/lint-storage-policies.py` can enforce this application boundary over
+declared sensitive roots. It is a CI source-policy check, not part of the Rust
+type-system guarantee and not a proof that an approved marker is correct.
+
 Primitive scalar representation wiping is closed over a reviewed internal set:
 integer primitives, `bool`, `char`, `f32`, and `f64`. The crate does not offer
 a blanket representation wipe for user-defined types or a public

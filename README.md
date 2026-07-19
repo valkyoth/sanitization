@@ -56,6 +56,7 @@ Choose the narrowest type that matches the storage requirement:
 | Custom value needing current-value clearing only | `Secret<T>` where `T: SecureSanitize` |
 | Generic shared exposure with reviewed stable storage | `Secret<T>` where `T: StableSharedSecretStorage` |
 | Generic mutable exposure with reviewed stable storage | `Secret<T>` where `T: StableMutableSecretStorage` |
+| Closed production storage allow-list | `AllowlistedSecret<T, PrivatePolicy>` |
 | Fixed key that should avoid swap/pagefiles | `LockedSecretBytes<N>` with `memory-lock` |
 | Dynamic locked bytes or text | `LockedSecretVec` or `LockedSecretString` |
 | Many same-size locked keys | `SecretPool<N, SLOTS>` |
@@ -352,6 +353,13 @@ Page-sealed callers that must observe final mapping cleanup should call
 `SealedSecretBytes::try_close()` before drop. It reports page normalization,
 unlock, and unmap failures without exposing bytes, addresses, or canary values;
 `Drop` remains the final best-effort fallback.
+
+High-assurance applications should use `AllowlistedSecret<T, P>` as their
+internal production alias, keep `P` private or `pub(crate)`, and run
+`scripts/lint-storage-policies.py` over sensitive modules. The lint rejects
+direct `Secret<T>`, unapproved storage-marker implementations, and public
+policy types. See [`STORAGE_CONTRACTS.md`](docs/STORAGE_CONTRACTS.md) and the
+compile-checked `high_assurance_policy` example.
 
 ## Feature And Platform Reference
 

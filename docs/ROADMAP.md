@@ -375,6 +375,7 @@ Implemented dynamic rotation helpers:
 - UTF-8-validating `LockedSecretVec`/`LockedSecretString` conversions;
 - UTF-8-validating `GuardedSecretVec`/`GuardedSecretString` conversions.
 - explicit `SealedSecretBytes::try_close` cleanup reports and retry semantics;
+- downstream high-assurance storage-policy linting with fail-closed fixtures;
 
 Continue avoiding:
 

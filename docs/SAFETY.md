@@ -69,6 +69,9 @@ Deployments with a closed or military-controlled assurance profile should:
   values;
 - prefer this crate's audited fixed and dedicated dynamic containers over
   manual marker implementations where possible.
+- run `scripts/lint-storage-policies.py` over sensitive application roots so
+  direct `Secret<T>`, marker implementations outside approved files, and
+  externally nameable policy types fail CI.
 
 Sealing the traits in the core crate would prevent legitimate downstream
 fixed-storage implementations and is therefore not the general API policy.
@@ -76,6 +79,11 @@ fixed-storage implementations and is therefore not the general API policy.
 exact-type policy. Keep that policy private or `pub(crate)`; publishing the
 policy type can permit dependencies to name it and may allow approvals for
 dependency-owned storage types under Rust's orphan rules.
+
+The policy lint is defense in depth, not semantic proof. It is intentionally
+conservative and text-based; repository review must prevent generated code,
+aliases, exemptions, or build-time source generation from bypassing the
+designated sensitive-root policy.
 
 The core crate intentionally does not certify `Vec<T>`, `String`, `Box<T>`,
 references, shared ownership, standard interior-mutability wrappers, or
