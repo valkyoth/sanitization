@@ -49,8 +49,12 @@ Direct borrowing and temporary-copy exposure now have distinct names:
 | --- | --- | --- |
 | `SecretBytes::expose_secret` | same name | Closure now borrows the owned array directly. |
 | `SecretBytes::expose_secret_volatile` | `export_secret_copy(reason, ...)` | Explicitly creates and clears a reason-bearing stack copy. |
+| `SecretBytes::copy_to_slice` | `export_to_slice(reason, destination)` | Export now requires an audit reason and leaves destination cleanup to the caller. |
+| `SecretBytes::read_byte` | `export_byte(reason, index)` | Scalar export now requires an audit reason. |
 | `ExpiringSecretBytes::try_expose_secret_volatile` | `try_export_secret_copy(reason, ...)` | Expiration-checked temporary copy. |
+| `ExpiringSecretBytes::try_copy_to_slice` | `try_export_to_slice(reason, destination)` | Expiration-checked reason-bearing export. |
 | `MonotonicExpiringSecretBytes::try_expose_secret_volatile` | `try_export_secret_copy(reason, ...)` | Counter-checked temporary copy. |
+| `MonotonicExpiringSecretBytes::try_copy_to_slice` | `try_export_to_slice(reason, destination)` | Counter-checked reason-bearing export. |
 | `LockedSecretBytes::with_secret` | `try_expose_secret` | Checked direct protected-storage exposure. |
 | `SecretPoolSlot::with_secret` | `try_expose_secret` | Checked direct pooled-storage exposure. |
 
@@ -64,8 +68,11 @@ let marker = key.expose_secret(|bytes| bytes[0]);
 assert_eq!(marker, 7);
 ```
 
-Use `try_expose_secret_copy` only when an external API requires independent
-storage. Split-secret storage cannot expose contiguous owned plaintext and
+For core fixed storage, use `SecretBytes::export_secret_copy` only when an
+external API requires independent storage. Expiring fixed containers use
+`try_export_secret_copy` because expiration checks are fallible. Mapped fixed
+containers instead use `try_expose_secret_copy` because their integrity check
+is fallible. Split-secret storage cannot expose contiguous owned plaintext and
 therefore retains only explicit reconstruction/copy APIs.
 
 ## Data-Oblivious APIs

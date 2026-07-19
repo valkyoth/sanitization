@@ -52,6 +52,10 @@ for index, change in enumerate(changes):
     if change["anchor"] not in anchors:
         fail(f"unknown guide anchor for {legacy}: {change['anchor']}")
 required = {
+    "SecretBytes::copy_to_slice",
+    "SecretBytes::read_byte",
+    "ExpiringSecretBytes::try_copy_to_slice",
+    "MonotonicExpiringSecretBytes::try_copy_to_slice",
     "Choice::unwrap_u8",
     "Choice Eq and PartialEq",
     "CtOrdering Eq and PartialEq",
