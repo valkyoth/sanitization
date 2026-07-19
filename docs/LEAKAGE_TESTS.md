@@ -131,6 +131,8 @@ The harness:
   harness features;
 - uses architecture cycle counters on x86/x86_64 and AArch64 for measurement
   resolution;
+- pre-balances and shuffles the two sample classes before measurement so class
+  membership is not correlated with late-run scheduler or frequency drift;
 - collects two timing distributions per case;
 - computes an absolute Welch's t statistic;
 - exits non-zero when the configured threshold is exceeded;

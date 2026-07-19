@@ -7,6 +7,11 @@ This is not a proof of identical wall-clock timing. It is a dudect-style
 statistical smoke test that tries to falsify the crate's narrower claim for a
 specific machine, compiler, feature set, and release profile.
 
+Each case uses a pre-balanced, shuffled class schedule. This prevents one
+class from being forced into the end of a run after the other class reaches
+its quota, which would confound class timing with scheduler or frequency
+drift.
+
 The harness uses architecture cycle counters on x86/x86_64 (`rdtsc`) and
 AArch64 (`cntvct_el0`) so release evidence has useful resolution. Hardened
 VMs, containers, or kernels that trap those instructions are not supported by

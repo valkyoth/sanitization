@@ -242,18 +242,8 @@ fn main() {
 
         let mut stats_a = Stats::default();
         let mut stats_b = Stats::default();
-
-        let target_a = config.samples / 2;
-        let target_b = config.samples - target_a;
-        for _ in 0..config.samples {
-            let class = if stats_a.count as usize >= target_a {
-                Class::B
-            } else if stats_b.count as usize >= target_b || rng.next_u64() & 1 == 0 {
-                Class::A
-            } else {
-                Class::B
-            };
-
+        let schedule = balanced_class_schedule(config.samples, &mut rng);
+        for class in schedule {
             let elapsed = (case.run)(class, config.inner, &mut rng) as f64;
             match class {
                 Class::A => stats_a.push(elapsed),
@@ -414,6 +404,25 @@ fn welch_t_abs(left: Stats, right: Stats) -> f64 {
     } else {
         ((left.mean - right.mean) / denominator).abs()
     }
+}
+
+fn balanced_class_schedule(samples: usize, rng: &mut XorShift64) -> Vec<Class> {
+    let count_a = samples / 2;
+    let mut schedule = Vec::with_capacity(samples);
+    schedule.extend(core::iter::repeat_n(Class::A, count_a));
+    schedule.extend(core::iter::repeat_n(Class::B, samples - count_a));
+
+    // Shuffle a pre-balanced schedule instead of forcing one class after the
+    // other reaches its quota. A forced tail correlates class membership with
+    // late-run frequency and scheduler drift, creating false leakage signals.
+    let mut remaining = schedule.len();
+    while remaining > 1 {
+        let selected = (rng.next_u64() as usize) % remaining;
+        schedule.swap(remaining - 1, selected);
+        remaining -= 1;
+    }
+
+    schedule
 }
 
 fn measure(inner: usize, mut body: impl FnMut() -> u8) -> u128 {
@@ -943,5 +952,40 @@ mod tests {
         assert_eq!(written, "{}\n");
 
         fs::remove_dir_all(base).expect("temporary directory should be removable");
+    }
+
+    #[test]
+    fn class_schedule_is_balanced_and_shuffled() {
+        let mut rng = XorShift64::new(0x243F_6A88_85A3_08D3);
+        let schedule = balanced_class_schedule(50_000, &mut rng);
+        let count_a = schedule
+            .iter()
+            .filter(|class| matches!(class, Class::A))
+            .count();
+        let count_b = schedule.len() - count_a;
+
+        assert_eq!(count_a, 25_000);
+        assert_eq!(count_b, 25_000);
+        assert!(schedule[..128].iter().any(|class| matches!(class, Class::A)));
+        assert!(schedule[..128].iter().any(|class| matches!(class, Class::B)));
+        assert!(schedule[49_872..]
+            .iter()
+            .any(|class| matches!(class, Class::A)));
+        assert!(schedule[49_872..]
+            .iter()
+            .any(|class| matches!(class, Class::B)));
+    }
+
+    #[test]
+    fn odd_class_schedule_differs_by_one_sample() {
+        let mut rng = XorShift64::new(7);
+        let schedule = balanced_class_schedule(11, &mut rng);
+        let count_a = schedule
+            .iter()
+            .filter(|class| matches!(class, Class::A))
+            .count();
+
+        assert_eq!(count_a, 5);
+        assert_eq!(schedule.len() - count_a, 6);
     }
 }
