@@ -18,3 +18,9 @@ racing allocators cannot overlap one pool slot, reuse observes a cleared slot
 with a new generation, and failed setup releases its claim exactly once. Panic,
 application-error, native mapping, and canary behavior are tested against the
 production types in the main crate's test suite.
+
+These are hand-maintained models of the production atomic transitions, not the
+production types compiled under `loom`. Any production ordering change must be
+reviewed against and copied into this tool. `SealedSecretBytes` access reentry is
+instead prevented by `&mut self` and the lifetime-bound access guard; that
+compile-time property is intentionally outside this atomics-only model.

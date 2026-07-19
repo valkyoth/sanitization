@@ -133,8 +133,13 @@ comparison, capacity, and protection-report properties.
 The Loom model covers:
 
 - competing consume-once accessors;
-- pool allocation, clearing, generation, and reuse;
-- retirement ordering for modeled atomic protection state.
+- pool allocation, clearing, generation, and reuse.
+
+The unpublished Loom harness hand-mirrors the production atomic orderings; it
+does not compile the production types under `loom`, so ordering changes require
+an explicit synchronized review of the harness. `SealedSecretBytes` ordinary
+reentry is prevented by `&mut self` and its lifetime-bound access guard rather
+than an atomic state machine, and is therefore outside Loom's scope.
 
 Kani is not concurrency evidence. Loom models atomics but not kernel behavior.
 

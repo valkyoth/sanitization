@@ -82,9 +82,19 @@ impl SecretBytesMut {
     }
 
     /// Wrap an existing [`BytesMut`].
+    ///
+    /// Historical bytes in the incoming buffer's current spare capacity are
+    /// volatile-cleared immediately. Initialized bytes and their length remain
+    /// unchanged.
     #[must_use]
     #[inline]
     pub fn from_bytes_mut(inner: BytesMut) -> Self {
+        let mut inner = inner;
+        let len = inner.len();
+        let capacity = inner.capacity();
+        inner.resize(capacity, 0);
+        wipe::bytes(&mut inner[len..]);
+        inner.truncate(len);
         Self { inner }
     }
 
@@ -241,5 +251,29 @@ mod tests {
 
         assert!(rendered.contains("redacted"));
         assert!(!rendered.contains("token"));
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn wrapping_clears_spare_capacity_and_preserves_live_bytes() {
+        let mut incoming = BytesMut::with_capacity(16);
+        incoming.extend_from_slice(b"historical-data");
+        incoming.truncate(5);
+        let capacity = incoming.capacity();
+
+        let mut wrapped = SecretBytesMut::from_bytes_mut(incoming);
+
+        assert_eq!(wrapped.as_slice(), b"histo");
+        assert_eq!(wrapped.capacity(), capacity);
+
+        let live_len = wrapped.len();
+        // SAFETY: `from_bytes_mut` initializes every byte through `resize`
+        // before truncating back to `live_len`, and `capacity` is the exact
+        // initialized bound established by that operation.
+        unsafe { wrapped.inner.set_len(capacity) };
+        assert!(wrapped.inner[live_len..].iter().all(|byte| *byte == 0));
+        // SAFETY: `live_len` was the valid initialized length on entry and is
+        // no greater than the current length.
+        unsafe { wrapped.inner.set_len(live_len) };
     }
 }

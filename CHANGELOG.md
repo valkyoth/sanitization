@@ -2,6 +2,9 @@
 
 ## 2.0.0
 
+- Clear historical spare-capacity bytes when wrapping an existing
+  `bytes::BytesMut`, cover every independent Cargo lockfile with Dependabot,
+  and align the security and Loom documentation with the actual guarantees.
 - Updated the derive stack to `syn 3.0.0`, `proc-macro2 1.0.107`, and
   `quote 1.0.47`; updated serde to `1.0.229` and the evidence workflow to
   `actions/upload-artifact v7.0.1`.
