@@ -5,12 +5,20 @@ use sanitization::{
     secure_replace, BoundedSecretVec, SecretBytes, SecretString, SecretVec, SecureSanitize,
 };
 
-#[derive(SecureSanitize)]
-#[sanitization(enum_inactive_variant_bytes = "acknowledged")]
 enum State {
     Bytes(SecretBytes<32>),
     Dynamic(SecretVec),
     Empty,
+}
+
+impl SecureSanitize for State {
+    fn secure_sanitize(&mut self) {
+        match self {
+            Self::Bytes(value) => value.secure_sanitize(),
+            Self::Dynamic(value) => value.secure_sanitize(),
+            Self::Empty => {}
+        }
+    }
 }
 
 fuzz_target!(|data: &[u8]| {
