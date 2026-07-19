@@ -63,6 +63,21 @@
       "command": "SANITIZATION_RUN_CORE_DUMP_PROBE=1 scripts/verify-core-dump-probe.sh"
     },
     {
+      "name": "multi-seed-native-leakage",
+      "claim": "Portable and strict comparison profiles cover every listed CT primitive with at least three distinct seeds per native evidence target.",
+      "command": "scripts/collect-leakage-evidence.py --output-dir target/cp20/leakage"
+    },
+    {
+      "name": "relative-performance-baseline",
+      "claim": "Specialized wipe paths remain distinct from per-element generic clearing and large wipes remain within the reviewed scaling threshold.",
+      "command": "cargo run --release --manifest-path tools/performance-baseline/Cargo.toml -- --output target/cp20/performance.json"
+    },
+    {
+      "name": "target-evidence-validation",
+      "claim": "Native, compile-only, WASM, timing, and performance artifacts retain exact target classification and fail closed when malformed.",
+      "command": "scripts/verify-target-evidence.py --manifest target/cp20/manifest.json"
+    },
+    {
       "name": "verification-negative-fixtures",
       "claim": "Evidence and codegen validators reject seeded malformed inputs.",
       "command": "scripts/test-verification-fail-closed.py"

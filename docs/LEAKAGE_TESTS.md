@@ -37,10 +37,10 @@ A leakage-test run should record:
 Without this metadata, timing results are useful for local debugging but should
 not promote a target tier.
 
-## Initial Harness Scope
+## Harness Scope
 
-The first leakage harness should focus on fixed-size primitives where inputs
-can be randomized cleanly:
+The leakage harness covers fixed-size primitives where inputs can be
+randomized cleanly:
 
 - `ct::Choice` normalization and boolean operations;
 - `ct::eq_fixed` for `[u8; 16]`, `[u8; 32]`, and `[u8; 64]`;
@@ -102,6 +102,27 @@ cargo run --release --manifest-path tools/ct-leakage/Cargo.toml --features asm-c
   --inner 500 \
   --output target/ct-leakage-asm-compare.json
 ```
+
+Collect the CP-20 multi-seed portable and strict-comparison evidence set:
+
+```bash
+scripts/collect-leakage-evidence.py \
+  --output-dir target/cp20/leakage \
+  --samples 50000 \
+  --inner 200 \
+  --warmup 1000 \
+  --threshold 4.5
+
+scripts/verify-target-evidence.py \
+  --leakage-summary target/cp20/leakage/summary.json
+```
+
+The collector requires at least three distinct seeds for each of the portable
+and `strict-compare` variants. It records and hashes every underlying report;
+one passing seed is not accepted as release evidence. `strict-compare` only
+strengthens equal-length byte equality. Ordering, selection, copy, swap, and
+lookup remain portable and are intentionally rerun under that feature to catch
+feature-interaction regressions without claiming an assembly backend for them.
 
 The harness:
 

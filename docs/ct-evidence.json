@@ -2,7 +2,7 @@
   "schema_version": 1,
   "crate": "sanitization",
   "release_line": "2.0.0 development",
-  "status": "draft",
+  "status": "cp20-candidate-evidence",
   "rust_min_version": "1.90.0",
   "claim": {
     "summary": "Dependency-free data-oblivious primitives with explicit declassification boundaries and documented target limits.",
@@ -26,35 +26,43 @@
   "targets": [
     {
       "target": "x86_64-unknown-linux-gnu",
-      "tier": "A-draft",
+      "tier": "A-candidate",
       "features": ["asm-compare", "strict-compare"],
       "barrier_strategy": ["branchless source structure", "black_box boundary", "inline assembly comparison backend"],
-      "evidence": ["feature tests", "release LLVM IR scan", "release assembly scan", "dudect-style ct-leakage harness", "Kani harnesses", "Miri on supported paths"],
-      "limitations": ["statistical timing runs are target- and environment-specific evidence, not proof"]
+      "evidence": ["native feature tests", "path-specific release LLVM IR scan", "release assembly scan", "multi-seed portable and strict leakage artifacts", "relative performance baseline", "Kani harnesses", "Miri on supported paths"],
+      "limitations": ["statistical timing runs are target- and environment-specific evidence, not proof", "final release must cite the accepted workflow run and artifact digests"]
     },
     {
       "target": "aarch64-unknown-linux-gnu",
-      "tier": "B-draft",
+      "tier": "B-native",
       "features": ["asm-compare", "strict-compare"],
       "barrier_strategy": ["branchless source structure", "black_box boundary", "inline assembly comparison backend"],
-      "evidence": ["target compile check when installed", "Kani source-level harnesses"],
-      "limitations": ["AArch64 release assembly is not scanned by verify-codegen.sh on non-AArch64 hosts"]
+      "evidence": ["native feature tests", "native AArch64 release codegen scan", "multi-seed portable and strict leakage artifacts", "relative performance baseline", "Kani source-level harnesses"],
+      "limitations": ["Tier B does not imply the Tier A evidence breadth", "statistical timing evidence is not proof"]
     },
     {
-      "target": "native-without-asm-compare",
-      "tier": "B",
-      "features": [],
-      "barrier_strategy": ["branchless source structure", "black_box boundary"],
-      "evidence": ["unit tests", "Kani harnesses where target-independent", "Miri on supported paths"],
-      "limitations": ["no target-specific timing evidence"]
+      "target": "x86_64-pc-windows-msvc",
+      "tier": "B-native",
+      "features": ["asm-compare", "strict-compare"],
+      "barrier_strategy": ["branchless source structure", "black_box boundary", "inline assembly equality backend"],
+      "evidence": ["native feature tests", "native x86_64 release codegen scan", "relative performance baseline"],
+      "limitations": ["no target-specific timing claim"]
     },
     {
-      "target": "embedded-no-std",
-      "tier": "B/C",
+      "target": "aarch64-apple-darwin",
+      "tier": "B-native",
+      "features": ["asm-compare", "strict-compare"],
+      "barrier_strategy": ["branchless source structure", "black_box boundary", "inline assembly equality backend"],
+      "evidence": ["native feature tests", "native AArch64 release codegen scan", "multi-seed portable and strict leakage artifacts", "relative performance baseline"],
+      "limitations": ["Tier B does not imply the Tier A evidence breadth", "statistical timing evidence is not proof"]
+    },
+    {
+      "target": "bsd-android-ios-embedded",
+      "tier": "B-compile-only",
       "features": [],
-      "barrier_strategy": ["branchless source structure", "black_box boundary"],
-      "evidence": ["no_std compile checks where targets are installed"],
-      "limitations": ["no device-level leakage-test evidence"]
+      "barrier_strategy": ["source-level discipline only"],
+      "evidence": ["dated cross-compilation manifests"],
+      "limitations": ["no native runtime evidence", "no device-level leakage-test evidence"]
     },
     {
       "target": "wasm32-*",
@@ -98,6 +106,36 @@
         "ct leakage harness compile check",
         "ct leakage harness JSON output check",
         "not release timing evidence"
+      ]
+    },
+    {
+      "name": "multi-seed-leakage",
+      "command": "scripts/collect-leakage-evidence.py --output-dir target/cp20/leakage",
+      "coverage": [
+        "at least three distinct portable seeds",
+        "at least three distinct strict-comparison seeds",
+        "fixed equality sizes 16, 32, and 64",
+        "ordering, selection, option/result, copy, swap, and oblivious lookup",
+        "hashed per-run reports with commit and target metadata"
+      ]
+    },
+    {
+      "name": "performance-baseline",
+      "command": "cargo run --release --manifest-path tools/performance-baseline/Cargo.toml -- --output target/cp20/performance.json",
+      "coverage": [
+        "large wipe scaling threshold",
+        "specialized bulk wipe versus generic per-element clearing",
+        "SecretBytes bulk clearing versus generic per-element clearing"
+      ]
+    },
+    {
+      "name": "target-evidence",
+      "command": "scripts/verify-target-evidence.py --manifest target/cp20/manifest.json",
+      "coverage": [
+        "native versus compile-only classification",
+        "dated compiler, commit, feature, runner, and workflow metadata",
+        "Tier C WASM classification",
+        "dirty and failed evidence rejection"
       ]
     },
     {
@@ -177,6 +215,7 @@
     "attach exact CI run URLs for the release candidate",
     "record exact rustc version and target triples used for release evidence",
     "rerun checks after any compiler, unsafe-code, comparison-backend, or target-tier change",
-    "do not publish stable 1.2.0 with open high or medium pentest findings"
+    "preserve accepted CP-20 workflow URLs and artifact digests in the final 2.0 release record",
+    "do not publish stable 2.0.0 with open high or medium pentest findings"
   ]
 }

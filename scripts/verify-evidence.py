@@ -152,6 +152,21 @@ def main() -> int:
         "leakage-smoke",
         ["ct leakage harness", "JSON output", "not release timing evidence"],
     )
+    require_check_coverage(
+        checks,
+        "multi-seed-leakage",
+        ["three distinct portable", "three distinct strict", "hashed per-run"],
+    )
+    require_check_coverage(
+        checks,
+        "performance-baseline",
+        ["scaling threshold", "specialized bulk wipe", "SecretBytes"],
+    )
+    require_check_coverage(
+        checks,
+        "target-evidence",
+        ["native versus compile-only", "Tier C WASM", "dirty and failed"],
+    )
     require_check_coverage(checks, "kani", ["clearing", "equality", "ordering"])
     require_check_coverage(checks, "miri", ["safe and unsafe-boundary"])
 

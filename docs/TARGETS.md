@@ -16,13 +16,22 @@ Tier names are evidence labels, not security certifications.
 
 ## Current Target Position
 
-| Target/profile | Tier | Notes |
-| --- | --- | --- |
-| `x86_64-unknown-linux-gnu`, release, `asm-compare`/`strict-compare` | Tier A draft | x86_64 assembly comparison backend, release codegen checks, Kani harnesses where available. |
-| `aarch64-unknown-linux-gnu`, release, `asm-compare`/`strict-compare` | Tier B draft | AArch64 assembly comparison backend and compile checks when installed; release assembly scanning still needs native or cross-runner evidence. |
-| Native targets without `asm-compare` | Tier B | Portable data-oblivious source structure and tests; no target-specific timing evidence. |
-| Embedded/no-`std` targets | Tier B/C | Core APIs are `no_std`; hardware timing depends on device-specific review. |
-| `wasm32-*` | Tier C | API compatibility and best-effort clearing only; no strong browser/Node JIT timing or native memory-lock claim. |
+The CP-20 workflow emits a dated manifest for every row. Compiler versions are
+the repository toolchain selected by `rust-toolchain.toml`; the exact rustc and
+runner image are recorded in each artifact rather than implied by this table.
+
+| Target/profile | Tier | Runner/evidence class | Evidence |
+| --- | --- | --- | --- |
+| `x86_64-unknown-linux-gnu` | A candidate | Native `ubuntu-24.04` | All-feature functional tests, path-specific release codegen scan, relative performance baseline, and portable/strict multi-seed leakage runs. |
+| `aarch64-unknown-linux-gnu` | B native | Native `ubuntu-24.04-arm` | All-feature functional tests, AArch64 release codegen scan, relative performance baseline, and portable/strict multi-seed leakage runs. |
+| `x86_64-pc-windows-msvc` | B native | Native `windows-2025` | Portable-native feature tests, x86_64 release codegen scan, and relative performance baseline; no timing claim. |
+| `aarch64-apple-darwin` | B native | Native `macos-15` | Portable-native feature tests, AArch64 release codegen scan, relative performance baseline, and portable/strict multi-seed leakage runs. |
+| `x86_64-unknown-freebsd` | B compile-only | Cross-compiled on Linux | Memory-lock, guard-page, and multi-pass feature compilation; no native syscall or timing claim. |
+| `aarch64-linux-android` | B compile-only | Cross-compiled on Linux | Native-feature compilation only; no device runtime or timing claim. |
+| `aarch64-apple-ios` | B compile-only | Cross-compiled on macOS | Native-feature compilation only; no device runtime or timing claim. |
+| `thumbv7em-none-eabihf` | B/C compile-only | Cross-compiled on Linux | Core `no_std` compilation; no device-level leakage evidence. |
+| `riscv32imac-unknown-none-elf` | B/C compile-only | Cross-compiled on Linux | Core `no_std` compilation; no device-level leakage evidence. |
+| `wasm32-unknown-unknown`, `wasm32-wasip1`, `wasm32-wasip2` | C | Cross-compiled compatibility | API/build compatibility with documented volatile, JIT, memory-lock, and page-protection limits. |
 
 ## Feature Availability
 
@@ -52,7 +61,7 @@ records achieved controls. See `docs/FEATURE_PROFILES.md`.
 
 ## Release-Candidate Requirements
 
-A stable `1.2.0` candidate should attach or cite:
+A stable `2.0.0` candidate should attach or cite:
 
 - exact rustc version;
 - exact target triple;
@@ -66,6 +75,11 @@ A stable `1.2.0` candidate should attach or cite:
 
 Use `scripts/evidence-report.py` to capture the local commit, rustc host,
 installed targets, and optional Kani/Miri tool availability for this evidence.
+
+Use the `CP-20 target evidence` workflow artifacts for target classification.
+Do not describe a cross-compiled manifest as native evidence. Artifact
+retention is temporary, so final release evidence must preserve the accepted
+workflow run URLs and artifact digests in the 2.0 release record.
 
 Targets without this evidence should remain Tier B or Tier C rather than being
 promoted by assumption.

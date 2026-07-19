@@ -70,6 +70,17 @@ scripts/verify-codegen-matrix.sh
     cargo test --manifest-path tools/lifecycle-probes/Cargo.toml -- --test-threads=1
 )
 (
+    cargo fmt --manifest-path tools/performance-baseline/Cargo.toml --check
+    cargo clippy --manifest-path tools/performance-baseline/Cargo.toml --all-targets -- -D warnings
+    cargo test --manifest-path tools/performance-baseline/Cargo.toml
+    cargo run --quiet --release --manifest-path tools/performance-baseline/Cargo.toml -- \
+        --samples 11 --inner 5 \
+        --output "${TMPDIR:-/tmp}/sanitization-performance-smoke.json"
+    scripts/verify-target-evidence.py \
+        --allow-dirty \
+        --performance "${TMPDIR:-/tmp}/sanitization-performance-smoke.json"
+)
+(
     cargo check --manifest-path fuzz/Cargo.toml --bins
 )
 scripts/verify-evidence.py

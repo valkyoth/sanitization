@@ -32,6 +32,36 @@ evidence for the public path.
 Compiler and target expansion belongs to CP-20 because those runs need dated
 runner metadata.
 
+## CP-20 Target Evidence
+
+`.github/workflows/cp20-evidence.yml` produces per-commit artifacts in three
+separate classes:
+
+- native functional, codegen, and relative-performance evidence on x86_64
+  Linux, AArch64 Linux, x86_64 Windows, and AArch64 macOS;
+- multi-seed portable and `strict-compare` leakage evidence on x86_64 Linux,
+  AArch64 Linux, and AArch64 macOS;
+- explicitly compile-only manifests for BSD, Android, iOS, embedded ARM,
+  embedded RISC-V, and Tier C WASM targets.
+
+`scripts/capture-target-evidence.py` rejects a native label unless the target
+triple equals the active rustc host triple. Each manifest records the UTC
+date, commit, dirty state, compiler, runner, feature set, evidence class, and
+workflow URL. `scripts/verify-target-evidence.py` validates those manifests
+and rejects dirty, failed, mismatched, unhashed, or incomplete evidence.
+
+`scripts/collect-leakage-evidence.py` requires at least three distinct seeds
+for both the portable and strict-comparison variants. Every raw report is
+hashed into its summary. This provides repeated target-specific attempts to
+falsify the data-oblivious claim; it does not convert statistical evidence
+into a universal timing guarantee.
+
+`tools/performance-baseline` uses relative thresholds rather than absolute
+nanosecond limits. It detects pathological large-wipe scaling and ensures the
+specialized bulk wipe and `SecretBytes` paths remain materially separate from
+the intentionally slower per-element generic-array path. Performance evidence
+cannot authorize weakening fence policy by itself.
+
 ## Allocation Quarantine And Fault Models
 
 `tools/lifecycle-probes` installs a test-only allocator that delays

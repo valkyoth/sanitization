@@ -31,6 +31,20 @@ cargo run --release --manifest-path tools/ct-leakage/Cargo.toml --features asm-c
   --output target/ct-leakage-asm-compare.json
 ```
 
+For checkpoint/release evidence, use the multi-seed collector instead of
+accepting a single passing run:
+
+```bash
+scripts/collect-leakage-evidence.py \
+  --output-dir target/cp20/leakage \
+  --samples 50000 \
+  --inner 200
+```
+
+The collector uses reproducible seeds, runs both portable and
+`strict-compare` variants, hashes each raw report, and fails unless every
+required primitive case passes under at least three distinct seeds.
+
 For high-assurance release evidence, collect output on each target machine and
 attach it to the release candidate or pentest handoff. Record CPU isolation,
 frequency scaling, turbo/boost, SMT, and scheduler-affinity settings separately

@@ -1,4 +1,7 @@
-use sanitization::ct::{self, Choice, ConstantTimeEq, SecretIndex};
+use sanitization::ct::{
+    self, Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeOrd, CtOption, CtResult,
+    SecretIndex,
+};
 use sanitization::SecretBytes;
 use std::env;
 use std::fs;
@@ -8,6 +11,16 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CASES: &[Case] = &[
+    Case {
+        name: "ct_choice_boolean_ops",
+        description: "Choice boolean operations false vs true input",
+        run: run_choice_boolean_ops,
+    },
+    Case {
+        name: "ct_eq_fixed_16_first_diff",
+        description: "ct::eq_fixed([u8; 16]) equal vs first-byte difference",
+        run: run_eq_fixed_16_first_diff,
+    },
     Case {
         name: "ct_eq_fixed_32_first_diff",
         description: "ct::eq_fixed([u8; 32]) equal vs first-byte difference",
@@ -19,6 +32,16 @@ const CASES: &[Case] = &[
         run: run_eq_fixed_32_last_diff,
     },
     Case {
+        name: "ct_eq_fixed_64_last_diff",
+        description: "ct::eq_fixed([u8; 64]) equal vs last-byte difference",
+        run: run_eq_fixed_64_last_diff,
+    },
+    Case {
+        name: "ct_eq_public_len_64_first_diff",
+        description: "ct::eq_public_len([u8; 64]) equal vs first-byte difference",
+        run: run_eq_public_len_64_first_diff,
+    },
+    Case {
         name: "secret_bytes_eq_32_first_diff",
         description: "SecretBytes<32>::ct_eq equal vs first-byte difference",
         run: run_secret_bytes_eq_32_first_diff,
@@ -27,6 +50,26 @@ const CASES: &[Case] = &[
         name: "ct_cmp_fixed_32_first_diff",
         description: "ct::cmp_fixed([u8; 32]) equal vs first-byte difference",
         run: run_cmp_fixed_32_first_diff,
+    },
+    Case {
+        name: "ct_u64_ordering_equal_vs_different",
+        description: "u64::ct_cmp equal vs different value",
+        run: run_u64_ordering_equal_vs_different,
+    },
+    Case {
+        name: "ct_u64_select_choice",
+        description: "u64::conditional_select false Choice vs true Choice",
+        run: run_u64_select_choice,
+    },
+    Case {
+        name: "ct_option_unwrap_choice",
+        description: "CtOption<u64>::unwrap_or absent vs present Choice",
+        run: run_ct_option_unwrap_choice,
+    },
+    Case {
+        name: "ct_result_unwrap_choice",
+        description: "CtResult<u64, u64>::unwrap_or error vs success Choice",
+        run: run_ct_result_unwrap_choice,
     },
     Case {
         name: "ct_conditional_copy_64_choice",
@@ -65,6 +108,7 @@ enum Class {
 
 #[derive(Clone)]
 struct Config {
+    seed: Option<u64>,
     samples: usize,
     inner: usize,
     warmup: usize,
@@ -182,7 +226,7 @@ fn main() {
         std::process::exit(2);
     }
 
-    let seed = seed();
+    let seed = config.seed.unwrap_or_else(random_seed);
     let mut rng = XorShift64::new(seed);
     let mut results = Vec::new();
 
@@ -253,7 +297,10 @@ fn main() {
 
 fn write_report(path: &str, report: &str) -> std::io::Result<()> {
     let path = Path::new(path);
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent)?;
     }
     fs::write(path, report)
@@ -269,6 +316,7 @@ where
     S: Into<String>,
 {
     let mut config = Config {
+        seed: None,
         samples: 20_000,
         inner: 200,
         warmup: 1_000,
@@ -280,6 +328,7 @@ where
     let mut args = args.into_iter().map(|arg| normalize_cli_arg(arg.into()));
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--seed" => config.seed = Some(parse_u64("--seed", args.next())?),
             "--samples" => config.samples = parse_usize("--samples", args.next())?,
             "--inner" => config.inner = parse_usize("--inner", args.next())?,
             "--warmup" => config.warmup = parse_usize("--warmup", args.next())?,
@@ -318,6 +367,12 @@ fn parse_usize(flag: &str, value: Option<String>) -> Result<usize, String> {
         .map_err(|_| format!("{flag} requires a positive integer"))
 }
 
+fn parse_u64(flag: &str, value: Option<String>) -> Result<u64, String> {
+    required_value(flag, value)?
+        .parse()
+        .map_err(|_| format!("{flag} requires an unsigned integer"))
+}
+
 fn parse_f64(flag: &str, value: Option<String>) -> Result<f64, String> {
     required_value(flag, value)?
         .parse()
@@ -325,7 +380,7 @@ fn parse_f64(flag: &str, value: Option<String>) -> Result<f64, String> {
 }
 
 fn print_usage() {
-    eprintln!("usage: ct-leakage [--samples N] [--inner N] [--warmup N] [--threshold T] [--case NAME] [--output PATH]");
+    eprintln!("usage: ct-leakage [--seed N] [--samples N] [--inner N] [--warmup N] [--threshold T] [--case NAME] [--output PATH]");
     eprintln!();
     print_cases();
 }
@@ -337,7 +392,7 @@ fn print_cases() {
     }
 }
 
-fn seed() -> u64 {
+fn random_seed() -> u64 {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos() as u64)
@@ -371,6 +426,29 @@ fn measure(inner: usize, mut body: impl FnMut() -> u8) -> u128 {
     read_counter().saturating_sub(start)
 }
 
+fn run_choice_boolean_ops(class: Class, inner: usize, _rng: &mut XorShift64) -> u128 {
+    let choice = choice_for_class(class);
+    measure(inner, || {
+        black_box(choice)
+            .and(Choice::TRUE)
+            .xor(Choice::FALSE)
+            .or(Choice::FALSE)
+            .declassify_u8("test or verification observes normalized choice")
+    })
+}
+
+fn run_eq_fixed_16_first_diff(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
+    let left = rng.fill::<16>();
+    let mut right = left;
+    if matches!(class, Class::B) {
+        right[0] ^= 0x80;
+    }
+    measure(inner, || {
+        ct::eq_fixed(black_box(&left), black_box(&right))
+            .declassify_u8("test or verification observes normalized choice")
+    })
+}
+
 fn run_eq_fixed_32_first_diff(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
     let left = rng.fill::<32>();
     let mut right = left;
@@ -378,7 +456,8 @@ fn run_eq_fixed_32_first_diff(class: Class, inner: usize, rng: &mut XorShift64) 
         right[0] ^= 0x80;
     }
     measure(inner, || {
-        ct::eq_fixed(black_box(&left), black_box(&right)).declassify_u8("test or verification observes normalized choice")
+        ct::eq_fixed(black_box(&left), black_box(&right))
+            .declassify_u8("test or verification observes normalized choice")
     })
 }
 
@@ -389,7 +468,32 @@ fn run_eq_fixed_32_last_diff(class: Class, inner: usize, rng: &mut XorShift64) -
         right[31] ^= 0x01;
     }
     measure(inner, || {
-        ct::eq_fixed(black_box(&left), black_box(&right)).declassify_u8("test or verification observes normalized choice")
+        ct::eq_fixed(black_box(&left), black_box(&right))
+            .declassify_u8("test or verification observes normalized choice")
+    })
+}
+
+fn run_eq_fixed_64_last_diff(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
+    let left = rng.fill::<64>();
+    let mut right = left;
+    if matches!(class, Class::B) {
+        right[63] ^= 0x01;
+    }
+    measure(inner, || {
+        ct::eq_fixed(black_box(&left), black_box(&right))
+            .declassify_u8("test or verification observes normalized choice")
+    })
+}
+
+fn run_eq_public_len_64_first_diff(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
+    let left = rng.fill::<64>();
+    let mut right = left;
+    if matches!(class, Class::B) {
+        right[0] ^= 0x40;
+    }
+    measure(inner, || {
+        ct::eq_public_len(black_box(&left), black_box(&right))
+            .declassify_u8("test or verification observes normalized choice")
     })
 }
 
@@ -401,7 +505,10 @@ fn run_secret_bytes_eq_32_first_diff(class: Class, inner: usize, rng: &mut XorSh
     }
     let left = SecretBytes::<32>::from_array(left_bytes);
     let right = SecretBytes::<32>::from_array(right_bytes);
-    measure(inner, || left.ct_eq(black_box(&right)).declassify_u8("test or verification observes normalized choice"))
+    measure(inner, || {
+        left.ct_eq(black_box(&right))
+            .declassify_u8("test or verification observes normalized choice")
+    })
 }
 
 fn run_cmp_fixed_32_first_diff(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
@@ -412,8 +519,52 @@ fn run_cmp_fixed_32_first_diff(class: Class, inner: usize, rng: &mut XorShift64)
     }
     measure(inner, || {
         let ordering = ct::cmp_fixed(black_box(&left), black_box(&right));
-        ordering.is_less().declassify_u8("test or verification observes normalized choice") ^ ordering.is_equal().declassify_u8("test or verification observes normalized choice")
+        ordering
+            .is_less()
+            .declassify_u8("test or verification observes normalized choice")
+            ^ ordering
+                .is_equal()
+                .declassify_u8("test or verification observes normalized choice")
     })
+}
+
+fn run_u64_ordering_equal_vs_different(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
+    let left = rng.next_u64();
+    let right = match class {
+        Class::A => left,
+        Class::B => left ^ 0x8000_0000_0000_0001,
+    };
+    measure(inner, || {
+        let ordering = black_box(left).ct_cmp(&black_box(right));
+        ordering
+            .is_less()
+            .xor(ordering.is_equal())
+            .declassify_u8("test or verification observes normalized choice")
+    })
+}
+
+fn run_u64_select_choice(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
+    let left = rng.next_u64();
+    let right = rng.next_u64();
+    let choice = choice_for_class(class);
+    measure(inner, || {
+        u64::conditional_select(black_box(&left), black_box(&right), black_box(choice)) as u8
+    })
+}
+
+fn run_ct_option_unwrap_choice(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
+    let value = rng.next_u64();
+    let fallback = rng.next_u64();
+    let option = CtOption::new(value, choice_for_class(class));
+    measure(inner, || option.unwrap_or(black_box(&fallback)) as u8)
+}
+
+fn run_ct_result_unwrap_choice(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
+    let value = rng.next_u64();
+    let error = rng.next_u64();
+    let fallback = rng.next_u64();
+    let result = CtResult::new(value, error, choice_for_class(class));
+    measure(inner, || result.unwrap_or(black_box(&fallback)) as u8)
 }
 
 fn run_conditional_copy_64_choice(class: Class, inner: usize, rng: &mut XorShift64) -> u128 {
@@ -519,6 +670,13 @@ fn render_report(config: &Config, seed: u64, passed: bool, results: &[CaseResult
     output.push_str("{\n");
     output.push_str("  \"schema_version\": 1,\n");
     output.push_str("  \"tool\": \"ct-leakage\",\n");
+    push_json_field(
+        &mut output,
+        "generated_at_utc",
+        &generated_at_utc(),
+        true,
+        2,
+    );
     output.push_str("  \"passed\": ");
     output.push_str(if passed { "true" } else { "false" });
     output.push_str(",\n");
@@ -540,6 +698,9 @@ fn render_report(config: &Config, seed: u64, passed: bool, results: &[CaseResult
         true,
         4,
     );
+    push_json_field(&mut output, "target", &rustc_host_target(), true, 4);
+    push_json_field(&mut output, "profile", "release", true, 4);
+    push_json_field(&mut output, "cpu", &cpu_description(), true, 4);
     push_json_field(
         &mut output,
         "uname",
@@ -554,7 +715,36 @@ fn render_report(config: &Config, seed: u64, passed: bool, results: &[CaseResult
         true,
         4,
     );
-    push_json_field(&mut output, "features", &enabled_features(), false, 4);
+    push_json_field(&mut output, "features", &enabled_features(), true, 4);
+    push_json_field(
+        &mut output,
+        "runner",
+        &environment_value("RUNNER_NAME", "local"),
+        true,
+        4,
+    );
+    push_json_field(&mut output, "workflow_run", &workflow_run_url(), true, 4);
+    push_json_field(
+        &mut output,
+        "cpu_affinity",
+        &environment_value("SANITIZATION_EVIDENCE_CPU_AFFINITY", "not controlled"),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut output,
+        "frequency_scaling",
+        &environment_value("SANITIZATION_EVIDENCE_FREQUENCY", "not controlled"),
+        true,
+        4,
+    );
+    push_json_field(
+        &mut output,
+        "smt",
+        &environment_value("SANITIZATION_EVIDENCE_SMT", "not controlled"),
+        false,
+        4,
+    );
     output.push_str("  },\n");
     output.push_str("  \"cases\": [\n");
     for (index, result) in results.iter().enumerate() {
@@ -589,6 +779,57 @@ fn render_report(config: &Config, seed: u64, passed: bool, results: &[CaseResult
     output.push_str("  ]\n");
     output.push_str("}\n");
     output
+}
+
+fn generated_at_utc() -> String {
+    command_output("date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+}
+
+fn rustc_host_target() -> String {
+    command_output("rustc", &["-vV"])
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .unwrap_or("unknown")
+        .to_owned()
+}
+
+fn cpu_description() -> String {
+    if let Ok(value) = env::var("PROCESSOR_IDENTIFIER") {
+        return value;
+    }
+    if env::consts::OS == "macos" {
+        let value = command_output("sysctl", &["-n", "machdep.cpu.brand_string"]);
+        if !value.starts_with("unavailable:") && !value.is_empty() {
+            return value;
+        }
+    }
+    fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|contents| {
+            contents.lines().find_map(|line| {
+                let (key, value) = line.split_once(':')?;
+                matches!(key.trim(), "model name" | "Hardware" | "Processor")
+                    .then(|| value.trim().to_owned())
+            })
+        })
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
+fn environment_value(name: &str, fallback: &str) -> String {
+    env::var(name).unwrap_or_else(|_| fallback.to_owned())
+}
+
+fn workflow_run_url() -> String {
+    match (
+        env::var("GITHUB_SERVER_URL"),
+        env::var("GITHUB_REPOSITORY"),
+        env::var("GITHUB_RUN_ID"),
+    ) {
+        (Ok(server), Ok(repository), Ok(run_id)) => {
+            format!("{server}/{repository}/actions/runs/{run_id}")
+        }
+        _ => "local".to_owned(),
+    }
 }
 
 fn push_json_field(output: &mut String, key: &str, value: &str, comma: bool, indent: usize) {
@@ -655,6 +896,8 @@ mod tests {
     #[test]
     fn parse_args_accepts_pasted_unicode_spacing() {
         let config = parse_args_from([
+            "--seed",
+            "12345",
             "\u{00a0}\u{00a0}--samples",
             "\u{00a0}10\u{00a0}",
             "\u{00a0}--inner",
@@ -668,6 +911,7 @@ mod tests {
         ])
         .expect("unicode-spaced arguments should parse");
 
+        assert_eq!(config.seed, Some(12_345));
         assert_eq!(config.samples, 10);
         assert_eq!(config.inner, 2);
         assert_eq!(config.warmup, 3);
@@ -688,7 +932,9 @@ mod tests {
         let output = base.join("target").join("ct-leakage.json");
 
         write_report(
-            output.to_str().expect("temporary path should be valid UTF-8"),
+            output
+                .to_str()
+                .expect("temporary path should be valid UTF-8"),
             "{}\n",
         )
         .expect("nested output path should be created");

@@ -9,9 +9,16 @@ emit_codegen() {
         target/release/deps/libsanitization-verify-codegen.rlib \
         target/release/deps/libsanitization-verify-codegen.rmeta
 
-    cargo rustc -p sanitization --lib --release --all-features -- \
-        -C extra-filename=-verify-codegen \
-        --emit=llvm-ir,asm
+    if [[ "${SANITIZATION_CODEGEN_FEATURES:-all}" == "all" ]]; then
+        cargo rustc -p sanitization --lib --release --all-features -- \
+            -C extra-filename=-verify-codegen \
+            --emit=llvm-ir,asm
+    else
+        cargo rustc -p sanitization --lib --release \
+            --features "${SANITIZATION_CODEGEN_FEATURES}" -- \
+            -C extra-filename=-verify-codegen \
+            --emit=llvm-ir,asm
+    fi
 }
 
 emit_codegen
@@ -49,7 +56,7 @@ if [[ -z "${exposure_ir}" || ! -f "${exposure_ir}" ]]; then
     exit 1
 fi
 
-scripts/verify-codegen-artifact.py "${exposure_ir}"
+"${PYTHON:-python3}" scripts/verify-codegen-artifact.py "${exposure_ir}"
 
 secret_box_core_clear_body="$(
     awk '

@@ -2158,9 +2158,20 @@ derive rejection checks, leakage-harness smoke testing, machine-readable
 evidence validation, local evidence-report smoke testing, release LLVM
 IR/assembly verification, optional bounded Kani verification when `cargo-kani`
 is installed, docs with warnings denied, and package listing.
+The `CP-20 target evidence` GitHub workflow separately produces dated native,
+compile-only, WASM, multi-seed leakage, and relative-performance artifacts.
+Its validator rejects cross-compiled results labeled as native and rejects
+single-seed or dirty-checkout evidence. Run the local collectors with:
+
+```bash
+scripts/collect-leakage-evidence.py --output-dir target/cp20/leakage
+cargo run --release --manifest-path tools/performance-baseline/Cargo.toml -- \
+  --output target/cp20/performance.json
+```
+
 `docs/EVIDENCE.md` records the current target tiers, proof scope, codegen checks,
 and non-guarantees for the native `ct` work. `docs/ct-evidence.json` mirrors the
-same evidence in a machine-readable draft format for release review.
+same evidence in a machine-readable candidate format for release review.
 `docs/LEAKAGE_TESTS.md` records the metadata, commands, and scope expected for
 dudect-style timing/leakage runs.
 

@@ -5,14 +5,16 @@ crate. It is not a blanket claim of identical wall-clock timing or complete
 microarchitectural side-channel resistance.
 
 The same information is also summarized in machine-readable form in
-`docs/ct-evidence.json`. The named CP-19 harness registry is
-`docs/verification-harnesses.json`. These files remain infrastructure drafts
-until a release candidate attaches exact CI run URLs, rustc versions, target
-triples, and feature sets.
+`docs/ct-evidence.json`. The named harness registry is
+`docs/verification-harnesses.json`. CP-20 generates dated per-commit artifacts
+with exact CI run URLs, rustc versions, target triples, feature sets, and
+native/compile-only classification. Final release records must cite the
+accepted workflow run and artifact digests.
 
 ## Scope
 
-The 1.2 development line adds a native `sanitization::ct` module. Its claim is:
+The 2.0 development line strengthens the native `sanitization::ct` module. Its
+claim is:
 
 - no secret-dependent control flow inside the provided primitives;
 - no secret-dependent memory access inside the provided primitives;
@@ -43,15 +45,16 @@ The crate does not claim:
 
 | Target/profile | Tier | Evidence |
 | --- | --- | --- |
-| `x86_64-unknown-linux-gnu`, release, `asm-compare`/`strict-compare` | Tier A draft | CI feature tests, release LLVM IR/assembly scan, x86_64 asm comparison backend, Kani harnesses when available |
-| `aarch64-unknown-linux-gnu`, release, `asm-compare`/`strict-compare` | Tier B draft | Target compile check when installed, AArch64 asm comparison backend, Kani source-level harnesses |
-| Native targets without `asm-compare` | Tier B | Portable source-level data-oblivious structure and tests, no target-specific timing evidence |
-| Embedded/no-`std` targets | Tier B/C | `no_std` compile checks where targets are installed; no device-level leakage tests |
-| WASM `wasm32-*` | Tier C | API compatibility checks and documented reduced volatile/memory-lock guarantees; no strong JIT timing claim |
+| `x86_64-unknown-linux-gnu`, release portable/`strict-compare` | Tier A candidate | Native tests, path-specific codegen, relative performance, and multi-seed leakage artifacts |
+| `aarch64-unknown-linux-gnu`, release portable/`strict-compare` | Tier B native | Native tests, AArch64 codegen, relative performance, and multi-seed leakage artifacts |
+| `x86_64-pc-windows-msvc` | Tier B native | Native feature tests, x86_64 codegen, and relative performance; no timing claim |
+| `aarch64-apple-darwin` | Tier B native | Native tests, AArch64 codegen, relative performance, and multi-seed leakage artifacts |
+| BSD, Android, iOS, embedded ARM/RISC-V | Tier B or B/C compile-only | Cross-compilation manifests; no native runtime or timing claim |
+| WASM `wasm32-*` | Tier C | API/build compatibility and documented reduced volatile/memory-lock guarantees; no strong JIT timing claim |
 
-Tier A draft means the repository has automated evidence hooks, but a stable
-release should still include the exact rustc version, target triple, feature
-set, and CI run that produced the evidence.
+Tier A candidate means the repository has automated evidence collection, but a
+stable release must still preserve the exact rustc version, target triple,
+feature set, accepted CI run, and artifact digests that produced the evidence.
 
 ## Automated Checks
 
@@ -100,7 +103,7 @@ Run Kani proofs directly when `cargo-kani` is installed:
 scripts/verify-kani.sh
 ```
 
-Latest local run while preparing the 1.2 alpha evidence slice:
+Latest local run while preparing the 2.0 CP-20 evidence slice:
 
 - Kani version: `Kani Rust Verifier 0.67.0`;
 - result: all configured `scripts/verify-kani.sh` harnesses passed for
@@ -117,6 +120,23 @@ The first script checks the canonical backend and current host architecture.
 The matrix script validates exact downstream probe bodies under optimization
 2/3/s/z, Thin/Fat LTO, one/many codegen units, and unwind/abort panic modes.
 See `docs/VERIFICATION_TOOLING.md`.
+
+Collect and validate repeated native leakage evidence:
+
+```bash
+scripts/collect-leakage-evidence.py --output-dir target/cp20/leakage
+scripts/verify-target-evidence.py \
+  --leakage-summary target/cp20/leakage/summary.json
+```
+
+Run the relative performance regression baseline:
+
+```bash
+cargo run --release --manifest-path tools/performance-baseline/Cargo.toml -- \
+  --output target/cp20/performance.json
+scripts/verify-target-evidence.py \
+  --performance target/cp20/performance.json
+```
 
 Run lifecycle allocation quarantine and fault-model checks:
 
@@ -238,12 +258,13 @@ Permanent documentation that constrains the claims:
 
 ## Open Evidence Gaps
 
-- `tools/ct-leakage` now provides a dudect-style Welch t-test harness, but
-  full release-candidate runs still need to be collected on x86_64 Linux,
-  Apple Silicon macOS, and AArch64 Linux before target tiers should cite
-  measured timing evidence.
-- AArch64 release assembly is compile-checked when the target is installed, but
-  is not yet scanned by `scripts/verify-codegen.sh` on non-AArch64 hosts.
+- CP-20 workflow artifacts are per commit and expire. CP-22/CP-23 must preserve
+  the accepted run URLs and artifact digests in the final release record.
+- Hosted-runner leakage results do not control affinity, frequency scaling,
+  turbo/boost, or SMT unless the report explicitly records otherwise. They are
+  repeated falsification attempts, not proof.
+- Windows has native functional, codegen, and performance evidence but no
+  target-specific timing claim.
+- BSD, Android, iOS, embedded, and WASM results are compile-only; they must not
+  be described as native runtime evidence.
 - WASM JIT behavior remains a documented non-guarantee.
-- Target tiers are draft until attached to specific CI runs for a stable
-  release candidate.
