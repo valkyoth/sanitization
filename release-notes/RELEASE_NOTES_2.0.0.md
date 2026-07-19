@@ -93,6 +93,12 @@ release-evidence uploads to `actions/upload-artifact v7.0.1`.
   failures through operation-specific `LockedSecretInitError`, `PoolInitError`,
   and `SecretPoolGenerateError<E>` types. Pool initialization reserves
   `Ok(None)` exclusively for exhaustion and removes lossy allocation helpers.
+- Added checked direct initialization of final locked fixed-size storage.
+  `try_init_with` supports custom protection requests, while `from_fill` and
+  `try_from_fill` use the same configured pre/post integrity checks and clear
+  partial output on callback failure. `LockedSecretBytesFillError<E>` and
+  `LockedSecretInitializeError<E>` preserve those error classes. Filled
+  replacements are verified before swap.
 - Made pool integrity failure clear and permanently quarantine the affected
   slot. Added aggregate quarantine telemetry without exposing addresses,
   canary values, or secret bytes.

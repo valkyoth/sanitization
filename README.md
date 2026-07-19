@@ -287,17 +287,45 @@ use sanitization::LockedSecretBytes;
 
 let mut key = LockedSecretBytes::<32>::try_from_fill(|output| {
     output.fill(7);
-    Ok::<(), &'static str>(())
+    Ok::<(), std::io::Error>(())
 })?;
 
 assert_eq!(key.try_constant_time_eq(&[7; 32]), Ok(true));
 key.try_replace_from_fallible_fill(|output| {
     output.fill(9);
-    Ok::<(), &'static str>(())
+    Ok::<(), std::io::Error>(())
 })?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 # }
 ```
+
+When a custom protection request is needed, initialize the resulting mapping
+without an intermediate array:
+
+```rust,no_run
+# #[cfg(feature = "memory-lock")]
+# {
+use sanitization::{LockedSecretBytes, ProtectionRequest};
+
+let request = ProtectionRequest::profile_hardened_native();
+let key = LockedSecretBytes::<32>::zeroed_with_protection(request)?
+    .try_init_with(|output| {
+        // Decode, derive, or ask an RNG to write directly into `output`.
+        output.fill(7);
+        Ok::<(), std::io::Error>(())
+    })?;
+
+assert_eq!(key.try_constant_time_eq(&[7; 32]), Ok(true));
+# Ok::<(), Box<dyn std::error::Error>>(())
+# }
+```
+
+Prefer direct final-storage generation through `try_from_fn`, `try_from_fill`,
+or `try_init_with`. Avoid `Clone`, `to_vec`, formatting, and temporary arrays
+for secret material. Keep unavoidable cryptographic scratch buffers in
+clear-on-drop owners, and keep mutable exposure closures as short as possible.
+These practices reduce avoidable copies; they cannot prove that compiler moves
+or register spills never create historical copies.
 
 For the reviewed native bundle, enable `profile-hardened-native` and use its
 type-associated constructor:

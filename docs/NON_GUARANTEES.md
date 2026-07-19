@@ -126,6 +126,12 @@ For the highest assurance, construct secrets directly inside crate-owned
 containers, use in-place APIs, keep exposure closures small, and avoid passing
 secret material through ordinary temporary arrays, strings, or vectors.
 
+Direct mapped initialization avoids a source-level temporary owned by the API,
+but it does not guarantee that a decoder, RNG, KDF, compiler, or calling
+convention never uses scratch memory or spills registers. Callers remain
+responsible for clear-on-drop ownership of unavoidable scratch buffers and for
+avoiding `Clone`, `to_vec`, formatting, or long-lived exposed slices.
+
 `ConsumeOnceSecret<T>` means one successful access through that wrapper. It
 does not prove the value was never copied before construction, prevent the
 winning closure from copying or exporting bytes, clear values deliberately

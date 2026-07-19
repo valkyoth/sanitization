@@ -69,9 +69,10 @@ mod memory_lock;
     )
 ))]
 pub use memory_lock::{
-    LockedSecretBytes, LockedSecretBytesError, LockedSecretBytesGenerateError,
-    LockedSecretInitError, MemoryLockError, MemoryLockOperation, PoolInitError, SecretPool,
-    SecretPoolGenerateError, SecretPoolSlot,
+    LockedSecretBytes, LockedSecretBytesError, LockedSecretBytesFillError,
+    LockedSecretBytesGenerateError, LockedSecretInitError, LockedSecretInitializeError,
+    MemoryLockError, MemoryLockOperation, PoolInitError, SecretPool, SecretPoolGenerateError,
+    SecretPoolSlot,
 };
 
 #[cfg(all(

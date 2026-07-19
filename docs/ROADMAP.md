@@ -335,9 +335,12 @@ Implemented dynamic rotation helpers:
 - `SecretBytes::try_replace_from_fn`;
 - `SecretBytes::into_cleared`;
 - `LockedSecretBytes::try_from_fn`;
+- `LockedSecretBytes::from_fill` and `try_from_fill`;
+- `LockedSecretBytes::try_init_with` for direct initialization after custom
+  protection-policy construction;
 - `LockedSecretBytes::try_replace_from_array`;
 - `LockedSecretBytes::try_replace_from_slice`;
-- `LockedSecretBytes::try_replace_from_fn`;
+- `LockedSecretBytes::try_replace_from_fill`;
 - `LockedSecretBytes::try_replace_from_fn`;
 - `LockedSecretBytes::into_cleared`;
 - `SecretVec::default`;

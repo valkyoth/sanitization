@@ -1487,10 +1487,16 @@ fn locked_secret_errors_expose_sources() {
     });
     let generated: LockedSecretBytesGenerateError<std::io::Error> =
         LockedSecretBytesGenerateError::Generate(std::io::Error::other("generation failed"));
+    let filled: LockedSecretBytesFillError<std::io::Error> =
+        LockedSecretBytesFillError::Generate(std::io::Error::other("fill failed"));
+    let initialized: LockedSecretInitializeError<std::io::Error> =
+        LockedSecretInitializeError::Generate(std::io::Error::other("initialization failed"));
 
     assert!(std::error::Error::source(&length).is_some());
     assert!(std::error::Error::source(&memory).is_some());
     assert!(std::error::Error::source(&generated).is_some());
+    assert!(std::error::Error::source(&filled).is_some());
+    assert!(std::error::Error::source(&initialized).is_some());
 }
 
 #[cfg(all(
@@ -4223,8 +4229,11 @@ fn locked_secret_bytes_can_fill_in_place() {
         Err("decode failed")
     }) {
         Ok(_) => panic!("fill should have failed"),
-        Err(LockedSecretBytesGenerateError::Memory(_)) => return,
-        Err(LockedSecretBytesGenerateError::Generate(error)) => {
+        Err(LockedSecretBytesFillError::Memory(_)) => return,
+        Err(LockedSecretBytesFillError::Integrity(error)) => {
+            panic!("unexpected integrity error: {error}")
+        }
+        Err(LockedSecretBytesFillError::Generate(error)) => {
             assert_eq!(error, "decode failed");
         }
     }
@@ -4244,6 +4253,79 @@ fn locked_secret_bytes_can_fill_in_place() {
         ))
     );
     assert!(secret.constant_time_eq_or_panic(&[5, 6, 7, 8]));
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_bytes_can_initialize_an_existing_mapping_in_place() {
+    let secret = match LockedSecretBytes::<4>::zeroed() {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+    let mut secret = secret
+        .try_init_with(|output| {
+            output.copy_from_slice(&[1, 2, 3, 4]);
+            Ok::<(), &'static str>(())
+        })
+        .unwrap();
+
+    assert!(secret.constant_time_eq_or_panic(&[1, 2, 3, 4]));
+    secret.secure_clear();
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    feature = "canary-check",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_bytes_try_init_rejects_corruption_before_callback() {
+    let mut secret = match LockedSecretBytes::<4>::zeroed() {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+    secret.corrupt_prefix_canary_for_test();
+
+    let callback_ran = core::cell::Cell::new(false);
+    let result = secret.try_init_with(|_| {
+        callback_ran.set(true);
+        Ok::<(), &'static str>(())
+    });
+
+    assert!(matches!(
+        result,
+        Err(LockedSecretInitializeError::Integrity(CanaryCorruptedError))
+    ));
+    assert!(!callback_ran.get());
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn locked_secret_bytes_try_init_preserves_generator_errors() {
+    let secret = match LockedSecretBytes::<4>::zeroed() {
+        Ok(secret) => secret,
+        Err(_) => return,
+    };
+
+    assert!(matches!(
+        secret.try_init_with(|output| {
+            output[0] = 9;
+            Err("decode failed")
+        }),
+        Err(LockedSecretInitializeError::Generate("decode failed"))
+    ));
 }
 
 #[cfg(all(

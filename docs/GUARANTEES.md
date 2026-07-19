@@ -59,6 +59,13 @@ container. It does not cover allocator metadata, stale copies from earlier
 Rust moves, prior stack frames, external buffers, or allocations already freed
 before they entered a crate-owned type.
 
+`LockedSecretBytes::try_from_fn`, `try_from_fill`, and `try_init_with` let
+callers generate or decode directly into final mapped storage. They avoid an
+API-required intermediate array and clear partial output on a returned
+initializer error. This is copy reduction, not proof that the compiler, ABI,
+or cryptographic implementation never placed secret values in registers or
+historical stack locations.
+
 `AllowlistedSecret<T, P>` adds an application-owned exact-type policy before
 construction or exposure. It does not replace or prove the storage-stability
 contract: shared and mutable exposure still require the corresponding marker,

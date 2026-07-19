@@ -227,6 +227,72 @@ where
     }
 }
 
+/// Error returned while fallibly filling new WASM compatibility storage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LockedSecretBytesFillError<E> {
+    /// Compatibility storage or random-canary setup failed.
+    Memory(MemoryLockError),
+    /// Canary verification failed before initialization completed.
+    Integrity(CanaryCorruptedError),
+    /// The caller-provided initializer failed.
+    Generate(E),
+}
+
+impl<E: fmt::Display> fmt::Display for LockedSecretBytesFillError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Memory(error) => error.fmt(formatter),
+            Self::Integrity(error) => error.fmt(formatter),
+            Self::Generate(error) => write!(formatter, "secret initialization failed: {error}"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<E> std::error::Error for LockedSecretBytesFillError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Memory(error) => Some(error),
+            Self::Integrity(error) => Some(error),
+            Self::Generate(error) => Some(error),
+        }
+    }
+}
+
+/// Error returned while initializing existing WASM compatibility storage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LockedSecretInitializeError<E> {
+    /// Canary verification failed before or after the initializer ran.
+    Integrity(CanaryCorruptedError),
+    /// The caller-provided initializer failed.
+    Generate(E),
+}
+
+impl<E: fmt::Display> fmt::Display for LockedSecretInitializeError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Integrity(error) => error.fmt(formatter),
+            Self::Generate(error) => write!(formatter, "secret initialization failed: {error}"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<E> std::error::Error for LockedSecretInitializeError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Integrity(error) => Some(error),
+            Self::Generate(error) => Some(error),
+        }
+    }
+}
+
 type LockedSecretBytesCheckedCopyError = SecretIntegrityError<crate::LengthError>;
 
 impl From<crate::LengthError> for LockedSecretBytesError {
@@ -442,27 +508,56 @@ impl<const N: usize> LockedSecretBytes<N> {
     /// Allocate WASM-owned storage and fill the fixed-size payload in
     /// place.
     #[inline]
-    pub fn from_fill(fill: impl FnOnce(&mut [u8; N])) -> Result<Self, MemoryLockError> {
-        let mut secret = Self::zeroed()?;
-        compiler_fence(Ordering::SeqCst);
-        fill(secret.as_mut_array());
-        compiler_fence(Ordering::SeqCst);
-        Ok(secret)
+    pub fn from_fill(fill: impl FnOnce(&mut [u8; N])) -> Result<Self, LockedSecretInitError> {
+        let secret = Self::zeroed().map_err(LockedSecretInitError::Allocation)?;
+        match secret.try_init_with(|output| {
+            fill(output);
+            Ok::<(), core::convert::Infallible>(())
+        }) {
+            Ok(secret) => Ok(secret),
+            Err(LockedSecretInitializeError::Integrity(error)) => {
+                Err(LockedSecretInitError::Integrity(error))
+            }
+            Err(LockedSecretInitializeError::Generate(error)) => match error {},
+        }
     }
 
     /// Fallible variant of [`LockedSecretBytes::from_fill`].
     #[inline]
     pub fn try_from_fill<E>(
         fill: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
-    ) -> Result<Self, LockedSecretBytesGenerateError<E>> {
-        let mut secret = Self::zeroed()?;
+    ) -> Result<Self, LockedSecretBytesFillError<E>> {
+        let secret = Self::zeroed().map_err(LockedSecretBytesFillError::Memory)?;
+        secret.try_init_with(fill).map_err(|error| match error {
+            LockedSecretInitializeError::Integrity(error) => {
+                LockedSecretBytesFillError::Integrity(error)
+            }
+            LockedSecretInitializeError::Generate(error) => {
+                LockedSecretBytesFillError::Generate(error)
+            }
+        })
+    }
+
+    /// Initialize existing WASM compatibility storage in place.
+    ///
+    /// The configured integrity check runs before and after `initialize`; with
+    /// `canary-check`, both canary regions are verified. Error and panic paths
+    /// retain clear-on-drop ownership of partial output.
+    pub fn try_init_with<E>(
+        mut self,
+        initialize: impl FnOnce(&mut [u8; N]) -> Result<(), E>,
+    ) -> Result<Self, LockedSecretInitializeError<E>> {
+        self.verify_integrity()
+            .map_err(LockedSecretInitializeError::Integrity)?;
         compiler_fence(Ordering::SeqCst);
-        if let Err(error) = fill(secret.as_mut_array()) {
-            secret.secure_clear();
-            return Err(LockedSecretBytesGenerateError::Generate(error));
+        if let Err(error) = initialize(self.as_mut_array()) {
+            self.secure_clear();
+            return Err(LockedSecretInitializeError::Generate(error));
         }
         compiler_fence(Ordering::SeqCst);
-        Ok(secret)
+        self.verify_integrity()
+            .map_err(LockedSecretInitializeError::Integrity)?;
+        Ok(self)
     }
 
     /// Number of secret bytes stored.
@@ -623,6 +718,7 @@ impl<const N: usize> LockedSecretBytes<N> {
         compiler_fence(Ordering::SeqCst);
         fill(replacement.as_mut_array());
         compiler_fence(Ordering::SeqCst);
+        replacement.verify_integrity()?;
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())
@@ -647,6 +743,7 @@ impl<const N: usize> LockedSecretBytes<N> {
             ));
         }
         compiler_fence(Ordering::SeqCst);
+        replacement.verify_integrity()?;
         self.secure_clear();
         core::mem::swap(self, &mut replacement);
         Ok(())

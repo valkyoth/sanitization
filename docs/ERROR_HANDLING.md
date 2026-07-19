@@ -44,12 +44,18 @@ variants:
 
 - `LockedSecretInitError` distinguishes allocation or OS-CSPRNG setup from
   fixed-secret integrity failure;
+- `LockedSecretBytesFillError<E>` distinguishes allocation or OS-CSPRNG setup,
+  fixed-secret integrity failure, and a fallible whole-buffer initializer;
+- `LockedSecretInitializeError<E>` distinguishes integrity failure from a
+  callback error when initializing an already-created mapping;
 - `PoolInitError` distinguishes public length, allocation or OS-CSPRNG setup,
   and integrity failure; and
 - `SecretPoolGenerateError<E>` additionally preserves a caller generator
   failure.
 
-`LockedSecretBytes::from_array`, `SecretPool::try_allocate_from_slice`,
+`LockedSecretBytes::from_array`, `LockedSecretBytes::from_fill`,
+`LockedSecretBytes::try_from_fill`, `LockedSecretBytes::try_init_with`,
+`SecretPool::try_allocate_from_slice`,
 `SecretPool::try_allocate_from_array`, and
 `SecretPool::try_allocate_from_fn` preserve these classifications. `Ok(None)`
 means only that every usable pool slot is occupied. Pool allocation has no

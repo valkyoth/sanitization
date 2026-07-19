@@ -37,6 +37,33 @@ if !key.protection_report().satisfies(request) {
 # }
 ```
 
+When the secret is generated or decoded after policy selection, fill that same
+mapping directly:
+
+```rust,no_run
+# #[cfg(feature = "memory-lock")]
+# {
+use sanitization::{LockedSecretBytes, ProtectionRequest};
+
+let request = ProtectionRequest::profile_hardened_native();
+let key = LockedSecretBytes::<32>::zeroed_with_protection(request)?
+    .try_init_with(|output| {
+        output.fill(0x42);
+        Ok::<(), std::io::Error>(())
+    })?;
+
+assert_eq!(key.try_constant_time_eq(&[0x42; 32]), Ok(true));
+# Ok::<(), Box<dyn std::error::Error>>(())
+# }
+```
+
+`try_init_with` runs the configured integrity check before and after the
+initializer; with `canary-check`, both canary regions are verified. A callback
+error clears partial output before teardown. Prefer this path, `try_from_fill`,
+or `try_from_fn` over constructing an unlocked array and moving it into the
+mapping. Avoid cloning, formatting, and `to_vec` on secrets; place unavoidable
+scratch storage under clear-on-drop ownership and minimize exposure scope.
+
 Use named profile constructors when their policy matches the deployment. Use a
 custom request only when required/preferred controls genuinely differ. See
 [`PROTECTION_REPORT.md`](PROTECTION_REPORT.md) and
