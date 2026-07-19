@@ -1,0 +1,34 @@
+{
+  "checkpoint": "CP-21",
+  "packages": {
+    "sanitization": {
+      "file": "sanitization.txt",
+      "lines": 1867,
+      "sha256": "9a6bf2c4733276234d0bc8f959bf10c08e8d9da13a5585cce11c98e29aca5ad8"
+    },
+    "sanitization-arrayvec": {
+      "file": "sanitization-arrayvec.txt",
+      "lines": 30,
+      "sha256": "ddc322ded8265745de0f7f9f768e1d0e7d4b8a3a3f14adfdd410d0dd2fd89fdc"
+    },
+    "sanitization-bytes": {
+      "file": "sanitization-bytes.txt",
+      "lines": 30,
+      "sha256": "f6e95aa47cdb1cdf39d7ff2e0b48a3e18e78bc23a21aaefaa9f77b93c7c79381"
+    },
+    "sanitization-crypto-interop": {
+      "file": "sanitization-crypto-interop.txt",
+      "lines": 73,
+      "sha256": "462bd8c6291a6e39574eee94f649a513d7239991fb30c742997b44a4f7b9c539"
+    },
+    "sanitization-derive": {
+      "file": "sanitization-derive.txt",
+      "lines": 5,
+      "sha256": "09a78c69ec6e83e2b2effd9fe0049af29814e7a4925c403cb73ef17fe0b7f0a1"
+    }
+  },
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "schema_version": 1,
+  "source_checkpoint": "082d1e19fb5473e565b31c24e1c743f4c88d7470",
+  "tool": "cargo-public-api 0.52.0"
+}

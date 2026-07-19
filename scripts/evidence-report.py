@@ -112,7 +112,8 @@ def main() -> int:
             "scripts/verify-verification-harnesses.py",
             "scripts/test-verification-fail-closed.py",
             "scripts/verify-evidence.py",
-            "scripts/capture-2.0-api.py --check",
+            "scripts/verify-2.0-api-freeze.py",
+            "scripts/capture-2.0-public-api.py",
         ],
     }
     print(json.dumps(report, indent=2, sort_keys=True))

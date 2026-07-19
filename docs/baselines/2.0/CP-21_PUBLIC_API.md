@@ -9,16 +9,21 @@ The recorded workspace package version remains `1.2.5` by design. The 2.0
 development checkpoints preserve release metadata until CP-23 performs the
 reviewed version and publication transition.
 
-Regenerate after an accepted CP-21 API change:
+The snapshot is now historical and must not be regenerated after CP-21. The
+exact manifest hashes intentionally predate CP-22's reviewed `syn` 2.0.119 pin.
+To reproduce the original capture at CP-21, check out commit
+`082d1e19fb5473e565b31c24e1c743f4c88d7470` and run:
 
 ```bash
 scripts/capture-2.0-api.py
 ```
 
-Verify it without modifying the repository:
+For current-tree freeze verification, run the CP-22 source-declaration and
+semantic API checks instead:
 
 ```bash
-scripts/capture-2.0-api.py --check
+scripts/verify-2.0-api-freeze.py
+scripts/capture-2.0-public-api.py
 ```
 
 This snapshot is deliberately not presented as a semantic Rust API model. It

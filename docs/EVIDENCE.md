@@ -257,6 +257,9 @@ Permanent documentation that constrains the claims:
 - `docs/STORAGE_CONTRACTS.md`: the conditional generic-storage attestation;
 - `docs/PROTECTION_REPORT.md`: runtime protection request and outcome semantics;
 - `docs/MIGRATION_2.0.md`: the reviewed 1.2.5-to-2.0 source migration;
+- `docs/SCOPE_2.0.0.md`: included and explicitly deferred 2.0 facilities;
+- `docs/baselines/2.0/CP-22_API_FREEZE.md`: reproducible semantic API and
+  semver close-out against 1.2.5 and CP-21;
 - `docs/THREAT_MODEL.md`: guarantees, residual risks, WASM limits, canary limits;
 - `docs/SAFETY.md`: unsafe boundaries and invariants;
 - `docs/ROADMAP.md`: 1.2 target tiers and release checkpoint gates.

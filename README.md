@@ -145,6 +145,7 @@ Read [GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/GUA
 [EVIDENCE.md](https://github.com/valkyoth/sanitization/blob/main/docs/EVIDENCE.md),
 [STORAGE_CONTRACTS.md](https://github.com/valkyoth/sanitization/blob/main/docs/STORAGE_CONTRACTS.md),
 [PROTECTION_REPORT.md](https://github.com/valkyoth/sanitization/blob/main/docs/PROTECTION_REPORT.md),
+[SCOPE_2.0.0.md](https://github.com/valkyoth/sanitization/blob/main/docs/SCOPE_2.0.0.md),
 [VERIFICATION_TOOLING.md](https://github.com/valkyoth/sanitization/blob/main/docs/VERIFICATION_TOOLING.md),
 and [REPRODUCIBLE_BUILDS.md](https://github.com/valkyoth/sanitization/blob/main/docs/REPRODUCIBLE_BUILDS.md)
 before using this crate for high-assurance secret handling.

@@ -94,8 +94,18 @@
     },
     {
       "name": "cp21-api-candidate",
-      "claim": "Publishable crate source, manifests, features, and source-level public declarations match the reviewed CP-21 freeze candidate.",
-      "command": "scripts/capture-2.0-api.py --check"
+      "claim": "The recorded CP-21 source-level candidate provides the comparison baseline used by the CP-22 freeze validator.",
+      "command": "scripts/verify-2.0-api-freeze.py"
+    },
+    {
+      "name": "cp22-api-freeze",
+      "claim": "The CP-21 public surface remains frozen, intentional 1.2.5 breaks map to migration guidance, and optional 2.0 scope has an explicit disposition.",
+      "command": "scripts/verify-2.0-api-freeze.py"
+    },
+    {
+      "name": "semantic-public-api",
+      "claim": "Rustdoc-derived public API output for every publishable crate matches the CP-21 candidate when cargo-public-api 0.52.0 is available.",
+      "command": "scripts/capture-2.0-public-api.py"
     }
   ]
 }

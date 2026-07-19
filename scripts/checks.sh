@@ -63,6 +63,12 @@ scripts/verify-secret-exposure-failures.sh
 scripts/verify-ct-declassification.sh
 scripts/verify-migration-2.0.py
 scripts/verify-downstream-migration.py
+scripts/verify-2.0-api-freeze.py
+if cargo public-api --version >/dev/null 2>&1; then
+    scripts/capture-2.0-public-api.py
+else
+    printf 'skipping semantic public API check; cargo-public-api 0.52.0 is not installed\n'
+fi
 scripts/verify-leakage-smoke.sh
 scripts/verify-loom.sh
 scripts/verify-core-dump-probe.sh
@@ -89,7 +95,6 @@ scripts/verify-codegen-matrix.sh
 scripts/verify-evidence.py
 scripts/test-release-readiness.sh
 scripts/capture-2.0-baseline.py --check
-scripts/capture-2.0-api.py --check
 scripts/verify-2.0-module-split.py
 scripts/evidence-report.py >/dev/null
 

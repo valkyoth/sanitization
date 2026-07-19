@@ -100,6 +100,11 @@ ordering, lookup, selection, allocation, text validation, or caller code.
 sanitization = { version = "2", features = ["strict-compare"] }
 ```
 
+`Choice`, `Mask`, and `CtOrdering` no longer implement ordinary `Eq` or
+`PartialEq`. This is intentional: comparing secret-derived control values must
+stay inside their data-oblivious algebra until a reason-bearing public
+declassification boundary.
+
 ## Derive Macros
 
 Enum sanitization requires explicit acknowledgement that assignment between
@@ -166,6 +171,11 @@ bytes.wipe();
 wipe::bytes(&mut bytes);
 assert_eq!(bytes, [0; 32]);
 ```
+
+The old `sanitize_bytes_best_effort` name has no weaker 2.0 replacement.
+`wipe::bytes` is the canonical optimizer-resistant path. Every
+`volatile_sanitize_*_multi_pass` helper maps to the corresponding
+`wipe::*_multi_pass` helper.
 
 ## ArrayVec Companion
 
@@ -242,6 +252,20 @@ one API shape across feature profiles. The change covers exposure, mutation,
 copying, replacement, and comparison on locked bytes/vectors/strings, pool
 slots, and guarded bytes/strings.
 
+| Type | Operations changed to checked results |
+| --- | --- |
+| `LockedSecretBytes<N>` | copying, replacement, exposure, mutation, comparison, and clear-and-flush |
+| `LockedSecretVec` | exposure, mutation, extension, replacement, comparison, and clear-and-flush |
+| `LockedSecretString` | exposure, mutation, append, replacement, comparison, and clear-and-flush |
+| `SecretPoolSlot<'_, N, SLOTS>` | copying, replacement, exposure, mutation, comparison, and cache flushing |
+| `GuardedSecretVec` | exposure, mutation, extension, replacement, comparison, and clear-and-flush |
+| `GuardedSecretString` | exposure, mutation, append, replacement, comparison, and clear-and-flush |
+
+The exact error depends on whether the operation can also fail for a length,
+capacity, UTF-8, mapping, or cache-flush reason. Propagate the returned
+`Result`, or match `SecretIntegrityError::Canary` separately from
+`SecretIntegrityError::Operation` when the response policy differs.
+
 Handle `CanaryCorruptedError` or `SecretIntegrityError<E>` explicitly. Use an
 `*_or_panic` helper only when aborting the current control flow is an intentional
 deployment policy.
@@ -258,6 +282,15 @@ assert_eq!(first, 1);
 # Ok::<(), Box<dyn std::error::Error>>(())
 # }
 ```
+
+`LockedSecretBytesCheckedCopyError` changed from a dedicated enum to the type
+alias `SecretIntegrityError<LengthError>`. Match `SecretIntegrityError::Canary`
+and `SecretIntegrityError::Operation` instead of the old enum representation.
+
+`MemoryLockOperation` and `GuardPageOperation` gained `WipeOnFork`. These enums
+remain exhaustive, so downstream matches must add the new variant. Their
+implicit numeric discriminants after the insertion changed; 1.x numeric casts
+must not be used as a stable wire or persistence format.
 
 Runtime hardening is now modeled by:
 

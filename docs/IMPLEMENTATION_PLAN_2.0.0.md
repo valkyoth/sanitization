@@ -128,8 +128,8 @@ its retest.
 | `CP-18` | Accepted |
 | `CP-19` | Accepted |
 | `CP-20` | Accepted |
-| `CP-21` | Pentest |
-| `CP-22` | Planned |
+| `CP-21` | Accepted |
+| `CP-22` | Pentest |
 | `CP-23` | Planned |
 
 Allowed status values are `Planned`, `Implementing`, `Pentest`, `Remediating`,

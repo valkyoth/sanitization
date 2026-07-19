@@ -53,17 +53,25 @@ for index, change in enumerate(changes):
         fail(f"unknown guide anchor for {legacy}: {change['anchor']}")
 required = {
     "Choice::unwrap_u8",
+    "Choice Eq and PartialEq",
+    "CtOrdering Eq and PartialEq",
     "Mask::expose",
+    "Mask Eq and PartialEq",
     "ct::Secret<T>",
     "strict-ct feature",
     "#[sanitization(skip)]",
     "sanitize_bytes",
+    "sanitize_bytes_best_effort",
     "unsafe_wipe::VolatileSanitize",
     "unsafe-wipe feature",
     "ReadOnceSecret<T>",
     "ReadOnceSecret::consume_mut",
+    "CacheFlushSanitize::cache_flush_sanitize returning unit",
     "infallible cache flush APIs",
     "infallible mapped canary operations",
+    "LockedSecretBytesCheckedCopyError enum",
+    "MemoryLockOperation exhaustive variants",
+    "GuardPageOperation exhaustive variants",
 }
 missing = required.difference(legacy_names)
 if missing:
