@@ -5,6 +5,13 @@ Version 2.0.0 is a security-model release. It preserves the dependency-free,
 storage, exposure, data-oblivious control state, derive behavior, and native
 protection outcomes more explicit and fail-closed.
 
+Protection reports now accept `NotApplicable` as satisfying a requested control
+only when the requested secret length is zero. Retired nonempty mappings and
+wiped mappings left live but unlocked after release failure are degraded and
+cannot satisfy their original protection request. Release evidence also keeps
+the original CP-21 source snapshot immutable under a pinned digest while using
+a separately named current-source inventory for the evolving release candidate.
+
 Page-sealed cleanup now attempts mapping release while an unwiped payload is
 still locked. If both page normalization and release fail, the poisoned mapping
 remains locked for a later cleanup retry, and its protection report continues

@@ -84,6 +84,13 @@ compatibility-only requested controls, and treats empty-storage
 `all_requested_controls_established(request)` spelling remains equivalent for
 compatibility.
 
+`ProtectionState::satisfies(requirement)` is deliberately more conservative:
+without the report's byte count it cannot prove that `NotApplicable` means
+genuinely empty storage, so that state does not satisfy a required or preferred
+control. For a nonempty report, `NotApplicable` is degraded and cannot satisfy
+the original request. This includes retired mappings and wiped mappings that
+remain live after release failed and were then unlocked.
+
 For operational summaries:
 
 - `is_degraded()` detects failed, unsupported, compatibility-only, or unusable

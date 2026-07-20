@@ -11,7 +11,7 @@
   "tool": "cargo-semver-checks 0.49.0",
   "public_api_tool": "cargo-public-api 0.52.0",
   "public_api_command": "scripts/capture-2.0-public-api.py",
-  "public_api_result": "pass: all five publishable package snapshots match the CP-21 semantic API candidate",
+  "public_api_result": "pass: all five publishable package snapshots match the current reviewed 2.0 API candidate",
   "major_command": "cargo semver-checks check-release -p sanitization --baseline-rev v1.2.5 --release-type major --all-features --color never",
   "major_result": "pass: no semver update required under an assumed major release",
   "minor_command": "cargo semver-checks check-release -p sanitization --baseline-rev v1.2.5 --release-type minor --all-features --color never",

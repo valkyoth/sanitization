@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -14,6 +15,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CP21 = ROOT / "docs" / "baselines" / "2.0" / "cp21-public-api.json"
+CURRENT = ROOT / "docs" / "baselines" / "2.0" / "current-source-api.json"
+CP21_SHA256 = "4dba0778c0d0b00e53f44a207eeb1dd2a4077f89b9bce26afde4648611cf02d4"
 SEMVER = ROOT / "docs" / "baselines" / "2.0" / "cp22-semver-review.json"
 MIGRATION = ROOT / "docs" / "migration-2.0.json"
 PLAN = ROOT / "docs" / "IMPLEMENTATION_PLAN_2.0.0.md"
@@ -41,15 +44,28 @@ def run(command: list[str], expected: set[int]) -> subprocess.CompletedProcess[s
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--run-semver-tools", action="store_true")
+parser.add_argument("--cp21", type=Path, default=CP21)
+parser.add_argument("--current", type=Path, default=CURRENT)
 arguments = parser.parse_args()
 
-cp21 = json.loads(CP21.read_text(encoding="utf-8"))
+if hashlib.sha256(arguments.cp21.read_bytes()).hexdigest() != CP21_SHA256:
+    fail("immutable CP-21 source-level API artifact differs from its historical capture")
+cp21 = json.loads(arguments.cp21.read_text(encoding="utf-8"))
 if cp21.get("checkpoint") != "CP-21" or cp21.get("status") != "api-freeze-candidate":
     fail("CP-21 source-level API candidate metadata is invalid")
 
+current = json.loads(arguments.current.read_text(encoding="utf-8"))
+if (
+    current.get("checkpoint") != "2.0-current"
+    or current.get("status") != "release-candidate-current"
+    or current.get("historical_baseline")
+    != "docs/baselines/2.0/cp21-public-api.json"
+):
+    fail("current source-level API inventory metadata is invalid")
+
 recorded_declarations = {
     entry.split(":", 2)[2]
-    for entry in cp21.get("public_declarations", [])
+    for entry in current.get("public_declarations", [])
     if not entry.split(":", 2)[2].startswith("macro_rules!")
 }
 current_declarations: set[str] = set()
@@ -64,7 +80,7 @@ for path in sorted((ROOT / "crates").glob("*/src/**/*.rs")):
 if current_declarations != recorded_declarations:
     added = sorted(current_declarations.difference(recorded_declarations))
     removed = sorted(recorded_declarations.difference(current_declarations))
-    fail(f"source-level API changed after CP-21; added={added[:5]}, removed={removed[:5]}")
+    fail(f"current source-level API inventory is stale; added={added[:5]}, removed={removed[:5]}")
 
 derive_manifest = tomllib.loads(
     (ROOT / "crates" / "sanitization-derive" / "Cargo.toml").read_text(encoding="utf-8")

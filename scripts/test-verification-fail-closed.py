@@ -47,6 +47,41 @@ with tempfile.TemporaryDirectory(prefix="sanitization-negative-evidence-") as di
         "missing evidence claim",
     )
 
+    tampered_cp21 = temp / "cp21-public-api.json"
+    tampered_cp21.write_bytes(
+        (ROOT / "docs" / "baselines" / "2.0" / "cp21-public-api.json").read_bytes()
+        + b"\n"
+    )
+    expect_failure(
+        [
+            "python3",
+            str(ROOT / "scripts" / "verify-2.0-api-freeze.py"),
+            "--cp21",
+            str(tampered_cp21),
+        ],
+        "tampered immutable CP-21 source inventory",
+    )
+
+    stale_current = json.loads(
+        (
+            ROOT / "docs" / "baselines" / "2.0" / "current-source-api.json"
+        ).read_text(encoding="utf-8")
+    )
+    stale_current["public_declarations"].append(
+        "crates/sanitization/src/lib.rs:1:pub struct __StaleFixture;"
+    )
+    stale_current_path = temp / "current-source-api.json"
+    stale_current_path.write_text(json.dumps(stale_current), encoding="utf-8")
+    expect_failure(
+        [
+            "python3",
+            str(ROOT / "scripts" / "verify-2.0-api-freeze.py"),
+            "--current",
+            str(stale_current_path),
+        ],
+        "stale current source inventory",
+    )
+
     invalid_ir = temp / "invalid.ll"
     invalid_ir.write_text(
         "define void @cp04_direct_exposure() {\n  ret void\n}\n",

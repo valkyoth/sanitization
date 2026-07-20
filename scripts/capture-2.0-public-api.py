@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture or verify rustdoc-derived CP-21 public API snapshots."""
+"""Capture or verify rustdoc-derived current 2.0 public API snapshots."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "docs" / "baselines" / "2.0" / "public-api"
 METADATA = OUTPUT / "metadata.json"
-SOURCE_CHECKPOINT = "docs/baselines/2.0/cp21-public-api.json"
+SOURCE_CHECKPOINT = "docs/baselines/2.0/current-source-api.json"
 PACKAGES = (
     "sanitization",
     "sanitization-derive",
@@ -68,7 +68,7 @@ for package in PACKAGES:
 
 metadata = {
     "schema_version": 1,
-    "checkpoint": "CP-21",
+    "checkpoint": "2.0-current",
     "source_checkpoint": SOURCE_CHECKPOINT,
     "tool": tool_version,
     "rustc": capture(["rustc", "--version"]).strip(),
@@ -93,7 +93,7 @@ else:
         fail(f"missing {METADATA.relative_to(ROOT)}")
     recorded = json.loads(METADATA.read_text(encoding="utf-8"))
     if recorded != metadata:
-        fail("public API metadata differs from the CP-21 semantic snapshot")
+        fail("public API metadata differs from the current 2.0 semantic snapshot")
     for package, snapshot in snapshots.items():
         path = OUTPUT / f"{package}.txt"
         if not path.is_file() or path.read_text(encoding="utf-8") != snapshot:

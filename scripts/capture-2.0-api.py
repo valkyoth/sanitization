@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture or verify the CP-21 source-level public API candidate."""
+"""Capture or verify the current 2.0 source-level public API inventory."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "docs" / "baselines" / "2.0" / "cp21-public-api.json"
+OUTPUT = ROOT / "docs" / "baselines" / "2.0" / "current-source-api.json"
 PUBLIC_DECLARATION = re.compile(
     r"^\s*pub\s+(?:unsafe\s+)?(?:const\s+)?(?:async\s+)?"
     r"(?:fn|struct|enum|trait|type|const|static|mod|use)\b"
@@ -88,8 +88,9 @@ def snapshot() -> dict[str, Any]:
     paths = source_paths()
     return {
         "schema_version": 1,
-        "checkpoint": "CP-21",
-        "status": "api-freeze-candidate",
+        "checkpoint": "2.0-current",
+        "status": "release-candidate-current",
+        "historical_baseline": "docs/baselines/2.0/cp21-public-api.json",
         "scope": "source-level declarations, manifests, features, and source hashes",
         "semantic_check": "CP-22 cargo-semver-checks and rustdoc API comparison",
         "workspace": {
@@ -116,8 +117,8 @@ if arguments.check:
         fail(f"missing {OUTPUT.relative_to(ROOT)}")
     recorded = json.loads(OUTPUT.read_text(encoding="utf-8"))
     if recorded != current:
-        fail("CP-21 public API candidate is stale; regenerate after reviewed API changes")
-    print("CP-21 public API candidate verified")
+        fail("current source API inventory is stale; regenerate after reviewed API changes")
+    print("current 2.0 source API inventory verified")
 else:
     OUTPUT.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"wrote {OUTPUT.relative_to(ROOT)}")

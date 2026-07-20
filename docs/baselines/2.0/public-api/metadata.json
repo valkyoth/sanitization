@@ -1,5 +1,5 @@
 {
-  "checkpoint": "CP-21",
+  "checkpoint": "2.0-current",
   "packages": {
     "sanitization": {
       "file": "sanitization.txt",
@@ -29,6 +29,6 @@
   },
   "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
   "schema_version": 1,
-  "source_checkpoint": "docs/baselines/2.0/cp21-public-api.json",
+  "source_checkpoint": "docs/baselines/2.0/current-source-api.json",
   "tool": "cargo-public-api 0.52.0"
 }

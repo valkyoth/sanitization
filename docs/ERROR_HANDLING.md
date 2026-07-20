@@ -156,7 +156,8 @@ method `ProtectionReport::satisfies(request)` returns `false` for failed,
 unsupported, or compatibility-only requested controls and treats empty-storage
 `NotApplicable` outcomes as fulfilled. `is_degraded()` provides a request-free
 operational summary, while `failed_or_unsupported_controls()` identifies the
-affected controls without allocation.
+affected controls without allocation. For nonempty retired or unlocked
+storage, `NotApplicable` is degraded and never satisfies the original request.
 
 ```rust,no_run
 # #[cfg(feature = "memory-lock")]

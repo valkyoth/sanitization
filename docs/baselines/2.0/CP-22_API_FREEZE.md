@@ -14,10 +14,10 @@ intentional compatibility boundary from `v1.2.5` to `2.0.0`.
 The original CP-22 checkpoint pinned `syn` 2.0.119 for the derive crate without
 changing generated or runtime API behavior. Later finding remediation and
 reviewed 2.0 ergonomics work explicitly reopened this freeze. The semantic
-snapshots were recaptured through the source checkpoint recorded in
-`public-api/metadata.json`. That metadata now references the source-level
-`cp21-public-api.json` hash inventory directly, avoiding a stale commit label
-when reviewed pre-release remediation refreshes both snapshots. Subsequent
+snapshots were recaptured through the source inventory recorded in
+`public-api/metadata.json`. That metadata references the rolling
+`current-source-api.json` inventory. The original `cp21-public-api.json` remains
+byte-for-byte historical and is protected by a pinned SHA-256. Subsequent
 derive diagnostics and policy-rationale validation do not change the rustdoc
 API surface and are covered by dedicated compile-failure gates.
 
@@ -51,12 +51,13 @@ proc-macro-only targets because they do not expose a normal library API.
 
 `scripts/capture-2.0-public-api.py` captures rustdoc-derived API output for all
 five publishable packages. The committed files under `public-api/` are the
-CP-21 semantic baseline. Normal verification compares the current tree to
-those files and fails on additions, removals, or signature changes.
+current reviewed 2.0 candidate. Normal verification compares the current tree
+to those files and fails on additions, removals, or signature changes.
 
 The snapshots deliberately include feature-gated APIs by using
-`--all-features`. The older source-level CP-21 inventory remains as a second,
-independent declaration check.
+`--all-features`. The rolling source-level inventory provides an independent
+current declaration and source-hash check; the older CP-21 inventory remains
+immutable historical evidence.
 
 ## Reproduction
 

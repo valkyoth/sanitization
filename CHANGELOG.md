@@ -2,6 +2,9 @@
 
 ## 2.0.0
 
+- Make protection-policy evaluation reject `NotApplicable` for nonempty
+  retired or unlocked storage while preserving the empty-storage exception,
+  and split immutable CP-21 API evidence from the rolling current inventory.
 - Preserve the operating-system memory lock when page-sealed cleanup cannot
   erase or release a mapping, and keep the retained protection report aligned
   with actual lock and mapping state across failure and retry.

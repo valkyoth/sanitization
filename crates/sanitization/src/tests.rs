@@ -225,7 +225,38 @@ fn protection_report_can_validate_requested_controls_once() {
         Some(ProtectionControl::Mapping)
     );
 
-    assert!(ProtectionState::NotApplicable.satisfies(Requirement::Required));
+    let empty_report = ProtectionReport {
+        mapping: ProtectionState::NotApplicable,
+        memory_lock: ProtectionState::NotApplicable,
+        dump_exclusion: ProtectionState::NotApplicable,
+        fork: ForkProtectionReport {
+            policy: ForkPolicy::Exclude,
+            state: ProtectionState::NotApplicable,
+        },
+        guard_pages: ProtectionState::NotRequested,
+        canary: ProtectionState::NotApplicable,
+        cache_policy: ProtectionState::NotRequested,
+        requested_bytes: 0,
+        mapped_bytes: 0,
+        locked_bytes: 0,
+        page_granule: 4096,
+        lock_quota_likely: false,
+    };
+    assert!(empty_report.satisfies(request));
+    assert!(!empty_report.is_degraded());
+
+    let mut released_nonempty_report = empty_report;
+    released_nonempty_report.requested_bytes = 32;
+    assert!(!released_nonempty_report.satisfies(request));
+    assert!(released_nonempty_report.is_degraded());
+    assert_eq!(
+        released_nonempty_report
+            .failed_or_unsupported_controls()
+            .next(),
+        Some(ProtectionControl::Mapping)
+    );
+
+    assert!(!ProtectionState::NotApplicable.satisfies(Requirement::Required));
     assert!(ProtectionState::Unsupported.satisfies(Requirement::NotRequested));
 }
 
@@ -3953,9 +3984,8 @@ fn sealed_secret_explicit_close_reports_failures_and_supports_retry() {
 #[test]
 fn sealed_secret_retains_lock_when_unwiped_mapping_release_fails() {
     const N: usize = 8 * 1024;
-    let mut secret =
-        SealedSecretBytes::<N>::zeroed_with_protection(ProtectionRequest::locked_guarded())
-            .unwrap();
+    let request = ProtectionRequest::locked_guarded();
+    let mut secret = SealedSecretBytes::<N>::zeroed_with_protection(request).unwrap();
     secret
         .try_with_secret_mut(|bytes| {
             bytes[0] = 0xAA;
@@ -3992,6 +4022,8 @@ fn sealed_secret_retains_lock_when_unwiped_mapping_release_fails() {
         secret.protection_report().mapping,
         ProtectionState::NotApplicable
     );
+    assert!(!secret.protection_report().satisfies(request));
+    assert!(secret.protection_report().is_degraded());
 }
 
 #[cfg(all(
@@ -4003,9 +4035,8 @@ fn sealed_secret_retains_lock_when_unwiped_mapping_release_fails() {
 ))]
 #[test]
 fn sealed_secret_unlocks_wiped_mapping_after_release_failure() {
-    let mut secret =
-        SealedSecretBytes::<4096>::zeroed_with_protection(ProtectionRequest::locked_guarded())
-            .unwrap();
+    let request = ProtectionRequest::locked_guarded();
+    let mut secret = SealedSecretBytes::<4096>::zeroed_with_protection(request).unwrap();
     secret
         .try_with_secret_mut(|bytes| bytes.fill(0xA5))
         .unwrap();
@@ -4025,6 +4056,8 @@ fn sealed_secret_unlocks_wiped_mapping_after_release_failure() {
         secret.protection_report().memory_lock,
         ProtectionState::NotApplicable
     );
+    assert!(!secret.protection_report().satisfies(request));
+    assert!(secret.protection_report().is_degraded());
 
     secret.try_close().unwrap();
     assert!(secret.is_retired());
