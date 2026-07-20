@@ -689,7 +689,12 @@ impl<const N: usize> LockedSecretBytes<N> {
         result
     }
 
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
     #[inline]
     pub(crate) fn from_array_buffer_for_test(
         bytes: &mut [u8; N],
@@ -2782,7 +2787,12 @@ impl<const N: usize, const SLOTS: usize> SecretPool<N, SLOTS> {
         result
     }
 
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
     #[inline]
     pub(crate) fn try_allocate_from_array_buffer_for_test(
         &self,

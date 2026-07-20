@@ -35,6 +35,11 @@ The release also refreshes the derive stack to `syn 3.0.0`,
 `proc-macro2 1.0.107`, and `quote 1.0.47`, updates serde to `1.0.229`, and pins
 release-evidence uploads to `actions/upload-artifact v7.0.1`.
 
+Linux-specific CSPRNG and page-lifecycle fault-injection helpers are now
+compiled only with the Linux tests that exercise them. Supported non-Linux
+all-target test builds therefore remain warning-free without suppressing
+production lints.
+
 ## Ownership And Exposure
 
 - Renamed checked mapped-container operations to `try_*`, removed redundant

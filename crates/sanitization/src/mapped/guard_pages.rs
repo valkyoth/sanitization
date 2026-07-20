@@ -1824,27 +1824,52 @@ impl<const N: usize> SealedSecretBytes<N> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
     pub(crate) fn fail_next_seal_for_test(&mut self) {
         self.fail_next_seal = true;
     }
 
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
     pub(crate) fn fail_next_unseal_for_test(&mut self) {
         self.fail_next_unseal = true;
     }
 
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
     pub(crate) fn fail_normalization_page_for_test(&mut self, page_index: usize) {
         self.fail_normalization_page = Some(page_index);
     }
 
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
     pub(crate) fn fail_next_unmap_for_test(&mut self) {
         self.fail_next_unmap = true;
     }
 
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
     pub(crate) fn mark_access_in_progress_for_test(&mut self) -> Result<(), GuardPageError> {
         protect_data(self.inner.data, self.inner.writable_len)?;
         self.state = SealedState::Exposed;
@@ -1890,7 +1915,14 @@ impl<const N: usize> SealedSecretBytes<N> {
         Ok(waited == pid && status == 0)
     }
 
-    #[cfg(all(test, feature = "canary-check", feature = "std"))]
+    #[cfg(all(
+        test,
+        feature = "canary-check",
+        feature = "std",
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
     pub(crate) fn corrupt_canary_for_test(&mut self) -> Result<(), SealedSecretAccessError> {
         self.begin_access()?;
         let guard = SealedAccessGuard::new(self);
