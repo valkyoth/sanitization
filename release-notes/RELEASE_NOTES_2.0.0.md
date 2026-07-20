@@ -5,6 +5,12 @@ Version 2.0.0 is a security-model release. It preserves the dependency-free,
 storage, exposure, data-oblivious control state, derive behavior, and native
 protection outcomes more explicit and fail-closed.
 
+Page-sealed cleanup now attempts mapping release while an unwiped payload is
+still locked. If both page normalization and release fail, the poisoned mapping
+remains locked for a later cleanup retry, and its protection report continues
+to reflect the live lock. Successful release retires the mapping and clears its
+current protection-state accounting.
+
 The dependency-free default now enables `asm-compare`. Reviewed x86_64 and
 AArch64 targets therefore use the assembly-backed equal-length equality path
 without requiring an opt-in feature. Repeated independent AArch64 Linux
@@ -155,7 +161,8 @@ commands are copied from rendered documentation or chat clients.
   platform limits, not an infallible secrecy guarantee.
 - Added `SealedSecretBytes::try_close()` with structured page-normalization,
   unlock, and unmap outcomes. Failed mapping release remains poisoned and
-  retryable; `Drop` uses the same path as a final best-effort fallback.
+  retryable, and retains its memory lock when erasure was not confirmed;
+  `Drop` uses the same path as a final best-effort fallback.
 - Reworked cache eviction and SIMD/vector scrubbing to report supported,
   executed, limited, and unsupported outcomes instead of implying universal
   hardware coverage.

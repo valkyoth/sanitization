@@ -392,7 +392,8 @@ to the normative documents.
 Page-sealed callers that must observe final mapping cleanup should call
 `SealedSecretBytes::try_close()` before drop. It reports page normalization,
 unlock, and unmap failures without exposing bytes, addresses, or canary values;
-`Drop` remains the final best-effort fallback.
+an unwiped mapping remains locked if release fails. `Drop` remains the final
+best-effort fallback.
 
 High-assurance applications should use `AllowlistedSecret<T, P>` as their
 internal production alias, keep `P` private or `pub(crate)`, and run

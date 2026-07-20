@@ -135,6 +135,14 @@ if !report.memory_is_locked() {
 `ProtectionReport` contains public operational metadata only. It does not
 contain secret bytes, canary values, or mapping addresses.
 
+The retained report describes protection of the container's current storage,
+not an immutable historical audit record. Explicit page-sealed cleanup updates
+released controls to `NotApplicable` and clears current mapped/locked byte
+counts. If release fails before erasure is confirmed, the report continues to
+show the retained memory lock and live mapping until a later cleanup succeeds.
+Applications that need historical telemetry should record the construction and
+cleanup reports at their reviewed operational boundary.
+
 ## Integrity Failures
 
 With canaries enabled, ordinary mapped operations verify integrity before

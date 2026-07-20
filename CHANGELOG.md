@@ -2,6 +2,9 @@
 
 ## 2.0.0
 
+- Preserve the operating-system memory lock when page-sealed cleanup cannot
+  erase or release a mapping, and keep the retained protection report aligned
+  with actual lock and mapping state across failure and retry.
 - Enabled the dependency-free `asm-compare` backend by default on x86_64 and
   AArch64 after repeated independent AArch64 Linux leakage runs rejected the
   portable fallback for release timing claims. Builds using

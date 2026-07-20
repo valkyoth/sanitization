@@ -200,8 +200,12 @@ applications that require observable cleanup. It returns `CleanupError` with a
 platform error codes.
 
 An unmap failure leaves the value poisoned, rejects later secret access, and
-permits another `try_close()` attempt. Successful unmap retires the value even
-when normalization or unlock reported an error because no mapping remains to
-retry. Applications can treat any error as a security event or invoke a
-reviewed fail-stop policy. `Drop` still invokes the same cleanup path when
-explicit close was omitted or failed.
+permits another `try_close()` attempt. If normalization did not establish that
+the payload was erased, an existing memory lock is retained and `unlock` is
+reported as `NotNeeded`. If the payload was erased, cleanup may unlock after a
+failed unmap and updates the retained `ProtectionReport` accordingly.
+Successful unmap retires the value and implicitly releases its lock even when
+an earlier operation reported an error because no mapping remains to retry.
+Applications can treat any error as a security event or invoke a reviewed
+fail-stop policy. `Drop` still invokes the same cleanup path when explicit
+close was omitted or failed.

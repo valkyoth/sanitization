@@ -174,8 +174,10 @@ register copies, historical moves, aborts, and leaked values remain outside the
 clearing guarantee.
 
 If `Drop` cannot change an already sealed page back to read/write, it cannot
-perform the normal volatile clear and instead attempts to unlock and release
-the mapping. The feature therefore does not claim an infallible final wipe
+perform the normal volatile clear and instead attempts to release the mapping
+without first removing an established memory lock. If release also fails, the
+mapping remains poisoned and locked until another cleanup attempt or process
+termination. The feature therefore does not claim an infallible final wipe
 under page-protection failure. CP-16 acceptance also requires native target
 evidence and external unsafe review; otherwise the feature will be deferred
 from 2.0 stable.
@@ -186,7 +188,9 @@ therefore treats the mapping as poisoned until every page is independently
 confirmed writable or the mapping is released. If normalization fails, it
 does not attempt a wipe through uncertain page protections. An unmap failure
 may consequently retain an inaccessible or partially protected mapping until
-process exit, without exposing it again through safe APIs.
+process exit, without exposing it again through safe APIs. When memory locking
+was established, that retained mapping stays locked; cleanup removes the lock
+after an unmap failure only when the payload was first confirmed erased.
 
 `try_close()` makes these cleanup outcomes observable and retryable while the
 mapping remains live. It does not make the operating-system operations

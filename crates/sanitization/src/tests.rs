@@ -3945,6 +3945,94 @@ fn sealed_secret_explicit_close_reports_failures_and_supports_retry() {
 
 #[cfg(all(
     feature = "page-seal",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn sealed_secret_retains_lock_when_unwiped_mapping_release_fails() {
+    const N: usize = 8 * 1024;
+    let mut secret =
+        SealedSecretBytes::<N>::zeroed_with_protection(ProtectionRequest::locked_guarded())
+            .unwrap();
+    secret
+        .try_with_secret_mut(|bytes| {
+            bytes[0] = 0xAA;
+            bytes[N - 1] = 0x55;
+        })
+        .unwrap();
+
+    let locked_bytes = secret.protection_report().locked_bytes;
+    assert!(secret.protection_report().memory_is_locked());
+    assert!(locked_bytes >= N);
+
+    secret.fail_normalization_page_for_test(1);
+    secret.fail_next_unmap_for_test();
+    let error = secret.try_close().unwrap_err();
+    let cleanup = error.report();
+
+    assert!(cleanup.normalization_failed());
+    assert_eq!(cleanup.unlock, CleanupState::NotNeeded);
+    assert!(cleanup.unmap_failed());
+    assert!(secret.is_poisoned());
+    assert!(secret.protection_report().memory_is_locked());
+    assert_eq!(secret.protection_report().locked_bytes, locked_bytes);
+    assert_eq!(
+        secret.protection_report().mapping,
+        ProtectionState::Established
+    );
+
+    secret.try_close().unwrap();
+    assert!(secret.is_retired());
+    assert!(!secret.protection_report().memory_is_locked());
+    assert_eq!(secret.protection_report().locked_bytes, 0);
+    assert_eq!(secret.protection_report().mapped_bytes, 0);
+    assert_eq!(
+        secret.protection_report().mapping,
+        ProtectionState::NotApplicable
+    );
+}
+
+#[cfg(all(
+    feature = "page-seal",
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn sealed_secret_unlocks_wiped_mapping_after_release_failure() {
+    let mut secret =
+        SealedSecretBytes::<4096>::zeroed_with_protection(ProtectionRequest::locked_guarded())
+            .unwrap();
+    secret
+        .try_with_secret_mut(|bytes| bytes.fill(0xA5))
+        .unwrap();
+    assert!(secret.protection_report().memory_is_locked());
+
+    secret.fail_next_unmap_for_test();
+    let error = secret.try_close().unwrap_err();
+    let cleanup = error.report();
+
+    assert_eq!(cleanup.normalization, CleanupState::Completed);
+    assert_eq!(cleanup.unlock, CleanupState::Completed);
+    assert!(cleanup.unmap_failed());
+    assert!(secret.is_poisoned());
+    assert!(!secret.protection_report().memory_is_locked());
+    assert_eq!(secret.protection_report().locked_bytes, 0);
+    assert_eq!(
+        secret.protection_report().memory_lock,
+        ProtectionState::NotApplicable
+    );
+
+    secret.try_close().unwrap();
+    assert!(secret.is_retired());
+    assert_eq!(secret.protection_report().mapped_bytes, 0);
+}
+
+#[cfg(all(
+    feature = "page-seal",
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64"),
     not(miri)

@@ -1257,6 +1257,27 @@ impl GuardedSecretVec {
         self.canary.clear();
     }
 
+    #[cfg(feature = "page-seal")]
+    #[inline]
+    fn mark_memory_unlocked(&mut self) {
+        self.locked = false;
+        self.report.memory_lock = ProtectionState::NotApplicable;
+        self.report.locked_bytes = 0;
+    }
+
+    #[cfg(feature = "page-seal")]
+    #[inline]
+    fn mark_mapping_released(&mut self) {
+        self.mark_memory_unlocked();
+        self.report.mapping = ProtectionState::NotApplicable;
+        self.report.dump_exclusion = ProtectionState::NotApplicable;
+        self.report.fork.state = ProtectionState::NotApplicable;
+        self.report.guard_pages = ProtectionState::NotApplicable;
+        self.report.canary = ProtectionState::NotApplicable;
+        self.report.cache_policy = ProtectionState::NotApplicable;
+        self.report.mapped_bytes = 0;
+    }
+
     #[cfg(all(test, feature = "canary-check", feature = "std"))]
     #[allow(dead_code)]
     #[inline]
@@ -1329,7 +1350,8 @@ pub enum SealedSecretAccessError {
     /// A protection transition failed and the mapping could not be released.
     ///
     /// The mapping's page protections are uncertain. No later operation will
-    /// dereference it; `Drop` only retries unlock and unmap.
+    /// dereference it. Cleanup retries mapping release and retains an
+    /// established memory lock until the payload is confirmed erased.
     Poisoned,
 }
 
@@ -1775,26 +1797,12 @@ impl<const N: usize> SealedSecretBytes<N> {
             PageProtection::ReadWrite,
         );
 
-        if normalization.is_ok() {
+        let wiped = normalization.is_ok();
+        if wiped {
             crate::wipe_backend::erase(self.inner.data.as_ptr(), self.inner.writable_len);
         }
         #[cfg(feature = "random-canary")]
         self.inner.clear_canary_material();
-
-        #[cfg(feature = "memory-lock")]
-        let unlock = if self.inner.locked {
-            match unlock_mapping(self.inner.data, self.inner.writable_len) {
-                Ok(()) => {
-                    self.inner.locked = false;
-                    CleanupState::Completed
-                }
-                Err(error) => CleanupState::Failed(error),
-            }
-        } else {
-            CleanupState::NotNeeded
-        };
-        #[cfg(not(feature = "memory-lock"))]
-        let unlock = CleanupState::NotNeeded;
 
         #[cfg(test)]
         let unmap = if core::mem::take(&mut self.fail_next_unmap) {
@@ -1808,8 +1816,26 @@ impl<const N: usize> SealedSecretBytes<N> {
         #[cfg(not(test))]
         let unmap = unmap_guarded(self.inner.base, self.inner.map_len);
 
+        // Releasing a mapping also disposes of its page lock. If release fails,
+        // retain the lock until the payload has definitely been erased.
+        #[cfg(feature = "memory-lock")]
+        let unlock = if unmap.is_ok() || !wiped || !self.inner.locked {
+            CleanupState::NotNeeded
+        } else {
+            match unlock_mapping(self.inner.data, self.inner.writable_len) {
+                Ok(()) => {
+                    self.inner.mark_memory_unlocked();
+                    CleanupState::Completed
+                }
+                Err(error) => CleanupState::Failed(error),
+            }
+        };
+        #[cfg(not(feature = "memory-lock"))]
+        let unlock = CleanupState::NotNeeded;
+
         if unmap.is_ok() {
             self.state = SealedState::Retired;
+            self.inner.mark_mapping_released();
         }
 
         CleanupReport {

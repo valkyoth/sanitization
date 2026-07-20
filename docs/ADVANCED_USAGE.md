@@ -119,12 +119,13 @@ assert!(key.is_retired());
 `try_close()` makes final cleanup observable. Its `CleanupReport` records page
 normalization, memory unlock, and unmap outcomes using only public operation
 names and platform error codes. If unmap fails, the value remains poisoned,
-rejects secret access, and may retry `try_close()`. If unmap succeeds after an
-earlier cleanup error, the value is retired because no live mapping remains.
-Applications may record `CleanupError::operation()` and `errno()`, but must not
-add secret bytes, mapping addresses, or canary values to telemetry. `Drop`
-calls the same cleanup path as a final best-effort fallback and cannot report
-its result.
+rejects secret access, and may retry `try_close()`. An established memory lock
+is retained when erasure could not be confirmed; `unlock` is then reported as
+`NotNeeded`. If unmap succeeds after an earlier cleanup error, the value is
+retired because no live mapping remains. Applications may record
+`CleanupError::operation()` and `errno()`, but must not add secret bytes,
+mapping addresses, or canary values to telemetry. `Drop` calls the same cleanup
+path as a final best-effort fallback and cannot report its result.
 
 Fork policy, partial protection transitions, signal handlers, process abort,
 and privileged remapping require particular review. See
