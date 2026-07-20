@@ -858,19 +858,19 @@
   "scope": "source-level declarations, manifests, features, and source hashes",
   "semantic_check": "CP-22 cargo-semver-checks and rustdoc API comparison",
   "source_hashes": {
-    "Cargo.toml": "a21a4c6bcb0169be244cbfe20da1b49b3936ccce7688155bb291bd3efd144bfb",
-    "crates/sanitization-arrayvec/Cargo.toml": "2b15c7628aa43262035dba2d51e84553f8f49dd0429125fea1461f016a7a9d0e",
+    "Cargo.toml": "05f42e62eef3ef15f537fe0e3e46934c8191392bdcbd3b4a460d2524be5c975e",
+    "crates/sanitization-arrayvec/Cargo.toml": "355173edcfcaef193b91d78a9b8cb48c59ee2aa793df87a47c1c92a00286d56c",
     "crates/sanitization-arrayvec/src/lib.rs": "49d076169d5c5b2629bf69133f8c60ee30d384c6f33d2be0bc674e681298ae0b",
-    "crates/sanitization-bytes/Cargo.toml": "2fbbc3ae38ce7e04ddd43293296a3250bce16bc226a4bfbf5b691f5a86b50569",
+    "crates/sanitization-bytes/Cargo.toml": "51a23c087807e15a141e4574f584991b9e8a9213f94e3ca28040a79048e3a7b7",
     "crates/sanitization-bytes/src/lib.rs": "886c887128bb71eeea8038388d10e7ccfb5691afe82c250e39088f9b421d5eeb",
-    "crates/sanitization-crypto-interop/Cargo.toml": "0f4c79caec30ecf289a3d2342612afff108bfaa5dfe994969227b2f1d54f72f2",
+    "crates/sanitization-crypto-interop/Cargo.toml": "77533166e724e593e1225c16fc3bb42a22eeed56d115c79aa58006c4eb8cbc5a",
     "crates/sanitization-crypto-interop/src/blake3.rs": "9f510a72082652065065a6f56bce20af52f94efd8a896b081a3605a551c7533e",
     "crates/sanitization-crypto-interop/src/hmac_sha2.rs": "6606af29e3cd7f43ba3af48f903976a75947e1368ff40eedb58f41ba4339e673",
     "crates/sanitization-crypto-interop/src/lib.rs": "23e633664966a3b4082c24f37db89f2ab3a4cb88d3206cb2eef0c6bc85802991",
     "crates/sanitization-crypto-interop/src/sha2.rs": "3846d37a553cf266d202d9cb0c92a971d6c4d952e5f0dc3cc82f6392731eb2c4",
     "crates/sanitization-derive/Cargo.toml": "ea4f040c6fd616c8eb91662e2f465fdafc5d10824aa3fd506f95b01c9879358e",
     "crates/sanitization-derive/src/lib.rs": "bbd9d04e189841178461bab984e0dd3e1936df0a966c5759851734a31266a9c1",
-    "crates/sanitization/Cargo.toml": "236fb02f0757c25e45d878d0f490dd32fa13e393c40c0a79fd88360715170343",
+    "crates/sanitization/Cargo.toml": "9b7551ad114cbdd977b8e9a8f9d1eb5f3ce8344f7c5f90ca170e5b2f399b5869",
     "crates/sanitization/src/canary.rs": "d333d276f53056a7088e48d94244cfd18e8485ad79e31cfe8068bca6c19c8e73",
     "crates/sanitization/src/ct.rs": "a1dd1b141bf4916444ee8cb9c0058dc7506cd9bc7a7eadeaec0d0483778b9197",
     "crates/sanitization/src/interop.rs": "ad5512baa5a4a597c70475d2e27cfc4a4497179019507fb7cff79e4149bfb0eb",
@@ -1060,6 +1060,6 @@
       }
     ],
     "rust_version": "1.90",
-    "version": "2.0.0"
+    "version": "2.0.1"
   }
 }

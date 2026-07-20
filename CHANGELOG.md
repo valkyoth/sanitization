@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.1
+
+- Fix every repository-document link in the core crate README to use an
+  absolute GitHub URL so crates.io and other package renderers resolve the 2.0
+  migration guide, feature documentation, threat model, evidence, and security
+  policy correctly.
+- Add package-archive validation that rejects relative README links to
+  repository-only documentation paths.
+- Coordinate all five workspace crates and their internal dependency
+  requirements at version `2.0.1`.
+
 ## 2.0.0
 
 - Make the standalone 2.0 API-freeze verifier validate the complete supplied

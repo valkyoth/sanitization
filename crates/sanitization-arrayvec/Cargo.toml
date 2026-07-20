@@ -23,7 +23,7 @@ clearing-owner = "sanitization"
 
 [dependencies]
 arrayvec = { version = "0.7", default-features = false }
-sanitization = { version = "2.0.0", path = "../sanitization", default-features = false }
+sanitization = { version = "2.0.1", path = "../sanitization", default-features = false }
 
 [package.metadata.docs.rs]
 all-features = true

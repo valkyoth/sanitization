@@ -39,7 +39,7 @@ backend. The crate reduces accidental retention and exposure. It does not make
 an entire process, operating system, compiler, or hardware platform secret.
 
 The 2.0 line has intentional breaking changes. Existing 1.x users should read
-the [2.0 migration guide](docs/MIGRATION_2.0.md).
+the [2.0 migration guide](https://github.com/valkyoth/sanitization/blob/main/docs/MIGRATION_2.0.md).
 
 ## Start Here
 
@@ -83,21 +83,21 @@ Fixed-size `no_std` secrets need no feature flags:
 
 ```toml
 [dependencies]
-sanitization = "2.0.0"
+sanitization = "2.0.1"
 ```
 
 Heap-backed byte and text containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.0.0", features = ["alloc"] }
+sanitization = { version = "2.0.1", features = ["alloc"] }
 ```
 
 Recommended native hardening profile:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.0.0", features = ["profile-hardened-native"] }
+sanitization = { version = "2.0.1", features = ["profile-hardened-native"] }
 ```
 
 This profile includes OS-random canaries and `strict-canary-check`. Enabling
@@ -108,10 +108,10 @@ Optional derives:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.0.0", features = ["derive"] }
+sanitization = { version = "2.0.1", features = ["derive"] }
 ```
 
-See the complete [feature reference](docs/FEATURES.md) before combining
+See the complete [feature reference](https://github.com/valkyoth/sanitization/blob/main/docs/FEATURES.md) before combining
 platform features.
 
 ## Level 1: Essential Secret Ownership
@@ -365,8 +365,8 @@ to deployment policy.
 Locked memory does not by itself control hibernation images, every crash-dump
 path, privileged reads, DMA, firmware, or external copies. Platform coverage
 and fork/dump behavior are documented in
-[`TARGETS.md`](docs/TARGETS.md) and
-[`PROTECTION_REPORT.md`](docs/PROTECTION_REPORT.md).
+[`TARGETS.md`](https://github.com/valkyoth/sanitization/blob/main/docs/TARGETS.md) and
+[`PROTECTION_REPORT.md`](https://github.com/valkyoth/sanitization/blob/main/docs/PROTECTION_REPORT.md).
 
 ## Level 3: Advanced Hardening
 
@@ -374,19 +374,19 @@ Advanced facilities are intentionally separate from the normal path:
 
 | Requirement | Facility | Read first |
 | --- | --- | --- |
-| Custom required/preferred runtime controls | `ProtectionRequest` and `ProtectionReport` | [Protection reports](docs/PROTECTION_REPORT.md) |
-| Guard pages around dynamic storage | `GuardedSecretVec`, `GuardedSecretString` | [Advanced usage](docs/ADVANCED_USAGE.md) |
-| Inaccessible pages between accesses | `SealedSecretBytes<N>` | [Safety](docs/SAFETY.md) |
-| Secret-bearing optional/result CT state | `SecretValue`, `SecretCtOption`, `SecretCtResult` | [Guarantees](docs/GUARANTEES.md) |
-| Cache-line eviction after clearing | `cache-flush` | [Barrier strategy](docs/BARRIERS.md) |
-| Best-effort vector-register clearing | `register-scrub` | [Barrier strategy](docs/BARRIERS.md) |
-| Many fixed secrets under one lock quota | `SecretPool<N, SLOTS>` | [Advanced usage](docs/ADVANCED_USAGE.md) |
-| N-of-N fixed split storage | `SplitSecretBytes<N, SHARES>` | [Threat model](docs/THREAT_MODEL.md) |
-| HSM, TEE, enclave, or keystore adapters | `hardware-secrets` traits | [Advanced usage](docs/ADVANCED_USAGE.md) |
+| Custom required/preferred runtime controls | `ProtectionRequest` and `ProtectionReport` | [Protection reports](https://github.com/valkyoth/sanitization/blob/main/docs/PROTECTION_REPORT.md) |
+| Guard pages around dynamic storage | `GuardedSecretVec`, `GuardedSecretString` | [Advanced usage](https://github.com/valkyoth/sanitization/blob/main/docs/ADVANCED_USAGE.md) |
+| Inaccessible pages between accesses | `SealedSecretBytes<N>` | [Safety](https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md) |
+| Secret-bearing optional/result CT state | `SecretValue`, `SecretCtOption`, `SecretCtResult` | [Guarantees](https://github.com/valkyoth/sanitization/blob/main/docs/GUARANTEES.md) |
+| Cache-line eviction after clearing | `cache-flush` | [Barrier strategy](https://github.com/valkyoth/sanitization/blob/main/docs/BARRIERS.md) |
+| Best-effort vector-register clearing | `register-scrub` | [Barrier strategy](https://github.com/valkyoth/sanitization/blob/main/docs/BARRIERS.md) |
+| Many fixed secrets under one lock quota | `SecretPool<N, SLOTS>` | [Advanced usage](https://github.com/valkyoth/sanitization/blob/main/docs/ADVANCED_USAGE.md) |
+| N-of-N fixed split storage | `SplitSecretBytes<N, SHARES>` | [Threat model](https://github.com/valkyoth/sanitization/blob/main/docs/THREAT_MODEL.md) |
+| HSM, TEE, enclave, or keystore adapters | `hardware-secrets` traits | [Advanced usage](https://github.com/valkyoth/sanitization/blob/main/docs/ADVANCED_USAGE.md) |
 
 Do not enable advanced features merely because they sound stronger. Each one
 has separate target assumptions, failure modes, and residual risks. The
-[advanced usage guide](docs/ADVANCED_USAGE.md) provides short recipes and links
+[advanced usage guide](https://github.com/valkyoth/sanitization/blob/main/docs/ADVANCED_USAGE.md) provides short recipes and links
 to the normative documents.
 
 Page-sealed callers that must observe final mapping cleanup should call
@@ -399,7 +399,7 @@ High-assurance applications should use `AllowlistedSecret<T, P>` as their
 internal production alias, keep `P` private or `pub(crate)`, and run
 `scripts/lint-storage-policies.py` over sensitive modules. The lint rejects
 direct `Secret<T>`, unapproved storage-marker implementations, and public
-policy types. See [`STORAGE_CONTRACTS.md`](docs/STORAGE_CONTRACTS.md) and the
+policy types. See [`STORAGE_CONTRACTS.md`](https://github.com/valkyoth/sanitization/blob/main/docs/STORAGE_CONTRACTS.md) and the
 compile-checked `high_assurance_policy` example.
 
 ## Feature And Platform Reference
@@ -418,14 +418,14 @@ The other major opt-in groups are:
 - named profiles: `profile-hardened-native`, `profile-guarded-native`, and
   `profile-hardened-linux`.
 
-See [FEATURES.md](docs/FEATURES.md) for every feature, implication, companion
+See [FEATURES.md](https://github.com/valkyoth/sanitization/blob/main/docs/FEATURES.md) for every feature, implication, companion
 crate, and profile policy. Native profiles fail to compile on WASM rather than
 silently degrading.
 
 WASM compatibility is explicit and reduced-guarantee. Pair `memory-lock` with
 `wasm-compat` only when API compatibility is required; WASM linear memory has
 no host `mlock`, `mprotect`, fork policy, or native volatile guarantee across a
-JIT boundary. See [FEATURE_PROFILES.md](docs/FEATURE_PROFILES.md).
+JIT boundary. See [FEATURE_PROFILES.md](https://github.com/valkyoth/sanitization/blob/main/docs/FEATURE_PROFILES.md).
 
 ## Trust Dashboard
 
@@ -444,14 +444,14 @@ JIT boundary. See [FEATURE_PROFILES.md](docs/FEATURE_PROFILES.md).
 
 High-assurance users should read these documents in order:
 
-1. [Threat model](docs/THREAT_MODEL.md)
-2. [Guarantees](docs/GUARANTEES.md)
-3. [Non-guarantees](docs/NON_GUARANTEES.md)
-4. [Safety and unsafe boundaries](docs/SAFETY.md)
-5. [Target tiers](docs/TARGETS.md)
-6. [Evidence](docs/EVIDENCE.md)
-7. [Error handling](docs/ERROR_HANDLING.md)
-8. [Deployment hardening](docs/DEPLOYMENT_HARDENING.md)
+1. [Threat model](https://github.com/valkyoth/sanitization/blob/main/docs/THREAT_MODEL.md)
+2. [Guarantees](https://github.com/valkyoth/sanitization/blob/main/docs/GUARANTEES.md)
+3. [Non-guarantees](https://github.com/valkyoth/sanitization/blob/main/docs/NON_GUARANTEES.md)
+4. [Safety and unsafe boundaries](https://github.com/valkyoth/sanitization/blob/main/docs/SAFETY.md)
+5. [Target tiers](https://github.com/valkyoth/sanitization/blob/main/docs/TARGETS.md)
+6. [Evidence](https://github.com/valkyoth/sanitization/blob/main/docs/EVIDENCE.md)
+7. [Error handling](https://github.com/valkyoth/sanitization/blob/main/docs/ERROR_HANDLING.md)
+8. [Deployment hardening](https://github.com/valkyoth/sanitization/blob/main/docs/DEPLOYMENT_HARDENING.md)
 
 ## Rust Version Support
 
@@ -495,13 +495,13 @@ It covers formatting, feature matrices, docs, examples, linting, negative
 fixtures, downstream migration, codegen inspection, leakage smoke checks,
 Loom, lifecycle probes, API snapshots, package archives, and optional Kani/Miri
 when installed. Native target evidence and timing runs are documented in
-[`EVIDENCE.md`](docs/EVIDENCE.md) and
-[`LEAKAGE_TESTS.md`](docs/LEAKAGE_TESTS.md).
+[`EVIDENCE.md`](https://github.com/valkyoth/sanitization/blob/main/docs/EVIDENCE.md) and
+[`LEAKAGE_TESTS.md`](https://github.com/valkyoth/sanitization/blob/main/docs/LEAKAGE_TESTS.md).
 
 Release publication is staged through:
 
 ```bash
-scripts/release_crates.py --version 2.0.0 --prepare-only
+scripts/release_crates.py --version 2.0.1 --prepare-only
 scripts/release_crates.py --require-tag
 ```
 
@@ -524,6 +524,6 @@ Important limits include:
   subsets;
 - Miri and Kani provide targeted evidence, not native OS or concurrency proof.
 
-See [NON_GUARANTEES.md](docs/NON_GUARANTEES.md),
-[THREAT_MODEL.md](docs/THREAT_MODEL.md), and [SECURITY.md](SECURITY.md) before
+See [NON_GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/NON_GUARANTEES.md),
+[THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/docs/THREAT_MODEL.md), and [SECURITY.md](https://github.com/valkyoth/sanitization/blob/main/SECURITY.md) before
 using this crate for high-assurance secret handling.

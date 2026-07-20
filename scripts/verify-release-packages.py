@@ -35,6 +35,12 @@ FORBIDDEN_PARTS = {
     "tools",
     "PENTEST.md",
 }
+REPOSITORY_ONLY_README_LINKS = (
+    "](docs/",
+    "](release-notes/",
+    "](security/",
+    "](SECURITY.md",
+)
 
 
 def fail(message: str) -> None:
@@ -119,6 +125,19 @@ def verify_archive(package: str, version: str, package_dir: Path) -> None:
             archived = package_archive.extractfile(regular_files[relative])
             if archived is None or archived.read() != source.read_bytes():
                 fail(f"{archive.name} content differs from workspace file: {relative}")
+
+        readme_member = regular_files.get("README.md")
+        if readme_member is not None:
+            archived_readme = package_archive.extractfile(readme_member)
+            if archived_readme is None:
+                fail(f"{archive.name} has no readable README.md")
+            readme = archived_readme.read().decode("utf-8")
+            for relative_link in REPOSITORY_ONLY_README_LINKS:
+                if relative_link in readme:
+                    fail(
+                        f"{archive.name} README contains repository-only relative "
+                        f"link prefix {relative_link!r}"
+                    )
 
         normalized_file = package_archive.extractfile(regular_files["Cargo.toml"])
         if normalized_file is None:
