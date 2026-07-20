@@ -67,9 +67,8 @@ with tempfile.TemporaryDirectory(prefix="sanitization-negative-evidence-") as di
             ROOT / "docs" / "baselines" / "2.0" / "current-source-api.json"
         ).read_text(encoding="utf-8")
     )
-    stale_current["public_declarations"].append(
-        "crates/sanitization/src/lib.rs:1:pub struct __StaleFixture;"
-    )
+    source_path = next(iter(stale_current["source_hashes"]))
+    stale_current["source_hashes"][source_path] = "00" * 32
     stale_current_path = temp / "current-source-api.json"
     stale_current_path.write_text(json.dumps(stale_current), encoding="utf-8")
     expect_failure(
@@ -79,7 +78,7 @@ with tempfile.TemporaryDirectory(prefix="sanitization-negative-evidence-") as di
             "--current",
             str(stale_current_path),
         ],
-        "stale current source inventory",
+        "tampered current source hash inventory",
     )
 
     invalid_ir = temp / "invalid.ll"

@@ -63,6 +63,17 @@ if (
 ):
     fail("current source-level API inventory metadata is invalid")
 
+run(
+    [
+        sys.executable,
+        str(ROOT / "scripts" / "capture-2.0-api.py"),
+        "--check",
+        "--output",
+        str(arguments.current),
+    ],
+    {0},
+)
+
 recorded_declarations = {
     entry.split(":", 2)[2]
     for entry in current.get("public_declarations", [])

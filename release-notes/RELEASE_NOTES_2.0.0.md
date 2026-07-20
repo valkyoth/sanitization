@@ -11,6 +11,9 @@ wiped mappings left live but unlocked after release failure are degraded and
 cannot satisfy their original protection request. Release evidence also keeps
 the original CP-21 source snapshot immutable under a pinned digest while using
 a separately named current-source inventory for the evolving release candidate.
+The standalone freeze verifier now validates every field of that current
+inventory, including source and manifest hashes, feature definitions, package
+metadata, and dependency inventories.
 
 Page-sealed cleanup now attempts mapping release while an unwiped payload is
 still locked. If both page normalization and release fail, the poisoned mapping

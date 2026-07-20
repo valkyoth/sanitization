@@ -109,16 +109,19 @@ def snapshot() -> dict[str, Any]:
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--check", action="store_true")
+parser.add_argument("--output", type=Path, default=OUTPUT)
 arguments = parser.parse_args()
 current = snapshot()
 
 if arguments.check:
-    if not OUTPUT.is_file():
-        fail(f"missing {OUTPUT.relative_to(ROOT)}")
-    recorded = json.loads(OUTPUT.read_text(encoding="utf-8"))
+    if not arguments.output.is_file():
+        fail(f"missing source API inventory: {arguments.output}")
+    recorded = json.loads(arguments.output.read_text(encoding="utf-8"))
     if recorded != current:
         fail("current source API inventory is stale; regenerate after reviewed API changes")
     print("current 2.0 source API inventory verified")
 else:
-    OUTPUT.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"wrote {OUTPUT.relative_to(ROOT)}")
+    arguments.output.write_text(
+        json.dumps(current, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {arguments.output}")
