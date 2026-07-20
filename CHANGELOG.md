@@ -3,7 +3,8 @@
 ## 2.0.0
 
 - Make the standalone 2.0 API-freeze verifier validate the complete supplied
-  current-source inventory rather than only its metadata and declarations.
+  current-source inventory in-process through a shared snapshot implementation,
+  with caller-relative paths resolved once before use.
 - Make protection-policy evaluation reject `NotApplicable` for nonempty
   retired or unlocked storage while preserving the empty-storage exception,
   and split immutable CP-21 API evidence from the rolling current inventory.

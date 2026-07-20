@@ -12,6 +12,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+from source_api_inventory import snapshot as current_source_snapshot
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CP21 = ROOT / "docs" / "baselines" / "2.0" / "cp21-public-api.json"
@@ -47,14 +49,16 @@ parser.add_argument("--run-semver-tools", action="store_true")
 parser.add_argument("--cp21", type=Path, default=CP21)
 parser.add_argument("--current", type=Path, default=CURRENT)
 arguments = parser.parse_args()
+cp21_path = arguments.cp21.resolve()
+current_path = arguments.current.resolve()
 
-if hashlib.sha256(arguments.cp21.read_bytes()).hexdigest() != CP21_SHA256:
+if hashlib.sha256(cp21_path.read_bytes()).hexdigest() != CP21_SHA256:
     fail("immutable CP-21 source-level API artifact differs from its historical capture")
-cp21 = json.loads(arguments.cp21.read_text(encoding="utf-8"))
+cp21 = json.loads(cp21_path.read_text(encoding="utf-8"))
 if cp21.get("checkpoint") != "CP-21" or cp21.get("status") != "api-freeze-candidate":
     fail("CP-21 source-level API candidate metadata is invalid")
 
-current = json.loads(arguments.current.read_text(encoding="utf-8"))
+current = json.loads(current_path.read_text(encoding="utf-8"))
 if (
     current.get("checkpoint") != "2.0-current"
     or current.get("status") != "release-candidate-current"
@@ -63,16 +67,8 @@ if (
 ):
     fail("current source-level API inventory metadata is invalid")
 
-run(
-    [
-        sys.executable,
-        str(ROOT / "scripts" / "capture-2.0-api.py"),
-        "--check",
-        "--output",
-        str(arguments.current),
-    ],
-    {0},
-)
+if current != current_source_snapshot():
+    fail("supplied current source-level API inventory differs from the repository tree")
 
 recorded_declarations = {
     entry.split(":", 2)[2]

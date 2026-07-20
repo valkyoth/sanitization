@@ -13,7 +13,9 @@ the original CP-21 source snapshot immutable under a pinned digest while using
 a separately named current-source inventory for the evolving release candidate.
 The standalone freeze verifier now validates every field of that current
 inventory, including source and manifest hashes, feature definitions, package
-metadata, and dependency inventories.
+metadata, and dependency inventories. It resolves supplied paths once and
+performs the comparison in-process through the same snapshot implementation as
+the capture CLI.
 
 Page-sealed cleanup now attempts mapping release while an unwiped payload is
 still locked. If both page normalization and release fail, the poisoned mapping

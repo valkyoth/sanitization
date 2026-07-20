@@ -12,18 +12,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run(command: list[str]) -> subprocess.CompletedProcess[str]:
+def run(command: list[str], cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
-        cwd=ROOT,
+        cwd=cwd,
         check=False,
         capture_output=True,
         text=True,
     )
 
 
-def expect_failure(command: list[str], label: str) -> None:
-    result = run(command)
+def expect_failure(command: list[str], label: str, cwd: Path = ROOT) -> None:
+    result = run(command, cwd)
     if result.returncode == 0:
         raise SystemExit(f"negative verification fixture unexpectedly passed: {label}")
 
@@ -69,16 +69,20 @@ with tempfile.TemporaryDirectory(prefix="sanitization-negative-evidence-") as di
     )
     source_path = next(iter(stale_current["source_hashes"]))
     stale_current["source_hashes"][source_path] = "00" * 32
-    stale_current_path = temp / "current-source-api.json"
+    stale_current_path = (
+        temp / "docs" / "baselines" / "2.0" / "current-source-api.json"
+    )
+    stale_current_path.parent.mkdir(parents=True)
     stale_current_path.write_text(json.dumps(stale_current), encoding="utf-8")
     expect_failure(
         [
             "python3",
             str(ROOT / "scripts" / "verify-2.0-api-freeze.py"),
             "--current",
-            str(stale_current_path),
+            "docs/baselines/2.0/current-source-api.json",
         ],
-        "tampered current source hash inventory",
+        "caller-relative tampered current source hash inventory",
+        cwd=temp,
     )
 
     invalid_ir = temp / "invalid.ll"

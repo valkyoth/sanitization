@@ -68,11 +68,11 @@ scripts/verify-migration-2.0.py
 scripts/verify-derive-failures.sh
 ```
 
-The standalone freeze verifier invokes the complete current-source capture
-comparison, including source hashes, manifests, workspace package metadata,
-features, and dependency inventories. Passing it is therefore equivalent to
-running `scripts/capture-2.0-api.py --check` for that supplied current artifact;
-the declaration comparison remains an independent additional check.
+The standalone freeze verifier resolves supplied artifact paths once and uses
+the same import-safe current-source snapshot implementation as the capture CLI.
+It compares the already-parsed artifact in-process, including source hashes,
+manifests, workspace package metadata, features, and dependency inventories.
+The declaration comparison remains an independent additional check.
 
 The exact per-package semver commands and accepted results are stored in
 `cp22-semver-review.json`.
