@@ -40,6 +40,10 @@ compiled only with the Linux tests that exercise them. Supported non-Linux
 all-target test builds therefore remain warning-free without suppressing
 production lints.
 
+The multi-seed leakage collector now normalizes Unicode formatting whitespace
+around command-line arguments, avoiding false "required argument" errors when
+commands are copied from rendered documentation or chat clients.
+
 ## Ownership And Exposure
 
 - Renamed checked mapped-container operations to `try_*`, removed redundant

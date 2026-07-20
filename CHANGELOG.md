@@ -4,6 +4,8 @@
 
 - Scoped Linux-only fault-injection helpers to the Linux tests that exercise
   them, keeping supported non-Linux all-target test builds warning-free.
+- Made the multi-seed leakage collector tolerate Unicode formatting whitespace
+  introduced when documented commands are copied from rendered text.
 - Restricted `SecureSanitizeOnDrop` and `secure_drop_struct!` to
   `DropSafeSanitize + Unpin`. Generated destructors invoke the complete
   sanitizer, preserving reviewed aggregate cleanup, while manual sanitizers

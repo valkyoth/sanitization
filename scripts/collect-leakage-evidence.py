@@ -112,6 +112,11 @@ def failed_cases(report: dict[str, object]) -> list[dict[str, object]]:
     ]
 
 
+def normalize_cli_args(arguments: list[str]) -> list[str]:
+    """Remove formatting whitespace commonly introduced when commands are copied."""
+    return [argument.strip().strip("\ufeff").strip() for argument in arguments]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -125,7 +130,7 @@ def main() -> int:
         default=DEFAULT_SEEDS,
         help="comma-separated decimal or 0x-prefixed u64 values",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(normalize_cli_args(sys.argv[1:]))
     if (
         args.samples < 2
         or args.inner < 1
