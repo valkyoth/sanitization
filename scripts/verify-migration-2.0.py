@@ -63,6 +63,7 @@ required = {
     "Mask Eq and PartialEq",
     "ct::Secret<T>",
     "strict-ct feature",
+    "empty default feature set",
     "#[sanitization(skip)]",
     "sanitize_bytes",
     "sanitize_bytes_best_effort",

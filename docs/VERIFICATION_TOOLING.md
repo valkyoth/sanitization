@@ -98,7 +98,7 @@ separate classes:
 
 - native functional, codegen, and relative-performance evidence on x86_64
   Linux, AArch64 Linux, x86_64 Windows, and AArch64 macOS;
-- multi-seed portable and `strict-compare` leakage evidence on x86_64 Linux,
+- multi-seed default and `strict-compare` leakage evidence on x86_64 Linux,
   AArch64 Linux, and AArch64 macOS;
 - explicitly compile-only manifests for BSD, Android, iOS, embedded ARM,
   embedded RISC-V, and Tier C WASM targets.
@@ -110,7 +110,7 @@ workflow URL. `scripts/verify-target-evidence.py` validates those manifests
 and rejects dirty, failed, mismatched, unhashed, or incomplete evidence.
 
 `scripts/collect-leakage-evidence.py` requires at least three distinct seeds
-for both the portable and strict-comparison variants. Every raw report is
+for both the default and strict-comparison variants. Every raw report is
 hashed into its summary. This provides repeated target-specific attempts to
 falsify the data-oblivious claim; it does not convert statistical evidence
 into a universal timing guarantee.

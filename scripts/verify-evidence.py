@@ -257,7 +257,7 @@ def main() -> int:
     require_check_coverage(
         checks,
         "multi-seed-leakage",
-        ["three distinct portable", "three distinct strict", "hashed per-run"],
+        ["three distinct default", "three distinct strict", "hashed per-run"],
     )
     require_check_coverage(
         checks,

@@ -62,8 +62,15 @@ core = load_manifest("sanitization")
 with (ROOT / "Cargo.toml").open("rb") as handle:
     workspace_version = tomllib.load(handle)["workspace"]["package"]["version"]
 features = core.get("features", {})
-if features.get("default") != []:
-    fail("sanitization default features must remain empty")
+if features.get("default") != ["asm-compare"]:
+    fail("sanitization default features must contain only asm-compare")
+
+crypto_interop = load_manifest("sanitization-crypto-interop")
+crypto_features = crypto_interop.get("features", {})
+if crypto_features.get("default") != ["asm-compare"]:
+    fail("sanitization-crypto-interop must forward asm-compare by default")
+if crypto_features.get("asm-compare") != ["sanitization/asm-compare"]:
+    fail("sanitization-crypto-interop asm-compare forwarding changed")
 
 for profile, expected in EXPECTED_PROFILES.items():
     if features.get(profile) != expected:
@@ -111,7 +118,7 @@ tree = subprocess.run(
 ).stdout.splitlines()
 tree = [line for line in tree if line.strip()]
 if len(tree) != 1 or not tree[0].startswith("sanitization "):
-    fail(f"default core dependency graph is not empty: {tree!r}")
+    fail(f"no-default-features core dependency graph is not empty: {tree!r}")
 
 for crate, expected_role in COMPANIONS.items():
     manifest = load_manifest(crate)

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-REQUIRED_VARIANTS = {"portable", "strict-compare"}
+REQUIRED_VARIANTS = {"default-compare", "strict-compare"}
 REQUIRED_CASES = {
     "ct_choice_boolean_ops",
     "ct_eq_fixed_16_first_diff",
@@ -130,7 +130,7 @@ def verify_leakage(path: Path, expected_commit: str) -> None:
     verify_timestamp(summary.get("generated_at_utc"), path=path, field="generated_at_utc")
     verify_commit(summary.get("git_commit"), path=path, expected_commit=expected_commit)
     if set(summary.get("required_variants", [])) != REQUIRED_VARIANTS:
-        fail(f"{path} does not require portable and strict variants")
+        fail(f"{path} does not require default and strict variants")
     if set(summary.get("required_cases", [])) != REQUIRED_CASES:
         fail(f"{path} does not cover the required primitive cases")
     runs = summary.get("runs")

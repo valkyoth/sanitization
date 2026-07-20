@@ -117,6 +117,9 @@ crates integrate external representations without duplicating that primitive.
 | `sanitization-crypto-interop` | Uses upstream hasher cleanup traits and core secret containers; it does not define a second memory-wipe backend |
 
 Every companion dependency on `sanitization` sets `default-features = false`.
+The crypto-interop companion explicitly forwards the dependency-free
+`asm-compare` feature by default because it owns fixed-length verification
+helpers; its `strict-compare` feature remains the fail-closed profile.
 The proc-macro crate intentionally does not depend on the runtime crate.
 Conversely, the runtime's optional `sanitization-derive` dependency is pinned
 to the exact same release. Generated code may reference runtime APIs introduced
@@ -126,8 +129,10 @@ crate before publishing the matching runtime.
 
 ## Default Core Graph
 
-The default core feature set is empty. All third-party runtime dependencies are
-optional, so:
+The default core feature set contains only the dependency-free `asm-compare`
+feature. It selects the reviewed equal-length comparison backend on x86_64 and
+AArch64 and does not add a runtime dependency. All third-party runtime
+dependencies remain optional, so:
 
 ```bash
 cargo tree -p sanitization --no-default-features --edges normal

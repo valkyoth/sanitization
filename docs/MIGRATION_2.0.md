@@ -134,6 +134,12 @@ ordering, lookup, selection, allocation, text validation, or caller code.
 sanitization = { version = "2", features = ["strict-compare"] }
 ```
 
+The default feature set now enables the dependency-free `asm-compare` backend.
+On x86_64 and AArch64, ordinary equal-length equality therefore uses reviewed
+target assembly. Use `default-features = false` only when the portable fallback
+is deliberately required; the 2.0 evidence does not make an AArch64 Linux
+timing claim for that fallback.
+
 `Choice`, `Mask`, and `CtOrdering` no longer implement ordinary `Eq` or
 `PartialEq`. This is intentional: comparing secret-derived control values must
 stay inside their data-oblivious algebra until a reason-bearing public

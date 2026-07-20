@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect reproducible multi-seed portable and strict CT leakage evidence."""
+"""Collect reproducible multi-seed default and strict CT leakage evidence."""
 
 from __future__ import annotations
 
@@ -33,8 +33,8 @@ REQUIRED_CASES = {
     "ct_oblivious_lookup_16_index",
 }
 VARIANTS = {
-    "portable": None,
-    "strict-compare": "strict-compare",
+    "default-compare": (None, "asm-compare"),
+    "strict-compare": ("strict-compare", "asm-compare,strict-compare"),
 }
 DEFAULT_SEEDS = [
     0x243F6A8885A308D3,
@@ -144,10 +144,9 @@ def main() -> int:
     commit = git_output("rev-parse", "HEAD")
     runs: list[dict[str, object]] = []
 
-    for variant, feature in VARIANTS.items():
+    for variant, (feature, expected_features) in VARIANTS.items():
         variant_dir = output_dir / variant
         variant_dir.mkdir(parents=True, exist_ok=True)
-        expected_features = "default" if feature is None else "strict-compare"
         for seed in args.seeds:
             report_path = variant_dir / f"seed-{seed}.json"
             command = [

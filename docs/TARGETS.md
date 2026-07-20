@@ -22,10 +22,10 @@ runner image are recorded in each artifact rather than implied by this table.
 
 | Target/profile | Tier | Runner/evidence class | Evidence |
 | --- | --- | --- | --- |
-| `x86_64-unknown-linux-gnu` | A | Native `ubuntu-24.04` | All-feature functional tests, path-specific release codegen scan, relative performance baseline, and portable/strict multi-seed leakage runs. |
-| `aarch64-unknown-linux-gnu` | B native | Native `ubuntu-24.04-arm` | All-feature functional tests, AArch64 release codegen scan, relative performance baseline, and portable/strict multi-seed leakage runs. |
+| `x86_64-unknown-linux-gnu` | A | Native `ubuntu-24.04` | All-feature functional tests, path-specific release codegen scan, relative performance baseline, and default/strict multi-seed leakage runs. |
+| `aarch64-unknown-linux-gnu` | B native | Native `ubuntu-24.04-arm` | All-feature functional tests, AArch64 release codegen scan, relative performance baseline, and default/strict multi-seed leakage runs. |
 | `x86_64-pc-windows-msvc` | B native | Native `windows-2025` | Portable-native feature tests, x86_64 release codegen scan, and relative performance baseline; no timing claim. |
-| `aarch64-apple-darwin` | B native | Native `macos-15` | Portable-native feature tests, AArch64 release codegen scan, relative performance baseline, and portable/strict multi-seed leakage runs. |
+| `aarch64-apple-darwin` | B native | Native `macos-15` | Native default-feature tests, AArch64 release codegen scan, relative performance baseline, and default/strict multi-seed leakage runs. |
 | `x86_64-unknown-freebsd` | B compile-only | Cross-compiled on Linux | Memory-lock, guard-page, and multi-pass feature compilation; no native syscall or timing claim. |
 | `aarch64-linux-android` | B compile-only | Cross-compiled on Linux | Native-feature compilation only; no device runtime or timing claim. |
 | `aarch64-apple-ios` | B compile-only | Cross-compiled on macOS | Native-feature compilation only; no device runtime or timing claim. |
@@ -43,7 +43,7 @@ runner image are recorded in each artifact rather than implied by this table.
 | `guard-pages` | Yes | Yes where backend supports it | Yes | No |
 | `canary-check` | Yes | Yes | Yes | Yes for compat backends where exposed |
 | `random-canary` | OS CSPRNG | OS CSPRNG | OS CSPRNG | WASI where host random exists; unsupported otherwise |
-| `asm-compare` | x86_64/AArch64 where implemented | x86_64/AArch64 where implemented | x86_64/AArch64 where ABI-safe | No strong JIT claim |
+| Default `asm-compare` | x86_64/AArch64 where implemented | x86_64/AArch64 where implemented | x86_64/AArch64 where ABI-safe | No strong JIT claim |
 | `cache-flush` | Checked x86_64 eviction; other architectures return unsupported after wipe | Checked x86_64 eviction; other architectures return unsupported after wipe | Checked x86_64 eviction | Structured unsupported result |
 | `register-scrub` | x86_64/AArch64 reported best effort | x86_64/AArch64 reported best effort | x86_64/AArch64 reported best effort | Structured unsupported result |
 

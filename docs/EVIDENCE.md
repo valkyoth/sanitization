@@ -46,10 +46,10 @@ The crate does not claim:
 
 | Target/profile | Tier | Evidence |
 | --- | --- | --- |
-| `x86_64-unknown-linux-gnu`, release portable/`strict-compare` | Tier A | Native tests, path-specific codegen, relative performance, and multi-seed leakage artifacts |
-| `aarch64-unknown-linux-gnu`, release portable/`strict-compare` | Tier B native | Native tests, AArch64 codegen, relative performance, and multi-seed leakage artifacts |
+| `x86_64-unknown-linux-gnu`, release default/`strict-compare` | Tier A | Native tests, path-specific codegen, relative performance, and multi-seed leakage artifacts |
+| `aarch64-unknown-linux-gnu`, release default/`strict-compare` | Tier B native | Native tests, AArch64 codegen, relative performance, and multi-seed leakage artifacts |
 | `x86_64-pc-windows-msvc` | Tier B native | Native feature tests, x86_64 codegen, and relative performance; no timing claim |
-| `aarch64-apple-darwin` | Tier B native | Native tests, AArch64 codegen, relative performance, and multi-seed leakage artifacts |
+| `aarch64-apple-darwin`, release default/`strict-compare` | Tier B native | Native tests, AArch64 codegen, relative performance, and multi-seed leakage artifacts |
 | BSD, Android, iOS, embedded ARM/RISC-V | Tier B or B/C compile-only | Cross-compilation manifests; no native runtime or timing claim |
 | WASM `wasm32-*` | Tier C | API/build compatibility and documented reduced volatile/memory-lock guarantees; no strong JIT timing claim |
 

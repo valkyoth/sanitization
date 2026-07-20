@@ -873,7 +873,7 @@ Deliverables:
 - compile-only BSD, Android, iOS, embedded ARM, and embedded RISC-V evidence;
 - Tier C WASM compatibility evidence;
 - multi-seed dudect-style timing runs for every claimed CT primitive;
-- portable and strict-comparison timing evidence;
+- default and strict-comparison timing evidence;
 - performance baselines and regression thresholds;
 - dated target manifests with compiler, feature, and runner metadata.
 

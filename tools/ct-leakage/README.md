@@ -24,16 +24,17 @@ Run from the repository root:
 cargo run --release --manifest-path tools/ct-leakage/Cargo.toml -- \
   --samples 200000 \
   --inner 500 \
-  --output target/ct-leakage-portable.json
+  --output target/ct-leakage-default.json
 ```
 
-To test the assembly comparison backend:
+The default harness uses the crate's default assembly-backed equality on
+x86_64 and AArch64. To test the portable fallback explicitly:
 
 ```bash
-cargo run --release --manifest-path tools/ct-leakage/Cargo.toml --features asm-compare -- \
+cargo run --release --manifest-path tools/ct-leakage/Cargo.toml --no-default-features -- \
   --samples 200000 \
   --inner 500 \
-  --output target/ct-leakage-asm-compare.json
+  --output target/ct-leakage-portable.json
 ```
 
 For checkpoint/release evidence, use the multi-seed collector instead of
@@ -46,7 +47,7 @@ scripts/collect-leakage-evidence.py \
   --inner 200
 ```
 
-The collector uses reproducible seeds, runs both portable and
+The collector uses reproducible seeds, runs both default comparison and
 `strict-compare` variants, hashes each raw report, and fails unless every
 required primitive case passes under at least three distinct seeds.
 

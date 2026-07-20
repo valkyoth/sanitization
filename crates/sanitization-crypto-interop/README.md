@@ -36,6 +36,10 @@ The core `sanitization` crate remains dependency-free by default. This sister
 crate is explicitly opt-in and feature-gated per backend.
 The optional `std` feature forwards to `sanitization/std` for callers that want
 the same feature profile across both crates; it is disabled by default.
+The dependency-free `asm-compare` feature is enabled by default and forwards to
+`sanitization/asm-compare`, so fixed-length verification uses the reviewed
+x86_64/AArch64 equality backend. Disable default features only when the
+portable fallback is deliberately required.
 The optional `strict-compare` feature forwards to
 `sanitization/strict-compare`, making all fixed-length HMAC and BLAKE3 verify
 helpers use the reviewed native assembly equality backend on x86_64 and

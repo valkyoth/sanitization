@@ -126,7 +126,7 @@ jobs:
         shell: bash
         run: scripts/ci_install_rust.sh
 
-      - name: Collect portable and strict multi-seed evidence
+      - name: Collect default and strict multi-seed evidence
         shell: bash
         run: |
           python3 scripts/collect-leakage-evidence.py \

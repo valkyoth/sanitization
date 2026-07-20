@@ -479,8 +479,8 @@ Invariant:
 
 Location: `platform::compare_asm`
 
-Purpose: provide an optional compiler boundary for equal-length byte comparison
-on x86_64 and AArch64.
+Purpose: provide the default compiler boundary for equal-length byte comparison
+on x86_64 and AArch64 without adding dependencies or requiring `std`.
 
 Operation:
 
@@ -489,8 +489,8 @@ Operation:
 - The assembly loop reads one byte from each slice, XORs them, ORs the result
   into an accumulator, then advances both pointers.
 - The loop count is the already-checked public slice length.
-- Unsupported targets, Miri, and builds without `asm-compare` use the portable
-  Rust fallback.
+- Unsupported targets, Miri, and builds that disable default features without
+  re-enabling `asm-compare` use the portable Rust fallback.
 
 Invariant:
 

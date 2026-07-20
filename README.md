@@ -403,7 +403,10 @@ compile-checked `high_assurance_policy` example.
 
 ## Feature And Platform Reference
 
-The default feature set is empty. The major opt-in groups are:
+The dependency-free, `no_std` default enables `asm-compare`, selecting the
+reviewed equal-length assembly backend on x86_64 and AArch64 and falling back
+portably elsewhere. `default-features = false` disables that default backend.
+The other major opt-in groups are:
 
 - allocation and integration: `alloc`, `std`, `derive`, `serde`,
   `zeroize-interop`, `subtle-interop`;

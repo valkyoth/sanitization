@@ -37,8 +37,10 @@
 //!   through the explicit `canary-check` feature on supported targets.
 //! - OS-CSPRNG canary generation is available only through the explicit
 //!   `random-canary` feature.
-//! - x86_64/AArch64 assembly-backed comparison is available only through the explicit
-//!   `asm-compare` feature.
+//! - The dependency-free default enables `asm-compare`, selecting the reviewed
+//!   x86_64/AArch64 assembly equality backend where available. Builds using
+//!   `default-features = false` retain the weaker portable fallback unless they
+//!   explicitly enable `asm-compare`.
 //! - Fail-closed assembly-backed equal-length byte comparison is available
 //!   through `strict-compare`. This feature does not strengthen ordering,
 //!   selection, lookup, or caller code. Other fail-closed profiles include

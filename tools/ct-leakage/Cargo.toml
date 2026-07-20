@@ -7,9 +7,9 @@ publish = false
 [workspace]
 
 [dependencies]
-sanitization = { version = "2.0.0", path = "../../crates/sanitization" }
+sanitization = { version = "2.0.0", path = "../../crates/sanitization", default-features = false }
 
 [features]
-default = []
+default = ["asm-compare"]
 asm-compare = ["sanitization/asm-compare"]
 strict-compare = ["sanitization/strict-compare"]

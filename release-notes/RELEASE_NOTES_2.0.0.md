@@ -5,6 +5,14 @@ Version 2.0.0 is a security-model release. It preserves the dependency-free,
 storage, exposure, data-oblivious control state, derive behavior, and native
 protection outcomes more explicit and fail-closed.
 
+The dependency-free default now enables `asm-compare`. Reviewed x86_64 and
+AArch64 targets therefore use the assembly-backed equal-length equality path
+without requiring an opt-in feature. Repeated independent AArch64 Linux
+leakage runs rejected the portable fallback as release timing evidence;
+`default-features = false` still exposes that fallback, but 2.0 makes no
+AArch64 timing claim for it. `sanitization-crypto-interop` forwards the same
+dependency-free default for its HMAC and BLAKE3 verification helpers.
+
 `wipe::maybe_uninit` now clears non-live `MaybeUninit<T>` storage without
 constructing references to uninitialized byte values. The
 `sanitization-arrayvec` companion uses this typed path for complete inline

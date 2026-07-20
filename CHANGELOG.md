@@ -2,6 +2,12 @@
 
 ## 2.0.0
 
+- Enabled the dependency-free `asm-compare` backend by default on x86_64 and
+  AArch64 after repeated independent AArch64 Linux leakage runs rejected the
+  portable fallback for release timing claims. Builds using
+  `default-features = false` retain that portable fallback without an AArch64
+  timing guarantee. `sanitization-crypto-interop` forwards the same default for
+  its fixed-length verification helpers.
 - Scoped Linux-only fault-injection helpers to the Linux tests that exercise
   them, keeping supported non-Linux all-target test builds warning-free.
 - Made the multi-seed leakage collector tolerate Unicode formatting whitespace

@@ -29,7 +29,7 @@
       "tier": "A",
       "features": ["asm-compare", "strict-compare"],
       "barrier_strategy": ["branchless source structure", "black_box boundary", "inline assembly comparison backend"],
-      "evidence": ["native feature tests", "path-specific release LLVM IR scan", "release assembly scan", "multi-seed portable and strict leakage artifacts", "relative performance baseline", "Kani harnesses", "Miri on supported paths"],
+      "evidence": ["native feature tests", "path-specific release LLVM IR scan", "release assembly scan", "multi-seed default and strict leakage artifacts", "relative performance baseline", "Kani harnesses", "Miri on supported paths"],
       "limitations": ["statistical timing runs are target- and environment-specific evidence, not proof", "accepted workflow URLs and artifact digests are recorded in docs/release-evidence-2.0.0.json"]
     },
     {
@@ -37,8 +37,8 @@
       "tier": "B-native",
       "features": ["asm-compare", "strict-compare"],
       "barrier_strategy": ["branchless source structure", "black_box boundary", "inline assembly comparison backend"],
-      "evidence": ["native feature tests", "native AArch64 release codegen scan", "multi-seed portable and strict leakage artifacts", "relative performance baseline", "Kani source-level harnesses"],
-      "limitations": ["Tier B does not imply the Tier A evidence breadth", "statistical timing evidence is not proof"]
+      "evidence": ["native feature tests", "native AArch64 release codegen scan", "multi-seed default and strict leakage artifacts", "relative performance baseline", "Kani source-level harnesses"],
+      "limitations": ["Tier B does not imply the Tier A evidence breadth", "statistical timing evidence is not proof", "the no-default-features portable equality fallback is excluded from the AArch64 Linux timing claim after repeated release-candidate leakage failures"]
     },
     {
       "target": "x86_64-pc-windows-msvc",
@@ -53,7 +53,7 @@
       "tier": "B-native",
       "features": ["asm-compare", "strict-compare"],
       "barrier_strategy": ["branchless source structure", "black_box boundary", "inline assembly equality backend"],
-      "evidence": ["native feature tests", "native AArch64 release codegen scan", "multi-seed portable and strict leakage artifacts", "relative performance baseline"],
+      "evidence": ["native feature tests", "native AArch64 release codegen scan", "multi-seed default and strict leakage artifacts", "relative performance baseline"],
       "limitations": ["Tier B does not imply the Tier A evidence breadth", "statistical timing evidence is not proof"]
     },
     {
@@ -112,7 +112,7 @@
       "name": "multi-seed-leakage",
       "command": "scripts/collect-leakage-evidence.py --output-dir target/cp20/leakage",
       "coverage": [
-        "at least three distinct portable seeds",
+        "at least three distinct default-comparison seeds",
         "at least three distinct strict-comparison seeds",
         "fixed equality sizes 16, 32, and 64",
         "ordering, selection, option/result, copy, swap, and oblivious lookup",

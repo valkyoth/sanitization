@@ -33,7 +33,7 @@ subtle = { version = "2", default-features = false, optional = true }
 zeroize = { version = "1", default-features = false, optional = true }
 
 [features]
-default = []
+default = ["asm-compare"]
 alloc = []
 std = ["alloc"]
 derive = ["dep:sanitization-derive"]

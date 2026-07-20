@@ -27,6 +27,7 @@
     {"legacy": "public backing in CtOption/CtResult", "replacement": "PublicCtOption and PublicCtResult", "anchor": "data-oblivious-apis"},
     {"legacy": "secret backing in CtOption/CtResult", "replacement": "SecretCtOption and SecretCtResult", "anchor": "data-oblivious-apis"},
     {"legacy": "strict-ct feature", "replacement": "strict-compare feature", "anchor": "data-oblivious-apis"},
+    {"legacy": "empty default feature set", "replacement": "default asm-compare feature", "anchor": "data-oblivious-apis"},
     {"legacy": "SecureSanitize enum derive", "replacement": "struct wrapper or reviewed manual implementation with secure_replace", "anchor": "derive-macros"},
     {"legacy": "#[sanitization(skip)]", "replacement": "#[sanitization(skip, reason = \"...\")]", "anchor": "derive-macros"},
     {"legacy": "strict-enum-derive feature", "replacement": "unconditional fail-closed derive behavior", "anchor": "derive-macros"},

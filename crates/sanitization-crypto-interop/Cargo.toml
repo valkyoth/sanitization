@@ -22,7 +22,8 @@ role = "companion"
 clearing-owner = "sanitization"
 
 [features]
-default = []
+default = ["asm-compare"]
+asm-compare = ["sanitization/asm-compare"]
 std = ["sanitization/std"]
 sha2 = ["dep:sha2", "dep:zeroize"]
 blake3 = ["dep:blake3", "dep:zeroize"]

@@ -50,8 +50,10 @@ the generated code shape for reviewed targets.
 
 ## Assembly Backends
 
-The `asm-compare` feature enables target-specific equal-length comparison
-backends where available. The `strict-compare` feature fails closed on
+The default feature set enables `asm-compare`, selecting target-specific
+equal-length comparison backends on x86_64 and AArch64. Builds using
+`default-features = false` retain the portable fallback unless `asm-compare`
+is explicitly re-enabled. The `strict-compare` feature fails closed on
 unsupported targets instead of silently falling back for equal-length byte
 equality. The shared dispatch backs `ct::eq_fixed`, `ct::eq_public_len`, byte
 slice and array trait implementations, native secret-container equality, and
@@ -63,6 +65,11 @@ sensitive comparison loop. They still do not prove complete hardware timing
 behavior, and they do not protect arbitrary caller code around the comparison.
 Ordering, selection, copying, swapping, and oblivious lookup retain their
 portable implementations when `strict-compare` is enabled.
+
+Repeated 2.0 release-candidate measurements rejected the portable equality
+fallback as timing evidence on AArch64 Linux. It remains a source-level
+data-oblivious fallback for portability, but it is not part of the AArch64
+native timing claim.
 
 ## Cache And Register Helpers
 

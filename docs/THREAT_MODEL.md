@@ -240,16 +240,19 @@ address. `canary-check` on WASM must be paired with both `wasm-compat` and
 return a `Random` operation error for random canary generation in this
 dependency-free implementation.
 
-With the `asm-compare` feature on x86_64 and AArch64, equal-length comparisons,
+The default feature set enables `asm-compare`. On x86_64 and AArch64,
+equal-length comparisons,
 including `ct::eq_fixed`, native secret-container `ct::ConstantTimeEq`
 implementations, and crypto-interop verification helpers, use the shared
 inline-assembly loop. This gives the comparison body a stronger compiler
 boundary, but it does not hide length metadata and does not claim protection
 against all microarchitectural side channels. With `strict-compare`, unsupported
 non-Miri targets fail at compile time instead of using the portable Rust
-equality fallback. The portable equality fallback remains available without
-`strict-compare`, but it relies on source-level data-oblivious structure plus
-optimizer barriers rather than a target-specific assembly boundary.
+equality fallback. The portable equality fallback remains available to builds
+using `default-features = false` without re-enabling `asm-compare`, but it
+relies on source-level data-oblivious structure plus optimizer barriers rather
+than a target-specific assembly boundary. It is not included in the AArch64
+Linux timing-evidence claim after repeated release-candidate leakage failures.
 `strict-compare` does not strengthen ordering, selection, copying, swapping,
 lookup, or caller code.
 

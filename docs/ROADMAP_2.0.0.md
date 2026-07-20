@@ -1171,7 +1171,7 @@ Promote the leakage harness from smoke evidence to release evidence:
 - multiple randomized seeds;
 - full dudect-style fixed-vs-random and class-separated experiments where the
   primitive permits them;
-- portable and `strict-compare` runs;
+- default comparison and `strict-compare` runs;
 - CPU affinity and frequency controls where available;
 - x86_64 Linux, AArch64 Linux, and AArch64 macOS native runs;
 - per-case environment metadata and Welch t-test results;

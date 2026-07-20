@@ -892,7 +892,7 @@ fn enabled_features() -> String {
         features.push("strict-compare");
     }
     if features.is_empty() {
-        "default".to_owned()
+        "portable-fallback".to_owned()
     } else {
         features.join(",")
     }

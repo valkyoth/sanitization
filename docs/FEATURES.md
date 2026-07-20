@@ -1,8 +1,9 @@
 # Feature Reference
 
-The default `sanitization` build is dependency-free and `no_std`. Features are
-opt-in capabilities; platform features do not by themselves prove that the
-operating system established a requested protection. For that distinction, see
+The default `sanitization` build is dependency-free and `no_std`, and enables
+`asm-compare` so reviewed x86_64/AArch64 targets use assembly-backed equality.
+Other features are opt-in capabilities; platform features do not by themselves
+prove that the operating system established a requested protection. For that distinction, see
 [`FEATURE_PROFILES.md`](FEATURE_PROFILES.md) and
 [`PROTECTION_REPORT.md`](PROTECTION_REPORT.md).
 
@@ -34,7 +35,7 @@ operating system established a requested protection. For that distinction, see
 
 | Feature | Purpose |
 | --- | --- |
-| `asm-compare` | Selects reviewed x86_64/AArch64 assembly for equal-length byte equality. |
+| `asm-compare` | Selects reviewed x86_64/AArch64 assembly for equal-length byte equality. Enabled by default; `default-features = false` restores the portable fallback unless this feature is re-enabled. |
 | `strict-compare` | Rejects non-Miri targets without the reviewed assembly equality backend. |
 | `cache-flush` | Adds checked clear-and-cache-line-evict helpers where supported. |
 | `register-scrub` | Adds best-effort architecture-specific SIMD/vector register scrubbing with an outcome report. |
@@ -82,7 +83,7 @@ capability, not achieved runtime state.
 | `sanitization-derive` | Optional struct derives for sanitization and conservative CT traits. |
 | `sanitization-arrayvec` | Clear-on-drop `ArrayVec` integration. |
 | `sanitization-bytes` | Fixed-capacity `BytesMut` integration that refuses reallocating growth. |
-| `sanitization-crypto-interop` | Cleanup-aware SHA-2/BLAKE3 wrappers and HMAC-SHA2 helpers. |
+| `sanitization-crypto-interop` | Cleanup-aware SHA-2/BLAKE3 wrappers and HMAC-SHA2 helpers; forwards dependency-free `asm-compare` by default. |
 
 Companion crates reuse the core clearing boundary rather than defining a second
 volatile wipe implementation.

@@ -85,25 +85,36 @@ measurement in `docs/EVIDENCE.md` and `docs/ct-evidence.json`.
 
 ## Harness
 
-Run a portable release-profile leakage pass from the repository root:
+Run the default release-profile leakage pass from the repository root. On
+x86_64/AArch64 this uses the default assembly equality backend:
 
 ```bash
 cargo run --release --manifest-path tools/ct-leakage/Cargo.toml -- \
   --samples 200000 \
   --inner 500 \
-  --output target/ct-leakage-portable.json
+  --output target/ct-leakage-default.json
 ```
 
-Run the same harness against the assembly comparison backend:
+Run the portable fallback explicitly for diagnostic evidence. AArch64 Linux
+release evidence does not claim this fallback passes timing measurements:
 
 ```bash
-cargo run --release --manifest-path tools/ct-leakage/Cargo.toml --features asm-compare -- \
+cargo run --release --no-default-features --manifest-path tools/ct-leakage/Cargo.toml -- \
   --samples 200000 \
   --inner 500 \
-  --output target/ct-leakage-asm-compare.json
+  --output target/ct-leakage-portable-fallback.json
 ```
 
-Collect the CP-20 multi-seed portable and strict-comparison evidence set:
+Run the same harness under the fail-closed strict comparison policy:
+
+```bash
+cargo run --release --manifest-path tools/ct-leakage/Cargo.toml --features strict-compare -- \
+  --samples 200000 \
+  --inner 500 \
+  --output target/ct-leakage-strict-compare.json
+```
+
+Collect the CP-20 multi-seed default and strict-comparison evidence set:
 
 ```bash
 scripts/collect-leakage-evidence.py \
@@ -117,8 +128,9 @@ scripts/verify-target-evidence.py \
   --leakage-summary target/cp20/leakage/summary.json
 ```
 
-The collector requires at least three distinct seeds for each of the portable
-and `strict-compare` variants. It records and hashes every underlying report;
+The collector requires at least three distinct seeds for each of the
+`default-compare` and `strict-compare` variants. It records and hashes every
+underlying report;
 one passing seed is not accepted as release evidence. `strict-compare` only
 strengthens equal-length byte equality. Ordering, selection, copy, swap, and
 lookup remain portable and are intentionally rerun under that feature to catch

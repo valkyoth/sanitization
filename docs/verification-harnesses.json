@@ -89,7 +89,7 @@
     },
     {
       "name": "multi-seed-native-leakage",
-      "claim": "Portable and strict comparison profiles cover every listed CT primitive with at least three distinct seeds per native evidence target.",
+      "claim": "Default and strict comparison profiles cover every listed CT primitive with at least three distinct seeds per native evidence target.",
       "command": "scripts/collect-leakage-evidence.py --output-dir target/cp20/leakage"
     },
     {
