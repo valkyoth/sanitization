@@ -144,7 +144,36 @@ pub(crate) fn fill(bytes: &mut [u8]) -> Result<(), i32> {
         return Err(ERRNO_INJECTED_FAILURE);
     }
 
+    #[cfg(miri)]
+    {
+        fill_for_miri(bytes);
+        Ok(())
+    }
+
+    #[cfg(not(miri))]
     fill_inner(bytes)
+}
+
+/// Miri cannot execute the native CSPRNG syscall/FFI boundary. This generator
+/// is test-only state used to exercise canary ownership and failure handling;
+/// it makes no randomness or deployment-security claim.
+#[cfg(miri)]
+fn fill_for_miri(bytes: &mut [u8]) {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    static GENERATION: AtomicUsize = AtomicUsize::new(1);
+    let generation = GENERATION.fetch_add(1, Ordering::Relaxed);
+    let mut state = (generation as u64)
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        .wrapping_add(0xD1B5_4A32_D192_ED03);
+
+    for byte in bytes {
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        state = state.wrapping_mul(0x2545_F491_4F6C_DD1D);
+        *byte = state as u8;
+    }
 }
 
 #[cfg(all(

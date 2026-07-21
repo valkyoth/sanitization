@@ -91,14 +91,21 @@ Run Miri separately when a nightly toolchain with Miri is installed:
 scripts/verify-miri.sh
 ```
 
-The Miri script covers both the core crate's feature configurations and the
-`sanitization-arrayvec` complete inline-backing wipe.
+The Miri script covers the core crate's feature configurations, modeled
+`LockedSecretBytes`, `LockedSecretVec`, `LockedSecretString`, and `SecretPool`
+mapping lifecycles, random-canary ownership, and the `sanitization-arrayvec`
+complete inline-backing wipe. The Miri mapping model uses aligned allocator
+storage, exercises normal construction, replacement, growth, quarantine,
+rollback, and drop logic, and asserts that the complete simulated mapping is
+zero before deallocation.
 
-Miri verifies supported Rust memory-safety paths. It does not execute the native
-OS mapping, locking, protection, dump/fork-policy, or guard-page syscalls, which
-are compiled out under `cfg(miri)`. Native Linux tests cover the new locked and
-guarded UTF-8 wrappers; other supported platforms require their own native
-evidence.
+Miri cannot execute native OS mapping, locking, protection, dump/fork-policy,
+or guard-page syscalls. Under `cfg(miri)`, only those syscall/CSPRNG boundaries
+are replaced by test simulators; any `ProtectionState::Established` value is a
+modeled state-machine result and is not evidence of an achieved OS protection.
+Guard pages and page sealing remain outside Miri. Native Linux tests cover the
+real locked and guarded UTF-8 wrappers; other supported platforms require their
+own native evidence.
 
 Run Kani proofs directly when `cargo-kani` is installed:
 

@@ -1434,10 +1434,11 @@ impl<const N: usize> Drop for LockedSecretBytes<N> {
         self.canary.clear();
 
         if self.map_len != 0 {
+            crate::wipe_backend::erase(self.ptr.as_ptr(), self.map_len);
             if self.locked {
-                let _ = unlock_mapping(self.ptr, self.map_len);
+                let _ = backend_unlock_mapping(self.ptr, self.map_len);
             }
-            let _ = unmap_private(self.ptr, self.map_len);
+            let _ = backend_unmap_private(self.ptr, self.map_len);
         }
     }
 }
@@ -2378,10 +2379,11 @@ impl Drop for LockedSecretVec {
         #[cfg(feature = "random-canary")]
         self.canary.clear();
         if self.map_len != 0 {
+            crate::wipe_backend::erase(self.ptr.as_ptr(), self.map_len);
             if self.locked {
-                let _ = unlock_mapping(self.ptr, self.map_len);
+                let _ = backend_unlock_mapping(self.ptr, self.map_len);
             }
-            let _ = unmap_private(self.ptr, self.map_len);
+            let _ = backend_unmap_private(self.ptr, self.map_len);
         }
     }
 }
@@ -3446,10 +3448,11 @@ impl<const N: usize, const SLOTS: usize> Drop for SecretPool<N, SLOTS> {
         self.secure_clear();
 
         if self.map_len != 0 {
+            crate::wipe_backend::erase(self.base.as_ptr(), self.map_len);
             if self.locked {
-                let _ = unlock_mapping(self.base, self.map_len);
+                let _ = backend_unlock_mapping(self.base, self.map_len);
             }
-            let _ = unmap_private(self.base, self.map_len);
+            let _ = backend_unmap_private(self.base, self.map_len);
         }
     }
 }
@@ -3556,7 +3559,7 @@ fn empty_native_report(
     requested_bytes: usize,
     guard_pages: bool,
 ) -> Result<ProtectionReport, ProtectionError> {
-    let mut report = ProtectionReport::pending(request, requested_bytes, platform_page_granule());
+    let mut report = ProtectionReport::pending(request, requested_bytes, backend_page_granule());
     report.mapping = ProtectionState::NotApplicable;
     report.memory_lock = resolve_empty_control(request.memory_lock);
     report.dump_exclusion = resolve_empty_control(request.dump_exclusion);
@@ -3581,7 +3584,7 @@ fn setup_native_mapping(
     request: ProtectionRequest,
     guard_pages: bool,
 ) -> Result<NativeMappingSetup, ProtectionError> {
-    let mut report = ProtectionReport::pending(request, requested_bytes, platform_page_granule());
+    let mut report = ProtectionReport::pending(request, requested_bytes, backend_page_granule());
     report.guard_pages = if guard_pages {
         ProtectionState::Established
     } else {
@@ -3594,7 +3597,7 @@ fn setup_native_mapping(
         &report,
     )?;
 
-    let ptr = match map_private(map_len) {
+    let ptr = match backend_map_private(map_len) {
         Ok(ptr) => ptr,
         Err(error) => {
             report.mapping = ProtectionState::Failed { code: error.errno };
@@ -3618,7 +3621,7 @@ fn setup_native_mapping(
         &mut report,
         ptr,
         map_len,
-        mark_dontdump,
+        backend_mark_dontdump,
     )?;
     report.fork.state = apply_native_fork_policy(request.fork, &mut report, ptr, map_len)?;
     report.memory_lock = apply_native_control(
@@ -3628,7 +3631,7 @@ fn setup_native_mapping(
         &mut report,
         ptr,
         map_len,
-        lock_mapping,
+        backend_lock_mapping,
     )?;
     let locked = report.memory_lock == ProtectionState::Established;
     if locked {
@@ -3657,7 +3660,7 @@ fn apply_native_fork_policy(
             report,
             ptr,
             len,
-            mark_dontfork,
+            backend_mark_dontfork,
         ),
         ForkPolicy::WipeChild => apply_native_control(
             request.requirement,
@@ -3666,7 +3669,7 @@ fn apply_native_fork_policy(
             report,
             ptr,
             len,
-            mark_wipeonfork,
+            backend_mark_wipeonfork,
         ),
     }
 }
@@ -3770,7 +3773,7 @@ fn pre_mapping_error(
     code: i32,
     guard_pages: bool,
 ) -> ProtectionError {
-    let mut report = ProtectionReport::pending(request, requested_bytes, platform_page_granule());
+    let mut report = ProtectionReport::pending(request, requested_bytes, backend_page_granule());
     if guard_pages {
         report.guard_pages = ProtectionState::Failed { code };
     }
@@ -3797,7 +3800,7 @@ fn set_failed_state(report: &mut ProtectionReport, control: ProtectionControl, c
 
 fn rollback_native_mapping(ptr: NonNull<u8>, len: usize, locked: bool) -> RollbackReport {
     let unlock = if locked {
-        match unlock_mapping(ptr, len) {
+        match backend_unlock_mapping(ptr, len) {
             Ok(()) => RollbackState::Completed,
             Err(error) => RollbackState::Failed(ProtectionFailure {
                 control: ProtectionControl::MemoryLock,
@@ -3807,7 +3810,7 @@ fn rollback_native_mapping(ptr: NonNull<u8>, len: usize, locked: bool) -> Rollba
     } else {
         RollbackState::NotNeeded
     };
-    let unmap = match unmap_private(ptr, len) {
+    let unmap = match backend_unmap_private(ptr, len) {
         Ok(()) => RollbackState::Completed,
         Err(error) => RollbackState::Failed(ProtectionFailure {
             control: ProtectionControl::Mapping,
@@ -3878,13 +3881,143 @@ fn random_canary_value() -> Result<crate::canary::CanaryMaterial, MemoryLockErro
 }
 
 fn rounded_mapping_len(len: usize) -> Result<usize, MemoryLockError> {
-    let page_granule = platform_page_granule();
+    let page_granule = backend_page_granule();
     len.checked_add(page_granule - 1)
         .map(|value| value & !(page_granule - 1))
         .ok_or(MemoryLockError {
             operation: MemoryLockOperation::Length,
             errno: 0,
         })
+}
+
+#[cfg(not(miri))]
+#[inline]
+fn backend_page_granule() -> usize {
+    platform_page_granule()
+}
+
+#[cfg(miri)]
+#[inline]
+const fn backend_page_granule() -> usize {
+    // This is an allocator alignment for the Miri model, not an observed OS
+    // page size and not evidence that page-granule controls were established.
+    4096
+}
+
+#[cfg(not(miri))]
+#[inline]
+fn backend_map_private(len: usize) -> Result<NonNull<u8>, MemoryLockError> {
+    map_private(len)
+}
+
+#[cfg(miri)]
+fn backend_map_private(len: usize) -> Result<NonNull<u8>, MemoryLockError> {
+    use std::alloc::{alloc_zeroed, Layout};
+
+    let layout =
+        Layout::from_size_align(len, backend_page_granule()).map_err(|_| MemoryLockError {
+            operation: MemoryLockOperation::Length,
+            errno: 0,
+        })?;
+    // SAFETY: `layout` has non-zero size and valid power-of-two alignment.
+    // The returned allocation is owned by the mapped container until the
+    // matching Miri-only `backend_unmap_private` call.
+    let ptr = unsafe { alloc_zeroed(layout) };
+    NonNull::new(ptr).ok_or(MemoryLockError {
+        operation: MemoryLockOperation::Map,
+        errno: 0,
+    })
+}
+
+#[cfg(not(miri))]
+#[inline]
+fn backend_lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+    lock_mapping(ptr, len)
+}
+
+#[cfg(miri)]
+#[inline]
+fn backend_lock_mapping(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
+    // Modeled success permits state-transition testing. No OS memory lock is
+    // attempted or claimed under Miri.
+    Ok(())
+}
+
+#[cfg(not(miri))]
+#[inline]
+fn backend_mark_dontdump(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+    mark_dontdump(ptr, len)
+}
+
+#[cfg(miri)]
+#[inline]
+fn backend_mark_dontdump(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
+    Ok(())
+}
+
+#[cfg(not(miri))]
+#[inline]
+fn backend_mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+    mark_dontfork(ptr, len)
+}
+
+#[cfg(miri)]
+#[inline]
+fn backend_mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
+    Ok(())
+}
+
+#[cfg(not(miri))]
+#[inline]
+fn backend_mark_wipeonfork(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+    mark_wipeonfork(ptr, len)
+}
+
+#[cfg(miri)]
+#[inline]
+fn backend_mark_wipeonfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
+    Ok(())
+}
+
+#[cfg(not(miri))]
+#[inline]
+fn backend_unlock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+    unlock_mapping(ptr, len)
+}
+
+#[cfg(miri)]
+#[inline]
+fn backend_unlock_mapping(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
+    Ok(())
+}
+
+#[cfg(not(miri))]
+#[inline]
+fn backend_unmap_private(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+    unmap_private(ptr, len)
+}
+
+#[cfg(miri)]
+fn backend_unmap_private(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
+    use std::alloc::{dealloc, Layout};
+
+    // SAFETY: `ptr` and `len` identify the live allocation created by
+    // `backend_map_private`. Reading it before release is valid and turns
+    // clear-before-release into an executable Miri invariant.
+    let mapping = unsafe { core::slice::from_raw_parts(ptr.as_ptr(), len) };
+    assert!(
+        mapping.iter().all(|byte| *byte == 0),
+        "Miri mapping released before its complete byte range was cleared"
+    );
+    let layout =
+        Layout::from_size_align(len, backend_page_granule()).map_err(|_| MemoryLockError {
+            operation: MemoryLockOperation::Length,
+            errno: 0,
+        })?;
+    // SAFETY: the allocation was created with the same layout and has not
+    // previously been released.
+    unsafe { dealloc(ptr.as_ptr(), layout) };
+    Ok(())
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

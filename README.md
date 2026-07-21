@@ -83,21 +83,21 @@ Fixed-size `no_std` secrets need no feature flags:
 
 ```toml
 [dependencies]
-sanitization = "2.0.1"
+sanitization = "2.0.2"
 ```
 
 Heap-backed byte and text containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.0.1", features = ["alloc"] }
+sanitization = { version = "2.0.2", features = ["alloc"] }
 ```
 
 Recommended native hardening profile:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.0.1", features = ["profile-hardened-native"] }
+sanitization = { version = "2.0.2", features = ["profile-hardened-native"] }
 ```
 
 This profile includes OS-random canaries and `strict-canary-check`. Enabling
@@ -108,7 +108,7 @@ Optional derives:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.0.1", features = ["derive"] }
+sanitization = { version = "2.0.2", features = ["derive"] }
 ```
 
 See the complete [feature reference](https://github.com/valkyoth/sanitization/blob/main/docs/FEATURES.md) before combining
@@ -501,7 +501,7 @@ when installed. Native target evidence and timing runs are documented in
 Release publication is staged through:
 
 ```bash
-scripts/release_crates.py --version 2.0.1 --prepare-only
+scripts/release_crates.py --version 2.0.2 --prepare-only
 scripts/release_crates.py --require-tag
 ```
 
@@ -522,7 +522,8 @@ Important limits include:
 - data-oblivious source structure is not a universal hardware timing guarantee;
 - cache flush and register scrub helpers cover only their documented target
   subsets;
-- Miri and Kani provide targeted evidence, not native OS or concurrency proof.
+- Miri models locked-container lifecycle and verifies clear-before-release, but
+  does not prove native OS protection; Kani does not prove real concurrency.
 
 See [NON_GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/NON_GUARANTEES.md),
 [THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/docs/THREAT_MODEL.md), and [SECURITY.md](https://github.com/valkyoth/sanitization/blob/main/SECURITY.md) before

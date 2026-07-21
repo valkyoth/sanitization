@@ -163,7 +163,11 @@ does not exercise unsupported targets or prove syscall semantics.
 
 ## Formal And Concurrency Checks
 
-Miri additionally covers `sanitization-bytes` and the crypto companion paths.
+Miri additionally covers `sanitization-bytes`, the crypto companion paths, and
+the fixed, dynamic, and pooled native locked-container lifecycle through a
+`cfg(miri)` aligned-allocation model. The model verifies complete clearing
+before deallocation but does not execute or validate OS syscalls, page
+permissions, locking, dump/fork policy, or CSPRNG behavior.
 Kani includes complete fixed-secret replacement in addition to clearing,
 comparison, capacity, and protection-report properties.
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.2
+
+- Add a `cfg(miri)` aligned-allocation backend for native
+  `LockedSecretBytes`, `LockedSecretVec`, `LockedSecretString`, and
+  `SecretPool` lifecycle tests so downstream Miri runs do not execute
+  unsupported inline assembly.
+- Model random-canary generation under Miri without making a randomness claim,
+  and cover construction, replacement, dynamic growth, pool reuse, canary
+  quarantine, rollback, and drop paths.
+- Enforce complete mapping clearing immediately before native unlock and unmap;
+  the Miri backend asserts clear-before-release for every simulated mapping.
+- Clarify throughout the evidence, safety, and threat-model documentation that
+  Miri protection-report outcomes are simulated and do not prove `mlock`,
+  mapping, dump/fork policy, CSPRNG, page protection, or guard-page behavior.
+- Coordinate all five workspace crates and the exact runtime/derive dependency
+  at version `2.0.2`.
+
 ## 2.0.1
 
 - Fix every repository-document link in the core crate README to use an

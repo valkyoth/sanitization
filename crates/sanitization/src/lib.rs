@@ -32,7 +32,9 @@
 //!   and BSD targets. On WASM, `memory-lock` must be paired with `wasm-compat`
 //!   to expose volatile-only compatibility types without host memory locking.
 //!   The same feature also enables pooled slots with [`SecretPool`] on
-//!   supported targets.
+//!   supported targets. Under Miri, native locked containers use a test-only
+//!   aligned-allocation model for lifecycle and clear-before-release checks;
+//!   modeled report states do not prove that an OS protection was applied.
 //! - Locked, pooled, and guarded canary integrity checks are available only
 //!   through the explicit `canary-check` feature on supported targets.
 //! - OS-CSPRNG canary generation is available only through the explicit
@@ -160,7 +162,7 @@ compile_error!(
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[cfg(any(test, feature = "std"))]
+#[cfg(any(test, feature = "std", miri))]
 extern crate std;
 
 #[cfg(feature = "derive")]
@@ -170,6 +172,7 @@ pub use sanitization_derive::{
 
 #[cfg(feature = "random-canary")]
 #[allow(unsafe_code)]
+#[cfg_attr(miri, allow(dead_code))]
 mod canary;
 
 mod platform;

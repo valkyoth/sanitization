@@ -47,6 +47,7 @@ mod memory_lock;
     )
 ))]
 #[allow(unsafe_code)]
+#[cfg_attr(miri, allow(dead_code))]
 #[path = "mapped/memory_lock_native.rs"]
 mod memory_lock;
 
@@ -90,8 +91,7 @@ pub use memory_lock::{
         target_os = "openbsd",
         target_os = "netbsd",
         target_os = "dragonfly",
-    ),
-    not(miri)
+    )
 ))]
 pub use memory_lock::{LockedSecretVec, LockedSecretVecFillError, LockedSecretVecGenerateError};
 
@@ -213,8 +213,7 @@ impl std::error::Error for SecretTextIntegrityError {
         target_os = "openbsd",
         target_os = "netbsd",
         target_os = "dragonfly",
-    ),
-    not(miri)
+    )
 ))]
 pub struct LockedSecretString {
     pub(crate) inner: LockedSecretVec,
@@ -235,8 +234,7 @@ pub struct LockedSecretString {
         target_os = "openbsd",
         target_os = "netbsd",
         target_os = "dragonfly",
-    ),
-    not(miri)
+    )
 ))]
 impl LockedSecretString {
     /// Allocate empty locked text storage with at least `capacity` UTF-8 bytes.
@@ -471,8 +469,7 @@ impl LockedSecretString {
         target_os = "openbsd",
         target_os = "netbsd",
         target_os = "dragonfly",
-    ),
-    not(miri)
+    )
 ))]
 impl TryFrom<LockedSecretVec> for LockedSecretString {
     type Error = SecretTextIntegrityError;
@@ -498,8 +495,7 @@ impl TryFrom<LockedSecretVec> for LockedSecretString {
         target_os = "openbsd",
         target_os = "netbsd",
         target_os = "dragonfly",
-    ),
-    not(miri)
+    )
 ))]
 impl From<LockedSecretString> for LockedSecretVec {
     #[inline]
@@ -523,8 +519,7 @@ impl From<LockedSecretString> for LockedSecretVec {
         target_os = "openbsd",
         target_os = "netbsd",
         target_os = "dragonfly",
-    ),
-    not(miri)
+    )
 ))]
 impl SecureSanitize for LockedSecretString {
     #[inline]
@@ -548,8 +543,7 @@ impl SecureSanitize for LockedSecretString {
         target_os = "openbsd",
         target_os = "netbsd",
         target_os = "dragonfly",
-    ),
-    not(miri)
+    )
 ))]
 impl fmt::Debug for LockedSecretString {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -992,7 +986,7 @@ mod native_ct_memory_lock_impls {
         }
     }
 
-    #[cfg(all(not(target_arch = "wasm32"), not(miri)))]
+    #[cfg(not(target_arch = "wasm32"))]
     impl ct::ConstantTimeEq for LockedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
@@ -1002,7 +996,7 @@ mod native_ct_memory_lock_impls {
         }
     }
 
-    #[cfg(all(not(target_arch = "wasm32"), not(miri)))]
+    #[cfg(not(target_arch = "wasm32"))]
     impl ct::ConstantTimeEq<[u8]> for LockedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
@@ -1010,7 +1004,7 @@ mod native_ct_memory_lock_impls {
         }
     }
 
-    #[cfg(all(not(target_arch = "wasm32"), not(miri)))]
+    #[cfg(not(target_arch = "wasm32"))]
     impl ct::ConstantTimeEq for LockedSecretString {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
@@ -1018,7 +1012,7 @@ mod native_ct_memory_lock_impls {
         }
     }
 
-    #[cfg(all(not(target_arch = "wasm32"), not(miri)))]
+    #[cfg(not(target_arch = "wasm32"))]
     impl ct::ConstantTimeEq<str> for LockedSecretString {
         #[inline]
         fn ct_eq(&self, other: &str) -> ct::Choice {

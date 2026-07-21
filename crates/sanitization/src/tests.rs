@@ -89,6 +89,103 @@ fn memory_lock_errors_propagate_into_mapped_results() {
 }
 
 #[cfg(all(
+    miri,
+    feature = "memory-lock",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    )
+))]
+#[test]
+fn miri_models_locked_mapping_lifecycle_without_native_syscalls() {
+    let mut fixed = LockedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+    assert!(fixed.constant_time_eq_or_panic(&[1, 2, 3, 4]));
+    fixed
+        .try_replace_from_fallible_fill(|bytes| {
+            bytes.copy_from_slice(&[5, 6, 7, 8]);
+            Ok::<(), core::convert::Infallible>(())
+        })
+        .unwrap();
+    assert!(fixed.constant_time_eq_or_panic(&[5, 6, 7, 8]));
+    drop(fixed);
+
+    let mut dynamic = LockedSecretVec::from_slice(b"key").unwrap();
+    dynamic.try_extend_from_slice(b"-material").unwrap();
+    assert!(dynamic.constant_time_eq_or_panic(b"key-material"));
+    dynamic
+        .try_replace_from_exact_len(4, |bytes| bytes.copy_from_slice(b"next"))
+        .unwrap();
+    assert!(dynamic.constant_time_eq_or_panic(b"next"));
+    drop(dynamic);
+
+    let mut text = LockedSecretString::from_secret_str("secret").unwrap();
+    text.try_push_str("-text").unwrap();
+    assert!(text.constant_time_eq_or_panic("secret-text"));
+    text.try_replace_from_secret_str("next").unwrap();
+    assert!(text.constant_time_eq_or_panic("next"));
+    drop(text);
+
+    let pool = SecretPool::<4, 2>::new().unwrap();
+    let first = pool.try_allocate_from_array([9, 8, 7, 6]).unwrap().unwrap();
+    let first_id = first.slot_id();
+    let second = pool.try_allocate().unwrap().unwrap();
+    assert!(pool.try_allocate().unwrap().is_none());
+    drop(first);
+    let reused = pool.try_allocate().unwrap().unwrap();
+    assert_eq!(reused.slot_index(), first_id.index);
+    assert_ne!(reused.slot_id(), first_id);
+    drop(reused);
+    drop(second);
+    drop(pool);
+}
+
+#[cfg(all(
+    miri,
+    feature = "memory-lock",
+    feature = "canary-check",
+    any(
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+    )
+))]
+#[test]
+fn miri_models_canary_failure_clear_and_quarantine() {
+    let mut fixed = LockedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+    fixed.corrupt_prefix_canary_for_test();
+    assert_eq!(fixed.try_expose_secret(|_| ()), Err(CanaryCorruptedError));
+    drop(fixed);
+
+    let pool = SecretPool::<4, 1>::new().unwrap();
+    let mut slot = pool.try_allocate().unwrap().unwrap();
+    slot.try_copy_from_slice(&[5, 6, 7, 8]).unwrap();
+    slot.corrupt_prefix_canary_for_test();
+    assert_eq!(slot.try_expose_secret(|_| ()), Err(CanaryCorruptedError));
+    drop(slot);
+    assert_eq!(pool.quarantined_slots(), 1);
+    drop(pool);
+}
+
+#[cfg(all(
     feature = "guard-pages",
     any(
         all(
