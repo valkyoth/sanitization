@@ -14,6 +14,13 @@
 - Add bounded policy-aware constructors for locked and guarded byte and UTF-8
   storage. Oversized untrusted capacities are rejected before mapping or fill
   callback execution through a distinct `CapacityLimit` error.
+- Add `BoundedLockedSecretVec<MAX>`, `BoundedGuardedSecretVec<MAX>`,
+  `BoundedLockedSecretString<MAX>`, and `BoundedGuardedSecretString<MAX>` for a
+  permanent lifetime bound rather than constructor-only admission. Their inner
+  growable owners cannot be extracted, and every safe append or replacement is
+  checked before allocation or generator execution.
+- Add `BoundedMappedSecretError<E>` to distinguish permanent-limit rejection,
+  length overflow, canary corruption, and backend operation failure.
 - Restrict fill callbacks to the requested public capacity even when a guarded
   mapping has a larger page-rounded payload, and clear the complete unreported
   tail before returning success.

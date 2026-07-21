@@ -59,8 +59,10 @@ Choose the narrowest type that matches the storage requirement:
 | Closed production storage allow-list | `AllowlistedSecret<T, PrivatePolicy>` |
 | Fixed key that should avoid swap/pagefiles | `LockedSecretBytes<N>` with `memory-lock` |
 | Dynamic locked bytes or text | `LockedSecretVec` or `LockedSecretString` |
+| Permanently bounded locked bytes or text | `BoundedLockedSecretVec<MAX>` or `BoundedLockedSecretString<MAX>` |
 | Many same-size locked keys | `SecretPool<N, SLOTS>` |
 | Guarded dynamic mapping | `GuardedSecretVec` or `GuardedSecretString` |
+| Permanently bounded guarded bytes or text | `BoundedGuardedSecretVec<MAX>` or `BoundedGuardedSecretString<MAX>` |
 | Fixed mapping sealed between scoped accesses | `SealedSecretBytes<N>` with `page-seal` |
 | Secret-derived control flow | `ct::Choice`, fixed CT helpers, and explicit declassification |
 | One successful scoped access | `ConsumeOnceSecret<T>` |
@@ -341,7 +343,7 @@ unreported tail are cleared before an error or value is returned:
 # #[cfg(feature = "memory-lock")]
 # {
 use sanitization::{
-    ForkProtectionRequest, LockedSecretVec, ProtectionRequest, Requirement,
+    BoundedLockedSecretVec, ForkProtectionRequest, ProtectionRequest, Requirement,
 };
 
 const MAX_DECODED_SECRET_BYTES: usize = 4096;
@@ -354,9 +356,8 @@ let request = ProtectionRequest {
     canary: Requirement::Required,
     cache_policy: Requirement::NotRequested,
 };
-let decoded = LockedSecretVec::try_from_capacity_bounded_with_protection(
+let decoded = BoundedLockedSecretVec::<MAX_DECODED_SECRET_BYTES>::try_from_capacity_with_protection(
     decoder_capacity,
-    MAX_DECODED_SECRET_BYTES,
     request,
     |output| {
         output[..5].copy_from_slice(b"token");
@@ -369,16 +370,22 @@ assert_eq!(decoded.try_constant_time_eq(b"token"), Ok(true));
 # }
 ```
 
-`GuardedSecretVec` provides the same constructor. `LockedSecretString` and
-`GuardedSecretString` provide matching policy-aware fill constructors and
-clear the mapping when the initialized prefix is not valid UTF-8.
+`BoundedGuardedSecretVec<MAX>` provides the same lifetime invariant with guard
+pages. `BoundedLockedSecretString<MAX>` and
+`BoundedGuardedSecretString<MAX>` enforce the same permanent maximum in UTF-8
+bytes and clear the mapping when the initialized prefix is not valid UTF-8.
 
-The unbounded `try_from_capacity_with_protection` variants accept only trusted,
-already-limited capacities. At message, file, or decoder boundaries, use the
-`*_bounded_with_protection` variants so an attacker-controlled size is rejected
-before mapping or page-touching cleanup. `profile_hardened_native()` permits
-explicit degraded success for dump and fork exclusion; use a custom request
-like the one above when plaintext must not be materialized without them.
+The one-shot `*_bounded_with_protection` constructors on the growable mapped
+types enforce admission only; the returned `LockedSecretVec`,
+`GuardedSecretVec`, or string wrapper can still grow later. Use the const-generic
+bounded mapped types when the maximum must remain enforced for the value's
+entire lifetime. They keep the growable owner private and check construction,
+append, and replacement before allocation or generator execution. Unbounded
+constructors accept only trusted, already-limited capacities.
+
+`profile_hardened_native()` permits explicit degraded success for dump and
+fork exclusion; use a custom request like the one above when plaintext must not
+be materialized without them.
 
 Prefer direct final-storage generation through `try_from_fn`, `try_from_fill`,
 or `try_init_with`. Avoid `Clone`, `to_vec`, formatting, and temporary arrays

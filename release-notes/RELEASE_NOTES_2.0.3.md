@@ -16,6 +16,19 @@ untrusted decoder capacities above an application maximum before mapping or
 callback execution. The unbounded variants are documented for trusted,
 already-limited capacities only.
 
+For applications that need the maximum to remain enforced after construction,
+this release also adds const-generic bounded mapped owners:
+
+- `BoundedLockedSecretVec<MAX>` and `BoundedLockedSecretString<MAX>`;
+- `BoundedGuardedSecretVec<MAX>` and `BoundedGuardedSecretString<MAX>`.
+
+These wrappers keep the underlying growable owner private and reject every
+oversized construction, append, or replacement before allocation or generator
+execution. `BoundedMappedSecretError<E>` keeps limit, arithmetic-overflow,
+integrity, and platform-operation failures distinct. The existing bounded
+constructors remain useful as one-shot admission controls when later growth is
+intentionally permitted.
+
 The callback receives exactly the requested public capacity. This remains true
 when guard-page allocation rounds its internal writable payload to a larger
 page boundary. Success clears the entire unreported tail; callback failure and

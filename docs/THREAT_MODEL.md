@@ -181,6 +181,15 @@ The unbounded variants require a trusted, already-limited capacity. Anonymous
 mapping overcommit and later page-touching cleanup make successful allocation
 an insufficient resource-admission policy by itself.
 
+The `maximum` argument accepted by one-shot bounded constructors governs only
+initial admission; their ordinary mapped return types remain growable. When a
+maximum must remain invariant, use `BoundedLockedSecretVec<MAX>`,
+`BoundedGuardedSecretVec<MAX>`, or the corresponding bounded mapped UTF-8
+wrapper. These types retain the policy as a const generic, keep the growable
+owner private, and reject oversized safe mutations before allocation or caller
+code runs. The application remains responsible for selecting an appropriate
+public `MAX` and rate-limiting repeated accepted allocations.
+
 The named native profiles preserve this separation. They bundle reviewed
 features and expose matching `ProtectionRequest` constructors; they do not turn
 Cargo feature resolution into proof of runtime protection.

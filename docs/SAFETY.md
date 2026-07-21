@@ -402,6 +402,12 @@ Invariant:
   unreported tail before moving the suffix canary to the initialized length.
   Protected text wrappers then validate UTF-8 without reallocating and clear
   invalid input.
+- Const-generic bounded mapped wrappers retain `MAX` for their entire lifetime,
+  keep the underlying growable owner private, and expose no conversion that
+  removes the bound. Construction, append, and replacement verify existing
+  integrity first, then use checked length arithmetic and reject an excessive
+  result before allocation or caller-provided generation. Mutable exposure can
+  change initialized bytes but cannot change the initialized length.
 - Replacement helpers stage the new value in a fresh locked mapping before
   clearing and swapping out the old mapping. Filled replacement mappings are
   integrity-checked after the callback and before the swap. If mapping setup,

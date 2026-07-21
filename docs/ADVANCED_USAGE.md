@@ -71,7 +71,7 @@ the policy before decoding and return the initialized prefix length:
 # #[cfg(feature = "memory-lock")]
 # {
 use sanitization::{
-    ForkProtectionRequest, LockedSecretVec, ProtectionRequest, Requirement,
+    BoundedLockedSecretVec, ForkProtectionRequest, ProtectionRequest, Requirement,
 };
 
 const MAX_DECODED_SECRET_BYTES: usize = 4096;
@@ -84,9 +84,8 @@ let request = ProtectionRequest {
     canary: Requirement::Required,
     cache_policy: Requirement::NotRequested,
 };
-let decoded = LockedSecretVec::try_from_capacity_bounded_with_protection(
+let decoded = BoundedLockedSecretVec::<MAX_DECODED_SECRET_BYTES>::try_from_capacity_with_protection(
     decoder_capacity,
-    MAX_DECODED_SECRET_BYTES,
     request,
     |output| {
         output[..5].copy_from_slice(b"token");
@@ -106,11 +105,13 @@ tail byte. `GuardedSecretVec` exposes the same API. The locked and guarded
 string wrappers additionally validate UTF-8 and clear invalid payloads.
 
 Use unbounded policy-aware constructors only when the capacity has already been
-limited by trusted application logic. The bounded variants reject oversized
-public input before allocating a mapping or invoking the fill callback. The
-request above is deliberately stricter than `profile_hardened_native()`: that
-portable profile treats dump and fork exclusion as preferred and can therefore
-return a degraded mapping.
+limited by trusted application logic. A `*_bounded_with_protection` constructor
+rejects oversized initial input but returns an ordinary growable mapped owner.
+The const-generic bounded mapped types shown above also enforce `MAX` on every
+safe append and replacement for their full lifetime. Their underlying growable
+owner is private and cannot be extracted. The request above is deliberately
+stricter than `profile_hardened_native()`: that portable profile treats dump
+and fork exclusion as preferred and can therefore return a degraded mapping.
 
 Use named profile constructors when their policy matches the deployment. Use a
 custom request only when required/preferred controls genuinely differ. See

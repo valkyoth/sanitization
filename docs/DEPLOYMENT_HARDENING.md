@@ -118,6 +118,14 @@ anonymous mapping may succeed under virtual-memory overcommit and become
 expensive only when tail clearing or `Drop` touches its pages; fallible mapping
 alone is therefore not an application-level resource bound.
 
+Those methods bound construction, not the lifetime of the returned growable
+container. Use `BoundedLockedSecretVec<MAX>`,
+`BoundedGuardedSecretVec<MAX>`, or their `String` counterparts when production
+policy requires a permanent maximum. The wrappers do not expose the underlying
+growable owner and preflight all safe append and replacement paths before
+allocation or generator invocation. `MAX` is a reviewed application policy;
+choosing an excessive constant still permits excessive resource consumption.
+
 The repository's `lint-fail-closed-initialization.py` gate rejects `try_*`
 results discarded through `drop(...)`, `.ok()`, or unhandled underscore
 bindings, plus lossy pool `allocate()` calls in production source. Run it over

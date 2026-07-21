@@ -33,6 +33,72 @@ pub type MappedResult<T, E> = Result<T, SecretIntegrityError<E>>;
 /// Descriptive compatibility alias for [`MappedResult`].
 pub type SecretIntegrityResult<T, E> = MappedResult<T, E>;
 
+/// Error returned by a permanently bounded mapped-secret mutation.
+///
+/// Unlike the one-shot bounded constructors, containers using this error
+/// preserve their const-generic maximum across every safe growth and
+/// replacement operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BoundedMappedSecretError<E> {
+    /// The resulting initialized length would exceed the type-level maximum.
+    CapacityLimit {
+        /// Largest permitted initialized length.
+        maximum: usize,
+        /// Length requested by the operation.
+        actual: usize,
+    },
+    /// Computing the resulting initialized length overflowed `usize`.
+    CapacityOverflow {
+        /// Largest permitted initialized length.
+        maximum: usize,
+    },
+    /// Prefix or suffix canary verification failed.
+    Integrity(CanaryCorruptedError),
+    /// The underlying mapped operation failed.
+    Operation(E),
+}
+
+impl<E> From<SecretIntegrityError<E>> for BoundedMappedSecretError<E> {
+    #[inline]
+    fn from(error: SecretIntegrityError<E>) -> Self {
+        match error {
+            SecretIntegrityError::Canary(error) => Self::Integrity(error),
+            SecretIntegrityError::Operation(error) => Self::Operation(error),
+        }
+    }
+}
+
+impl<E: fmt::Display> fmt::Display for BoundedMappedSecretError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CapacityLimit { maximum, actual } => write!(
+                formatter,
+                "mapped secret length {actual} exceeds permanent maximum {maximum}"
+            ),
+            Self::CapacityOverflow { maximum } => write!(
+                formatter,
+                "mapped secret length overflowed its permanent maximum {maximum}"
+            ),
+            Self::Integrity(error) => error.fmt(formatter),
+            Self::Operation(error) => error.fmt(formatter),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<E> std::error::Error for BoundedMappedSecretError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::CapacityLimit { .. } | Self::CapacityOverflow { .. } => None,
+            Self::Integrity(error) => Some(error),
+            Self::Operation(error) => Some(error),
+        }
+    }
+}
+
 impl<E> SecretIntegrityError<E> {
     /// Returns `true` when integrity-canary verification failed.
     #[must_use]

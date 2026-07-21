@@ -51,6 +51,7 @@ Prefer purpose-built containers:
 | Dynamic UTF-8 | `SecretString` |
 | Bounded bytes or text | `BoundedSecretVec<MAX>`, `BoundedSecretString<MAX>` |
 | Locked or guarded storage | mapped containers under the native features |
+| Permanently bounded mapped storage | `BoundedLockedSecret*<MAX>`, `BoundedGuardedSecret*<MAX>` |
 
 ## Manual Implementation
 

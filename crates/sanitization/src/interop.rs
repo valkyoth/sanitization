@@ -126,6 +126,17 @@ mod zeroize_interop {
     impl zeroize::ZeroizeOnDrop for LockedSecretVec {}
 
     #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
+    impl<const MAX: usize> zeroize::Zeroize for BoundedLockedSecretVec<MAX> {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
+    impl<const MAX: usize> zeroize::ZeroizeOnDrop for BoundedLockedSecretVec<MAX> {}
+
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
     impl zeroize::Zeroize for LockedSecretString {
         #[inline]
         fn zeroize(&mut self) {
@@ -135,6 +146,17 @@ mod zeroize_interop {
 
     #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
     impl zeroize::ZeroizeOnDrop for LockedSecretString {}
+
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
+    impl<const MAX: usize> zeroize::Zeroize for BoundedLockedSecretString<MAX> {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
+    impl<const MAX: usize> zeroize::ZeroizeOnDrop for BoundedLockedSecretString<MAX> {}
 
     #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
     impl zeroize::Zeroize for GuardedSecretVec {
@@ -148,6 +170,17 @@ mod zeroize_interop {
     impl zeroize::ZeroizeOnDrop for GuardedSecretVec {}
 
     #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
+    impl<const MAX: usize> zeroize::Zeroize for BoundedGuardedSecretVec<MAX> {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
+    impl<const MAX: usize> zeroize::ZeroizeOnDrop for BoundedGuardedSecretVec<MAX> {}
+
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
     impl zeroize::Zeroize for GuardedSecretString {
         #[inline]
         fn zeroize(&mut self) {
@@ -157,6 +190,17 @@ mod zeroize_interop {
 
     #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
     impl zeroize::ZeroizeOnDrop for GuardedSecretString {}
+
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
+    impl<const MAX: usize> zeroize::Zeroize for BoundedGuardedSecretString<MAX> {
+        #[inline]
+        fn zeroize(&mut self) {
+            self.clear_secret();
+        }
+    }
+
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
+    impl<const MAX: usize> zeroize::ZeroizeOnDrop for BoundedGuardedSecretString<MAX> {}
 }
 
 #[cfg(feature = "subtle-interop")]
@@ -254,10 +298,40 @@ mod subtle_interop {
     }
 
     #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
+    impl<const MAX: usize> ConstantTimeEq for BoundedLockedSecretVec<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| {
+                    Choice::from(constant_time_eq_slices(left, right) as u8)
+                })
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => Choice::from(0),
+            }
+        }
+    }
+
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
     impl ConstantTimeEq for LockedSecretString {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
             self.inner.ct_eq(&other.inner)
+        }
+    }
+
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
+    impl<const MAX: usize> ConstantTimeEq for BoundedLockedSecretString<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| {
+                    Choice::from(constant_time_eq_slices(left.as_bytes(), right.as_bytes()) as u8)
+                })
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => Choice::from(0),
+            }
         }
     }
 
@@ -277,10 +351,40 @@ mod subtle_interop {
     }
 
     #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
+    impl<const MAX: usize> ConstantTimeEq for BoundedGuardedSecretVec<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| {
+                    Choice::from(constant_time_eq_slices(left, right) as u8)
+                })
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => Choice::from(0),
+            }
+        }
+    }
+
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
     impl ConstantTimeEq for GuardedSecretString {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
             self.inner.ct_eq(&other.inner)
+        }
+    }
+
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
+    impl<const MAX: usize> ConstantTimeEq for BoundedGuardedSecretString<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> Choice {
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| {
+                    Choice::from(constant_time_eq_slices(left.as_bytes(), right.as_bytes()) as u8)
+                })
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => Choice::from(0),
+            }
         }
     }
 }

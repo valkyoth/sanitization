@@ -13,11 +13,11 @@ use crate::{ct, SecureSanitize};
 #[path = "mapped/protection.rs"]
 mod protection;
 pub use protection::{
-    CanaryCorruptedError, ForkPolicy, ForkProtectionReport, ForkProtectionRequest, IntegrityResult,
-    MappedResult, ProtectedSecretFillError, ProtectionControl, ProtectionError, ProtectionFailure,
-    ProtectionReport, ProtectionRequest, ProtectionState, Requirement, RollbackReport,
-    RollbackState, SecretIntegrityError, SecretIntegrityResult, SecretIntegrityResultExt,
-    SecretPoolReport, SecretPoolSlotId,
+    BoundedMappedSecretError, CanaryCorruptedError, ForkPolicy, ForkProtectionReport,
+    ForkProtectionRequest, IntegrityResult, MappedResult, ProtectedSecretFillError,
+    ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport, ProtectionRequest,
+    ProtectionState, Requirement, RollbackReport, RollbackState, SecretIntegrityError,
+    SecretIntegrityResult, SecretIntegrityResultExt, SecretPoolReport, SecretPoolSlotId,
 };
 
 #[cfg(all(
@@ -141,6 +141,84 @@ mod guard_pages;
 pub use guard_pages::{
     GuardPageError, GuardPageOperation, GuardedSecretVec, GuardedSecretVecGenerateError,
 };
+
+#[cfg(any(
+    all(
+        feature = "memory-lock",
+        any(
+            all(
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ),
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+        )
+    ),
+    all(
+        feature = "guard-pages",
+        any(
+            all(
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ),
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+        ),
+        not(all(miri, test))
+    )
+))]
+#[path = "mapped/bounded.rs"]
+mod bounded;
+#[cfg(any(
+    all(
+        feature = "memory-lock",
+        any(
+            all(
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ),
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+        )
+    ),
+    all(
+        feature = "guard-pages",
+        any(
+            all(
+                target_os = "linux",
+                any(target_arch = "x86_64", target_arch = "aarch64")
+            ),
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "android",
+            target_os = "windows",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+            target_os = "dragonfly",
+        ),
+        not(all(miri, test))
+    )
+))]
+pub use bounded::*;
 
 #[cfg(all(
     feature = "page-seal",
@@ -458,6 +536,13 @@ impl LockedSecretString {
     #[inline]
     pub const fn locked_len(&self) -> usize {
         self.inner.locked_len()
+    }
+
+    /// Returns true when the underlying mapping is locked against ordinary paging.
+    #[must_use]
+    #[inline]
+    pub const fn is_memory_locked(&self) -> bool {
+        self.inner.is_memory_locked()
     }
 
     /// Actual runtime protections established for the underlying mapping.
@@ -1195,6 +1280,28 @@ mod native_ct_memory_lock_impls {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    impl<const MAX: usize> ct::ConstantTimeEq for BoundedLockedSecretVec<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> ct::Choice {
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| ct::eq_public_len(left, right))
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => ct::Choice::FALSE,
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl<const MAX: usize> ct::ConstantTimeEq<[u8]> for BoundedLockedSecretVec<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &[u8]) -> ct::Choice {
+            self.try_with_secret(|left| ct::eq_public_len(left, other))
+                .unwrap_or(ct::Choice::FALSE)
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     impl ct::ConstantTimeEq for LockedSecretString {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
@@ -1207,6 +1314,28 @@ mod native_ct_memory_lock_impls {
         #[inline]
         fn ct_eq(&self, other: &str) -> ct::Choice {
             self.inner.ct_eq(other.as_bytes())
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl<const MAX: usize> ct::ConstantTimeEq for BoundedLockedSecretString<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> ct::Choice {
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| ct::eq_public_len(left.as_bytes(), right.as_bytes()))
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => ct::Choice::FALSE,
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl<const MAX: usize> ct::ConstantTimeEq<str> for BoundedLockedSecretString<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &str) -> ct::Choice {
+            self.try_with_secret(|left| ct::eq_public_len(left.as_bytes(), other.as_bytes()))
+                .unwrap_or(ct::Choice::FALSE)
         }
     }
 }
@@ -1252,6 +1381,26 @@ mod native_ct_guard_page_impls {
         }
     }
 
+    impl<const MAX: usize> ct::ConstantTimeEq for BoundedGuardedSecretVec<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> ct::Choice {
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| ct::eq_public_len(left, right))
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => ct::Choice::FALSE,
+            }
+        }
+    }
+
+    impl<const MAX: usize> ct::ConstantTimeEq<[u8]> for BoundedGuardedSecretVec<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &[u8]) -> ct::Choice {
+            self.try_with_secret(|left| ct::eq_public_len(left, other))
+                .unwrap_or(ct::Choice::FALSE)
+        }
+    }
+
     impl ct::ConstantTimeEq for GuardedSecretString {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
@@ -1263,6 +1412,26 @@ mod native_ct_guard_page_impls {
         #[inline]
         fn ct_eq(&self, other: &str) -> ct::Choice {
             self.inner.ct_eq(other.as_bytes())
+        }
+    }
+
+    impl<const MAX: usize> ct::ConstantTimeEq for BoundedGuardedSecretString<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &Self) -> ct::Choice {
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| ct::eq_public_len(left.as_bytes(), right.as_bytes()))
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => ct::Choice::FALSE,
+            }
+        }
+    }
+
+    impl<const MAX: usize> ct::ConstantTimeEq<str> for BoundedGuardedSecretString<MAX> {
+        #[inline]
+        fn ct_eq(&self, other: &str) -> ct::Choice {
+            self.try_with_secret(|left| ct::eq_public_len(left.as_bytes(), other.as_bytes()))
+                .unwrap_or(ct::Choice::FALSE)
         }
     }
 }

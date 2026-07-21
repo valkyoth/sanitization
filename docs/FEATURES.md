@@ -22,9 +22,9 @@ prove that the operating system established a requested protection. For that dis
 
 | Feature | Purpose |
 | --- | --- |
-| `memory-lock` | Enables native locked fixed, dynamic, text, and pooled storage on supported targets. |
+| `memory-lock` | Enables native locked fixed, dynamic, permanently bounded dynamic/text, and pooled storage on supported targets. |
 | `wasm-compat` | Enables explicit reduced-guarantee WASM compatibility for memory-lock APIs. It does not provide host memory locking. |
-| `guard-pages` | Enables guarded byte and text mappings on supported native targets. Rejected on WASM. |
+| `guard-pages` | Enables guarded byte/text mappings and permanently bounded wrappers on supported native targets. Rejected on WASM. |
 | `page-seal` | Enables review-candidate fixed mappings that are inaccessible between scoped accesses. Implies `guard-pages`. |
 | `canary-check` | Adds prefix/suffix integrity canaries to supported mapped storage. Implies `memory-lock`. |
 | `random-canary` | Uses the OS CSPRNG for canary values. Implies `canary-check`. |

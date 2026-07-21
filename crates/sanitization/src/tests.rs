@@ -68,6 +68,18 @@ fn secret_integrity_error_adapters_preserve_error_classification() {
     );
 }
 
+#[test]
+fn bounded_mapped_error_preserves_integrity_and_operation_classes() {
+    assert_eq!(
+        BoundedMappedSecretError::from(SecretIntegrityError::<u8>::Canary(CanaryCorruptedError)),
+        BoundedMappedSecretError::Integrity(CanaryCorruptedError)
+    );
+    assert_eq!(
+        BoundedMappedSecretError::from(SecretIntegrityError::Operation(7_u8)),
+        BoundedMappedSecretError::Operation(7_u8)
+    );
+}
+
 #[cfg(feature = "memory-lock")]
 #[test]
 fn memory_lock_errors_propagate_into_mapped_results() {
@@ -127,6 +139,22 @@ fn miri_models_locked_mapping_lifecycle_without_native_syscalls() {
         .unwrap();
     assert!(dynamic.constant_time_eq_or_panic(b"next"));
     drop(dynamic);
+
+    let mut bounded = BoundedLockedSecretVec::<8>::from_slice_with_protection(
+        b"key!",
+        ProtectionRequest::locked(),
+    )
+    .unwrap();
+    bounded.try_extend_from_slice(b"1234").unwrap();
+    assert_eq!(
+        bounded.try_extend_from_slice(b"x"),
+        Err(BoundedMappedSecretError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert!(bounded.try_constant_time_eq(b"key!1234").unwrap());
+    drop(bounded);
 
     let policy_dynamic = LockedSecretVec::try_from_capacity_with_protection(
         8,
@@ -5050,6 +5078,81 @@ fn locked_secret_vec_policy_aware_fill_establishes_protection_first() {
     not(miri)
 ))]
 #[test]
+fn bounded_locked_secret_vec_enforces_lifetime_maximum() {
+    let request = ProtectionRequest {
+        memory_lock: Requirement::NotRequested,
+        dump_exclusion: Requirement::NotRequested,
+        fork: ForkProtectionRequest::inherit(),
+        guard_pages: Requirement::NotRequested,
+        canary: Requirement::NotRequested,
+        cache_policy: Requirement::NotRequested,
+    };
+    let mut secret =
+        BoundedLockedSecretVec::<8>::try_from_capacity_with_protection(4, request, |output| {
+            output.copy_from_slice(b"key!");
+            Ok::<usize, core::convert::Infallible>(4)
+        })
+        .unwrap();
+
+    secret.try_extend_from_slice(b"1234").unwrap();
+    assert!(secret.try_constant_time_eq(b"key!1234").unwrap());
+    assert_eq!(
+        secret.try_extend_from_slice(b"x"),
+        Err(BoundedMappedSecretError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert!(secret.try_constant_time_eq(b"key!1234").unwrap());
+
+    let generator_ran = core::cell::Cell::new(false);
+    assert!(matches!(
+        secret.try_replace_from_fn(9, |_| {
+            generator_ran.set(true);
+            0
+        }),
+        Err(BoundedMappedSecretError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    ));
+    assert!(!generator_ran.get());
+    assert!(secret.try_constant_time_eq(b"key!1234").unwrap());
+
+    let mut text =
+        BoundedLockedSecretString::<8>::from_secret_str_with_protection("key", request).unwrap();
+    text.try_push_str("-1234").unwrap();
+    assert_eq!(
+        text.try_push_str("x"),
+        Err(BoundedMappedSecretError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert!(text.try_constant_time_eq("key-1234").unwrap());
+
+    let callback_ran = core::cell::Cell::new(false);
+    assert_eq!(
+        BoundedLockedSecretVec::<8>::try_from_capacity_with_protection(9, request, |_| {
+            callback_ran.set(true);
+            Ok::<usize, core::convert::Infallible>(0)
+        },)
+        .err(),
+        Some(ProtectedSecretFillError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert!(!callback_ran.get());
+}
+
+#[cfg(all(
+    feature = "memory-lock",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
 fn locked_secret_vec_required_policy_failure_prevents_fill() {
     let request = ProtectionRequest {
         guard_pages: Requirement::Required,
@@ -6094,6 +6197,46 @@ fn guarded_secret_vec_policy_aware_fill_establishes_protection_first() {
         })
     );
     assert!(!callback_ran.get());
+}
+
+#[cfg(all(
+    feature = "guard-pages",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn bounded_guarded_secret_vec_enforces_logical_maximum_over_page_capacity() {
+    let request = ProtectionRequest::guarded();
+    let mut secret =
+        BoundedGuardedSecretVec::<8>::try_from_capacity_with_protection(4, request, |output| {
+            output.copy_from_slice(b"key!");
+            Ok::<usize, core::convert::Infallible>(4)
+        })
+        .unwrap();
+
+    assert!(secret.backing_capacity() > BoundedGuardedSecretVec::<8>::max_len());
+    secret.try_extend_from_slice(b"1234").unwrap();
+    assert_eq!(
+        secret.try_extend_from_slice(b"x"),
+        Err(BoundedMappedSecretError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert!(secret.try_constant_time_eq(b"key!1234").unwrap());
+
+    let mut text =
+        BoundedGuardedSecretString::<8>::from_secret_str_with_protection("key", request).unwrap();
+    text.try_push_str("-1234").unwrap();
+    assert_eq!(
+        text.try_replace_from_secret_str("too-long!"),
+        Err(BoundedMappedSecretError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert!(text.try_constant_time_eq("key-1234").unwrap());
 }
 
 #[cfg(all(

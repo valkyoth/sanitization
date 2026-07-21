@@ -198,6 +198,14 @@ estimate, file, or other untrusted source. The unbounded variants accept only
 trusted, already-limited capacities; fallible mapping is not itself a resource
 limit on overcommitting operating systems.
 
+`BoundedMappedSecretError<E>` is used by permanently bounded mapped owners. It
+distinguishes an ordinary `CapacityLimit`, `CapacityOverflow`, integrity-canary
+failure, and the underlying platform operation. Limit and overflow failures
+occur before allocation, mutation, or a caller-provided generator runs. The
+existing `try_from_capacity_bounded_with_protection` methods enforce only the
+initial admission decision; use a `Bounded*SecretVec<MAX>` or
+`Bounded*SecretString<MAX>` when later growth must obey the same policy.
+
 `ProtectedSecretTextFillError<E>` adds `Utf8`; invalid initialized bytes are
 cleared before that error is returned. These types intentionally do not collapse
 corruption into an ordinary decoder failure. An application can treat

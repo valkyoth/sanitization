@@ -48,6 +48,9 @@ audited wipe boundary. This is the crate's primary clearing guarantee:
   default ceiling rather than allocating without a crate-level bound.
 - `BoundedSecretString<MAX>` checks its public UTF-8 byte maximum before
   construction, append, replacement, and supported serde string inputs.
+- Const-generic bounded locked and guarded byte/text wrappers enforce their
+  public maximum before initial mapping, append, and replacement. They do not
+  expose the underlying growable mapped owner.
 - Ordinary `SecretString` serde rejects inputs larger than the documented
   1 MiB byte ceiling.
 - Consuming `SecretVec`/`SecretString` conversions transfer the existing heap

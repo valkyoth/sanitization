@@ -373,12 +373,36 @@ pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::ct_ne(&self, &Rhs) -> sani
 impl<'pool, const N: usize, const SLOTS: usize> sanitization::ct::ConstantTimeEq<[u8]> for sanitization::SecretPoolSlot<'pool, N, SLOTS>
 pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::ct_eq(&self, &[u8]) -> sanitization::ct::Choice
 pub fn sanitization::SecretPoolSlot<'pool, N, SLOTS>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq for sanitization::BoundedGuardedSecretString<MAX>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::ct_eq(&self, &Self) -> sanitization::ct::Choice
+pub fn sanitization::BoundedGuardedSecretString<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq for sanitization::BoundedGuardedSecretVec<MAX>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::ct_eq(&self, &Self) -> sanitization::ct::Choice
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq for sanitization::BoundedLockedSecretString<MAX>
+pub fn sanitization::BoundedLockedSecretString<MAX>::ct_eq(&self, &Self) -> sanitization::ct::Choice
+pub fn sanitization::BoundedLockedSecretString<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq for sanitization::BoundedLockedSecretVec<MAX>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::ct_eq(&self, &Self) -> sanitization::ct::Choice
+pub fn sanitization::BoundedLockedSecretVec<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
 impl<const MAX: usize> sanitization::ct::ConstantTimeEq for sanitization::BoundedSecretString<MAX>
 pub fn sanitization::BoundedSecretString<MAX>::ct_eq(&self, &Self) -> sanitization::ct::Choice
 pub fn sanitization::BoundedSecretString<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
 impl<const MAX: usize> sanitization::ct::ConstantTimeEq for sanitization::BoundedSecretVec<MAX>
 pub fn sanitization::BoundedSecretVec<MAX>::ct_eq(&self, &Self) -> sanitization::ct::Choice
 pub fn sanitization::BoundedSecretVec<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq<[u8]> for sanitization::BoundedGuardedSecretVec<MAX>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::ct_eq(&self, &[u8]) -> sanitization::ct::Choice
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq<[u8]> for sanitization::BoundedLockedSecretVec<MAX>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::ct_eq(&self, &[u8]) -> sanitization::ct::Choice
+pub fn sanitization::BoundedLockedSecretVec<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq<str> for sanitization::BoundedGuardedSecretString<MAX>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::ct_eq(&self, &str) -> sanitization::ct::Choice
+pub fn sanitization::BoundedGuardedSecretString<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq<str> for sanitization::BoundedLockedSecretString<MAX>
+pub fn sanitization::BoundedLockedSecretString<MAX>::ct_eq(&self, &str) -> sanitization::ct::Choice
+pub fn sanitization::BoundedLockedSecretString<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
 impl<const MAX: usize> sanitization::ct::ConstantTimeEq<str> for sanitization::BoundedSecretString<MAX>
 pub fn sanitization::BoundedSecretString<MAX>::ct_eq(&self, &str) -> sanitization::ct::Choice
 pub fn sanitization::BoundedSecretString<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
@@ -558,6 +582,20 @@ pub fn sanitization::wipe::vec_multi_pass(&mut alloc::vec::Vec<u8>)
 pub macro sanitization::define_secret_storage_policy!
 pub macro sanitization::secure_drop_struct!
 pub macro sanitization::secure_sanitize_struct!
+pub enum sanitization::BoundedMappedSecretError<E>
+pub sanitization::BoundedMappedSecretError::CapacityLimit
+pub sanitization::BoundedMappedSecretError::CapacityLimit::actual: usize
+pub sanitization::BoundedMappedSecretError::CapacityLimit::maximum: usize
+pub sanitization::BoundedMappedSecretError::CapacityOverflow
+pub sanitization::BoundedMappedSecretError::CapacityOverflow::maximum: usize
+pub sanitization::BoundedMappedSecretError::Integrity(sanitization::CanaryCorruptedError)
+pub sanitization::BoundedMappedSecretError::Operation(E)
+impl<E: core::fmt::Display> core::fmt::Display for sanitization::BoundedMappedSecretError<E>
+pub fn sanitization::BoundedMappedSecretError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<sanitization::SecretIntegrityError<E>> for sanitization::BoundedMappedSecretError<E>
+pub fn sanitization::BoundedMappedSecretError<E>::from(sanitization::SecretIntegrityError<E>) -> Self
+impl<E> core::error::Error for sanitization::BoundedMappedSecretError<E> where E: core::error::Error + 'static
+pub fn sanitization::BoundedMappedSecretError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 pub enum sanitization::BoundedSecretStringError
 pub sanitization::BoundedSecretStringError::Limit(sanitization::SecretStringLimitError)
 pub sanitization::BoundedSecretStringError::Utf8(core::str::error::Utf8Error)
@@ -803,6 +841,8 @@ impl<E: core::fmt::Display> core::fmt::Display for sanitization::SecretIntegrity
 pub fn sanitization::SecretIntegrityError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::convert::From<sanitization::CanaryCorruptedError> for sanitization::SecretIntegrityError<E>
 pub fn sanitization::SecretIntegrityError<E>::from(sanitization::CanaryCorruptedError) -> Self
+impl<E> core::convert::From<sanitization::SecretIntegrityError<E>> for sanitization::BoundedMappedSecretError<E>
+pub fn sanitization::BoundedMappedSecretError<E>::from(sanitization::SecretIntegrityError<E>) -> Self
 impl<E> core::error::Error for sanitization::SecretIntegrityError<E> where E: core::error::Error + 'static
 pub fn sanitization::SecretIntegrityError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 pub enum sanitization::SecretPoolGenerateError<E>
@@ -851,6 +891,152 @@ pub struct sanitization::AlreadyConsumedError
 impl core::error::Error for sanitization::AlreadyConsumedError
 impl core::fmt::Display for sanitization::AlreadyConsumedError
 pub fn sanitization::AlreadyConsumedError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct sanitization::BoundedGuardedSecretString<const MAX: usize>
+impl<const MAX: usize> sanitization::BoundedGuardedSecretString<MAX>
+pub const fn sanitization::BoundedGuardedSecretString<MAX>::backing_capacity(&self) -> usize
+pub fn sanitization::BoundedGuardedSecretString<MAX>::clear_secret(&mut self)
+pub fn sanitization::BoundedGuardedSecretString<MAX>::from_secret_str_with_protection(&str, sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectedSecretTextFillError<core::convert::Infallible>>
+pub const fn sanitization::BoundedGuardedSecretString<MAX>::is_empty(&self) -> bool
+pub const fn sanitization::BoundedGuardedSecretString<MAX>::is_memory_locked(&self) -> bool
+pub const fn sanitization::BoundedGuardedSecretString<MAX>::len(&self) -> usize
+pub const fn sanitization::BoundedGuardedSecretString<MAX>::max_len() -> usize
+pub const fn sanitization::BoundedGuardedSecretString<MAX>::protection_report(&self) -> &sanitization::ProtectionReport
+pub const fn sanitization::BoundedGuardedSecretString<MAX>::protection_request(&self) -> sanitization::ProtectionRequest
+pub fn sanitization::BoundedGuardedSecretString<MAX>::try_constant_time_eq(&self, &str) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::try_from_capacity_with_protection<E>(usize, sanitization::ProtectionRequest, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<usize, E>) -> core::result::Result<Self, sanitization::ProtectedSecretTextFillError<E>>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::try_from_exact_len_with_protection<E>(usize, sanitization::ProtectionRequest, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<(), E>) -> core::result::Result<Self, sanitization::ProtectedSecretTextFillError<E>>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::try_push_str(&mut self, &str) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::GuardPageError>>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::try_replace_from_secret_str(&mut self, &str) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::GuardPageError>>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::try_with_capacity_with_protection(usize, sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectedSecretTextFillError<core::convert::Infallible>>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::try_with_secret<R>(&self, impl core::ops::function::FnOnce(&str) -> R) -> core::result::Result<R, sanitization::SecretTextIntegrityError>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::try_with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut str) -> R) -> core::result::Result<R, sanitization::SecretTextIntegrityError>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::verify_integrity(&self) -> core::result::Result<(), sanitization::CanaryCorruptedError>
+impl<const MAX: usize> core::fmt::Debug for sanitization::BoundedGuardedSecretString<MAX>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const MAX: usize> sanitization::SecureSanitize for sanitization::BoundedGuardedSecretString<MAX>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::secure_sanitize(&mut self)
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq for sanitization::BoundedGuardedSecretString<MAX>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::ct_eq(&self, &Self) -> sanitization::ct::Choice
+pub fn sanitization::BoundedGuardedSecretString<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq<str> for sanitization::BoundedGuardedSecretString<MAX>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::ct_eq(&self, &str) -> sanitization::ct::Choice
+pub fn sanitization::BoundedGuardedSecretString<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> subtle::ConstantTimeEq for sanitization::BoundedGuardedSecretString<MAX>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::ct_eq(&self, &Self) -> subtle::Choice
+impl<const MAX: usize> zeroize::Zeroize for sanitization::BoundedGuardedSecretString<MAX>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::zeroize(&mut self)
+impl<const MAX: usize> zeroize::ZeroizeOnDrop for sanitization::BoundedGuardedSecretString<MAX>
+pub struct sanitization::BoundedGuardedSecretVec<const MAX: usize>
+impl<const MAX: usize> sanitization::BoundedGuardedSecretVec<MAX>
+pub const fn sanitization::BoundedGuardedSecretVec<MAX>::backing_capacity(&self) -> usize
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::clear_secret(&mut self)
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::from_slice_with_protection(&[u8], sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectedSecretFillError<core::convert::Infallible>>
+pub const fn sanitization::BoundedGuardedSecretVec<MAX>::is_empty(&self) -> bool
+pub const fn sanitization::BoundedGuardedSecretVec<MAX>::is_memory_locked(&self) -> bool
+pub const fn sanitization::BoundedGuardedSecretVec<MAX>::len(&self) -> usize
+pub const fn sanitization::BoundedGuardedSecretVec<MAX>::max_len() -> usize
+pub const fn sanitization::BoundedGuardedSecretVec<MAX>::protection_report(&self) -> &sanitization::ProtectionReport
+pub const fn sanitization::BoundedGuardedSecretVec<MAX>::protection_request(&self) -> sanitization::ProtectionRequest
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::try_constant_time_eq(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::try_extend_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::GuardPageError>>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::try_from_capacity_with_protection<E>(usize, sanitization::ProtectionRequest, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<usize, E>) -> core::result::Result<Self, sanitization::ProtectedSecretFillError<E>>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::try_from_exact_len_with_protection<E>(usize, sanitization::ProtectionRequest, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<(), E>) -> core::result::Result<Self, sanitization::ProtectedSecretFillError<E>>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::try_replace_from_fallible_fn<E>(&mut self, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::GuardedSecretVecGenerateError<E>>>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::try_replace_from_fn(&mut self, usize, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::GuardPageError>>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::try_replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::GuardPageError>>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::try_with_capacity_with_protection(usize, sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectedSecretFillError<core::convert::Infallible>>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::try_with_secret<R>(&self, impl core::ops::function::FnOnce(&[u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::try_with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::verify_integrity(&self) -> core::result::Result<(), sanitization::CanaryCorruptedError>
+impl<const MAX: usize> core::fmt::Debug for sanitization::BoundedGuardedSecretVec<MAX>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const MAX: usize> sanitization::SecureSanitize for sanitization::BoundedGuardedSecretVec<MAX>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::secure_sanitize(&mut self)
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq for sanitization::BoundedGuardedSecretVec<MAX>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::ct_eq(&self, &Self) -> sanitization::ct::Choice
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq<[u8]> for sanitization::BoundedGuardedSecretVec<MAX>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::ct_eq(&self, &[u8]) -> sanitization::ct::Choice
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> subtle::ConstantTimeEq for sanitization::BoundedGuardedSecretVec<MAX>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::ct_eq(&self, &Self) -> subtle::Choice
+impl<const MAX: usize> zeroize::Zeroize for sanitization::BoundedGuardedSecretVec<MAX>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::zeroize(&mut self)
+impl<const MAX: usize> zeroize::ZeroizeOnDrop for sanitization::BoundedGuardedSecretVec<MAX>
+pub struct sanitization::BoundedLockedSecretString<const MAX: usize>
+impl<const MAX: usize> sanitization::BoundedLockedSecretString<MAX>
+pub const fn sanitization::BoundedLockedSecretString<MAX>::backing_capacity(&self) -> usize
+pub fn sanitization::BoundedLockedSecretString<MAX>::clear_secret(&mut self)
+pub fn sanitization::BoundedLockedSecretString<MAX>::from_secret_str_with_protection(&str, sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectedSecretTextFillError<core::convert::Infallible>>
+pub const fn sanitization::BoundedLockedSecretString<MAX>::is_empty(&self) -> bool
+pub const fn sanitization::BoundedLockedSecretString<MAX>::is_memory_locked(&self) -> bool
+pub const fn sanitization::BoundedLockedSecretString<MAX>::len(&self) -> usize
+pub const fn sanitization::BoundedLockedSecretString<MAX>::locked_len(&self) -> usize
+pub const fn sanitization::BoundedLockedSecretString<MAX>::max_len() -> usize
+pub const fn sanitization::BoundedLockedSecretString<MAX>::protection_report(&self) -> &sanitization::ProtectionReport
+pub const fn sanitization::BoundedLockedSecretString<MAX>::protection_request(&self) -> sanitization::ProtectionRequest
+pub fn sanitization::BoundedLockedSecretString<MAX>::try_constant_time_eq(&self, &str) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
+pub fn sanitization::BoundedLockedSecretString<MAX>::try_from_capacity_with_protection<E>(usize, sanitization::ProtectionRequest, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<usize, E>) -> core::result::Result<Self, sanitization::ProtectedSecretTextFillError<E>>
+pub fn sanitization::BoundedLockedSecretString<MAX>::try_from_exact_len_with_protection<E>(usize, sanitization::ProtectionRequest, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<(), E>) -> core::result::Result<Self, sanitization::ProtectedSecretTextFillError<E>>
+pub fn sanitization::BoundedLockedSecretString<MAX>::try_push_str(&mut self, &str) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::MemoryLockError>>
+pub fn sanitization::BoundedLockedSecretString<MAX>::try_replace_from_secret_str(&mut self, &str) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::MemoryLockError>>
+pub fn sanitization::BoundedLockedSecretString<MAX>::try_with_capacity_with_protection(usize, sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectedSecretTextFillError<core::convert::Infallible>>
+pub fn sanitization::BoundedLockedSecretString<MAX>::try_with_secret<R>(&self, impl core::ops::function::FnOnce(&str) -> R) -> core::result::Result<R, sanitization::SecretTextIntegrityError>
+pub fn sanitization::BoundedLockedSecretString<MAX>::try_with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut str) -> R) -> core::result::Result<R, sanitization::SecretTextIntegrityError>
+pub fn sanitization::BoundedLockedSecretString<MAX>::verify_integrity(&self) -> core::result::Result<(), sanitization::CanaryCorruptedError>
+impl<const MAX: usize> core::fmt::Debug for sanitization::BoundedLockedSecretString<MAX>
+pub fn sanitization::BoundedLockedSecretString<MAX>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const MAX: usize> sanitization::SecureSanitize for sanitization::BoundedLockedSecretString<MAX>
+pub fn sanitization::BoundedLockedSecretString<MAX>::secure_sanitize(&mut self)
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq for sanitization::BoundedLockedSecretString<MAX>
+pub fn sanitization::BoundedLockedSecretString<MAX>::ct_eq(&self, &Self) -> sanitization::ct::Choice
+pub fn sanitization::BoundedLockedSecretString<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq<str> for sanitization::BoundedLockedSecretString<MAX>
+pub fn sanitization::BoundedLockedSecretString<MAX>::ct_eq(&self, &str) -> sanitization::ct::Choice
+pub fn sanitization::BoundedLockedSecretString<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> subtle::ConstantTimeEq for sanitization::BoundedLockedSecretString<MAX>
+pub fn sanitization::BoundedLockedSecretString<MAX>::ct_eq(&self, &Self) -> subtle::Choice
+impl<const MAX: usize> zeroize::Zeroize for sanitization::BoundedLockedSecretString<MAX>
+pub fn sanitization::BoundedLockedSecretString<MAX>::zeroize(&mut self)
+impl<const MAX: usize> zeroize::ZeroizeOnDrop for sanitization::BoundedLockedSecretString<MAX>
+pub struct sanitization::BoundedLockedSecretVec<const MAX: usize>
+impl<const MAX: usize> sanitization::BoundedLockedSecretVec<MAX>
+pub const fn sanitization::BoundedLockedSecretVec<MAX>::backing_capacity(&self) -> usize
+pub fn sanitization::BoundedLockedSecretVec<MAX>::clear_secret(&mut self)
+pub fn sanitization::BoundedLockedSecretVec<MAX>::from_slice_with_protection(&[u8], sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectedSecretFillError<core::convert::Infallible>>
+pub const fn sanitization::BoundedLockedSecretVec<MAX>::is_empty(&self) -> bool
+pub const fn sanitization::BoundedLockedSecretVec<MAX>::is_memory_locked(&self) -> bool
+pub const fn sanitization::BoundedLockedSecretVec<MAX>::len(&self) -> usize
+pub const fn sanitization::BoundedLockedSecretVec<MAX>::locked_len(&self) -> usize
+pub const fn sanitization::BoundedLockedSecretVec<MAX>::max_len() -> usize
+pub const fn sanitization::BoundedLockedSecretVec<MAX>::protection_report(&self) -> &sanitization::ProtectionReport
+pub const fn sanitization::BoundedLockedSecretVec<MAX>::protection_request(&self) -> sanitization::ProtectionRequest
+pub fn sanitization::BoundedLockedSecretVec<MAX>::try_constant_time_eq(&self, &[u8]) -> core::result::Result<bool, sanitization::CanaryCorruptedError>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::try_extend_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::MemoryLockError>>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::try_from_capacity_with_protection<E>(usize, sanitization::ProtectionRequest, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<usize, E>) -> core::result::Result<Self, sanitization::ProtectedSecretFillError<E>>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::try_from_exact_len_with_protection<E>(usize, sanitization::ProtectionRequest, impl core::ops::function::FnOnce(&mut [u8]) -> core::result::Result<(), E>) -> core::result::Result<Self, sanitization::ProtectedSecretFillError<E>>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::try_replace_from_fallible_fn<E>(&mut self, usize, impl core::ops::function::FnMut(usize) -> core::result::Result<u8, E>) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::LockedSecretVecGenerateError<E>>>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::try_replace_from_fn(&mut self, usize, impl core::ops::function::FnMut(usize) -> u8) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::MemoryLockError>>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::try_replace_from_slice(&mut self, &[u8]) -> core::result::Result<(), sanitization::BoundedMappedSecretError<sanitization::MemoryLockError>>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::try_with_capacity_with_protection(usize, sanitization::ProtectionRequest) -> core::result::Result<Self, sanitization::ProtectedSecretFillError<core::convert::Infallible>>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::try_with_secret<R>(&self, impl core::ops::function::FnOnce(&[u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::try_with_secret_mut<R>(&mut self, impl core::ops::function::FnOnce(&mut [u8]) -> R) -> core::result::Result<R, sanitization::CanaryCorruptedError>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::verify_integrity(&self) -> core::result::Result<(), sanitization::CanaryCorruptedError>
+impl<const MAX: usize> core::fmt::Debug for sanitization::BoundedLockedSecretVec<MAX>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const MAX: usize> sanitization::SecureSanitize for sanitization::BoundedLockedSecretVec<MAX>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::secure_sanitize(&mut self)
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq for sanitization::BoundedLockedSecretVec<MAX>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::ct_eq(&self, &Self) -> sanitization::ct::Choice
+pub fn sanitization::BoundedLockedSecretVec<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> sanitization::ct::ConstantTimeEq<[u8]> for sanitization::BoundedLockedSecretVec<MAX>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::ct_eq(&self, &[u8]) -> sanitization::ct::Choice
+pub fn sanitization::BoundedLockedSecretVec<MAX>::ct_ne(&self, &Rhs) -> sanitization::ct::Choice
+impl<const MAX: usize> subtle::ConstantTimeEq for sanitization::BoundedLockedSecretVec<MAX>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::ct_eq(&self, &Self) -> subtle::Choice
+impl<const MAX: usize> zeroize::Zeroize for sanitization::BoundedLockedSecretVec<MAX>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::zeroize(&mut self)
+impl<const MAX: usize> zeroize::ZeroizeOnDrop for sanitization::BoundedLockedSecretVec<MAX>
 pub struct sanitization::BoundedSecretString<const MAX: usize>
 impl<const MAX: usize> sanitization::BoundedSecretString<MAX>
 pub fn sanitization::BoundedSecretString<MAX>::capacity(&self) -> usize
@@ -1240,6 +1426,7 @@ pub fn sanitization::LockedSecretString::from_secret_str(&str) -> core::result::
 pub fn sanitization::LockedSecretString::from_string(alloc::string::String) -> core::result::Result<Self, sanitization::MemoryLockError>
 pub fn sanitization::LockedSecretString::into_locked_secret_vec(self) -> sanitization::LockedSecretVec
 pub const fn sanitization::LockedSecretString::is_empty(&self) -> bool
+pub const fn sanitization::LockedSecretString::is_memory_locked(&self) -> bool
 pub const fn sanitization::LockedSecretString::len(&self) -> usize
 pub const fn sanitization::LockedSecretString::locked_len(&self) -> usize
 pub const fn sanitization::LockedSecretString::protection_report(&self) -> &sanitization::ProtectionReport
@@ -1970,6 +2157,14 @@ impl<T: sanitization::SecureSanitize> sanitization::SecureSanitize for sanitizat
 pub fn sanitization::ct::SecretValue<T>::secure_sanitize(&mut self)
 impl<T> sanitization::SecureSanitize for core::marker::PhantomData<T>
 pub fn core::marker::PhantomData<T>::secure_sanitize(&mut self)
+impl<const MAX: usize> sanitization::SecureSanitize for sanitization::BoundedGuardedSecretString<MAX>
+pub fn sanitization::BoundedGuardedSecretString<MAX>::secure_sanitize(&mut self)
+impl<const MAX: usize> sanitization::SecureSanitize for sanitization::BoundedGuardedSecretVec<MAX>
+pub fn sanitization::BoundedGuardedSecretVec<MAX>::secure_sanitize(&mut self)
+impl<const MAX: usize> sanitization::SecureSanitize for sanitization::BoundedLockedSecretString<MAX>
+pub fn sanitization::BoundedLockedSecretString<MAX>::secure_sanitize(&mut self)
+impl<const MAX: usize> sanitization::SecureSanitize for sanitization::BoundedLockedSecretVec<MAX>
+pub fn sanitization::BoundedLockedSecretVec<MAX>::secure_sanitize(&mut self)
 impl<const MAX: usize> sanitization::SecureSanitize for sanitization::BoundedSecretString<MAX>
 pub fn sanitization::BoundedSecretString<MAX>::secure_sanitize(&mut self)
 impl<const MAX: usize> sanitization::SecureSanitize for sanitization::BoundedSecretVec<MAX>
