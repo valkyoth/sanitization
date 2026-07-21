@@ -46,6 +46,9 @@ reseals it immediately, continuing across other pages after a failure. It
 retains the poisoned mapping, any uncertain page, and any established lock for
 checked retry; `Drop` deliberately leaves that mapping to process teardown
 rather than returning uncertain physical pages to the operating system.
+Native fault-injection tests cover both ordering directions: a first-page
+failure does not prevent later pages from being erased, and a cleanup reseal
+failure retains already-erased storage until checked retry succeeds.
 
 Mapped native and `subtle` equality traits now fail closed with a false choice
 on integrity failure instead of selecting an implicit panic policy. Checked

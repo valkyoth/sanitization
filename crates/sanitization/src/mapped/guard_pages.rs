@@ -1438,6 +1438,8 @@ pub struct SealedSecretBytes<const N: usize> {
     #[cfg(test)]
     fail_normalization_page: Option<usize>,
     #[cfg(test)]
+    fail_cleanup_reseal_page: Option<usize>,
+    #[cfg(test)]
     fail_next_unmap: bool,
 }
 
@@ -1483,6 +1485,8 @@ impl<const N: usize> SealedSecretBytes<N> {
             fail_next_unseal: false,
             #[cfg(test)]
             fail_normalization_page: None,
+            #[cfg(test)]
+            fail_cleanup_reseal_page: None,
             #[cfg(test)]
             fail_next_unmap: false,
         })
@@ -1777,13 +1781,17 @@ impl<const N: usize> SealedSecretBytes<N> {
 
         self.state = SealedState::Poisoned;
         #[cfg(test)]
-        let normalization = match self.fail_normalization_page.take() {
-            Some(page_index) => erase_and_reseal_data_pages_with_failure(
+        let normalization = match (
+            self.fail_normalization_page.take(),
+            self.fail_cleanup_reseal_page.take(),
+        ) {
+            (None, None) => erase_and_reseal_data_pages(self.inner.data, self.inner.writable_len),
+            (failed_write_page, failed_reseal_page) => erase_and_reseal_data_pages_with_failures(
                 self.inner.data,
                 self.inner.writable_len,
-                page_index,
+                failed_write_page,
+                failed_reseal_page,
             ),
-            None => erase_and_reseal_data_pages(self.inner.data, self.inner.writable_len),
         };
         #[cfg(not(test))]
         let normalization = erase_and_reseal_data_pages(self.inner.data, self.inner.writable_len);
@@ -1877,6 +1885,16 @@ impl<const N: usize> SealedSecretBytes<N> {
     ))]
     pub(crate) fn fail_normalization_page_for_test(&mut self, page_index: usize) {
         self.fail_normalization_page = Some(page_index);
+    }
+
+    #[cfg(all(
+        test,
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    pub(crate) fn fail_cleanup_reseal_page_for_test(&mut self, page_index: usize) {
+        self.fail_cleanup_reseal_page = Some(page_index);
     }
 
     #[cfg(all(
@@ -2733,23 +2751,25 @@ fn normalize_data_pages(
 /// protection and contents remain uncertain.
 #[cfg(feature = "page-seal")]
 fn erase_and_reseal_data_pages(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
-    erase_and_reseal_data_pages_inner(ptr, len, None)
+    erase_and_reseal_data_pages_inner(ptr, len, None, None)
 }
 
 #[cfg(all(feature = "page-seal", test))]
-fn erase_and_reseal_data_pages_with_failure(
+fn erase_and_reseal_data_pages_with_failures(
     ptr: NonNull<u8>,
     len: usize,
-    page_index: usize,
+    failed_write_page: Option<usize>,
+    failed_reseal_page: Option<usize>,
 ) -> Result<(), GuardPageError> {
-    erase_and_reseal_data_pages_inner(ptr, len, Some(page_index))
+    erase_and_reseal_data_pages_inner(ptr, len, failed_write_page, failed_reseal_page)
 }
 
 #[cfg(feature = "page-seal")]
 fn erase_and_reseal_data_pages_inner(
     ptr: NonNull<u8>,
     len: usize,
-    _failed_page: Option<usize>,
+    _failed_write_page: Option<usize>,
+    _failed_reseal_page: Option<usize>,
 ) -> Result<(), GuardPageError> {
     let page_granule = platform_page_granule();
     let mut first_error = None;
@@ -2760,7 +2780,7 @@ fn erase_and_reseal_data_pages_inner(
         let page = unsafe { NonNull::new_unchecked(ptr.as_ptr().add(offset)) };
 
         #[cfg(test)]
-        if _failed_page == Some(offset / page_granule) {
+        if _failed_write_page == Some(offset / page_granule) {
             // Keep the injected page inaccessible while other pages continue
             // through immediate erase-and-reseal cleanup.
             let _ = seal_data(page, page_granule);
@@ -2781,6 +2801,20 @@ fn erase_and_reseal_data_pages_inner(
         }
 
         crate::wipe_backend::erase(page.as_ptr(), page_granule);
+
+        #[cfg(test)]
+        if _failed_reseal_page == Some(offset / page_granule) {
+            // Leave the injected page writable after erasure to model a
+            // failed cleanup reseal. The mapping must remain poisoned and
+            // retained, while cleanup continues across later pages.
+            if first_error.is_none() {
+                first_error = Some(GuardPageError {
+                    operation: GuardPageOperation::Protect,
+                    errno: 0,
+                });
+            }
+            continue;
+        }
 
         if let Err(error) = seal_data(page, page_granule) {
             if first_error.is_none() {

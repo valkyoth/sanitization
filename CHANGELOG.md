@@ -15,6 +15,9 @@
   a page transition fails. Cleanup now erases and reseals each successfully
   transitioned page immediately, continues across the range, and defers unmap
   until a checked cleanup retry confirms every page was erased.
+- Add native fault-injection coverage proving cleanup continues after a
+  first-page failure and that cleanup reseal failure retains an erased mapping
+  for a successful checked retry.
 - Make mapped native and `subtle` equality traits return a false choice on
   integrity failure instead of panicking, while checked comparison retains the
   typed corruption error.

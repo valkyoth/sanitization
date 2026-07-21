@@ -113,8 +113,11 @@ those paths. The release helper refuses ambient `RUSTFLAGS` and
 `CARGO_ENCODED_RUSTFLAGS`, and evidence metadata records both values. Compiler
 flags remain trusted build inputs rather than an adversarial boundary. Guard
 pages and page sealing remain outside Miri. Native Linux tests cover the real
-locked and guarded UTF-8 wrappers;
-other supported platforms require their own native evidence.
+locked and guarded UTF-8 wrappers; other supported platforms require their own
+native evidence. Native page-seal fault injection verifies that cleanup
+continues after a first-page transition failure and that a cleanup reseal
+failure occurs after page erasure, retains the mapping, and permits successful
+retry.
 
 Run Kani proofs directly when `cargo-kani` is installed:
 

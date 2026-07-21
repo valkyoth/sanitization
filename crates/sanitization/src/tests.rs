@@ -4113,6 +4113,71 @@ fn sealed_secret_explicit_close_reports_failures_and_supports_retry() {
 
 #[cfg(all(
     feature = "page-seal",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn sealed_secret_cleanup_continues_after_first_page_failure() {
+    const N: usize = 128 * 1024;
+    let mut secret = SealedSecretBytes::<N>::zeroed().unwrap();
+    secret
+        .try_with_secret_mut(|bytes| {
+            bytes[0] = 0xAA;
+            bytes[N - 1] = 0x55;
+        })
+        .unwrap();
+
+    secret.fail_normalization_page_for_test(0);
+    let error = secret.try_close().unwrap_err();
+    assert!(error.report().normalization_failed());
+    assert!(secret.is_poisoned());
+    assert_eq!(secret.erased_page_is_zero_for_test(1), Ok(true));
+    assert_eq!(
+        secret.protection_report().mapping,
+        ProtectionState::Established
+    );
+
+    secret.try_close().unwrap();
+    assert!(secret.is_retired());
+}
+
+#[cfg(all(
+    feature = "page-seal",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(miri)
+))]
+#[test]
+fn sealed_secret_cleanup_reseal_failure_retains_zeroed_mapping_for_retry() {
+    const N: usize = 128 * 1024;
+    let mut secret = SealedSecretBytes::<N>::zeroed().unwrap();
+    secret
+        .try_with_secret_mut(|bytes| {
+            bytes[0] = 0xAA;
+            bytes[N - 1] = 0x55;
+        })
+        .unwrap();
+
+    secret.fail_cleanup_reseal_page_for_test(0);
+    let error = secret.try_close().unwrap_err();
+    assert!(error.report().normalization_failed());
+    assert_eq!(error.report().unlock, CleanupState::NotNeeded);
+    assert_eq!(error.report().unmap, CleanupState::NotNeeded);
+    assert!(secret.is_poisoned());
+    assert_eq!(secret.erased_page_is_zero_for_test(0), Ok(true));
+    assert_eq!(secret.erased_page_is_zero_for_test(1), Ok(true));
+    assert_eq!(
+        secret.protection_report().mapping,
+        ProtectionState::Established
+    );
+
+    secret.try_close().unwrap();
+    assert!(secret.is_retired());
+}
+
+#[cfg(all(
+    feature = "page-seal",
     feature = "memory-lock",
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64"),
