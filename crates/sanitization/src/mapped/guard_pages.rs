@@ -1440,6 +1440,8 @@ pub struct SealedSecretBytes<const N: usize> {
     #[cfg(test)]
     fail_cleanup_reseal_page: Option<usize>,
     #[cfg(test)]
+    cleanup_reseal_failed_page: Option<usize>,
+    #[cfg(test)]
     fail_next_unmap: bool,
 }
 
@@ -1487,6 +1489,8 @@ impl<const N: usize> SealedSecretBytes<N> {
             fail_normalization_page: None,
             #[cfg(test)]
             fail_cleanup_reseal_page: None,
+            #[cfg(test)]
+            cleanup_reseal_failed_page: None,
             #[cfg(test)]
             fail_next_unmap: false,
         })
@@ -1781,17 +1785,28 @@ impl<const N: usize> SealedSecretBytes<N> {
 
         self.state = SealedState::Poisoned;
         #[cfg(test)]
-        let normalization = match (
-            self.fail_normalization_page.take(),
-            self.fail_cleanup_reseal_page.take(),
-        ) {
-            (None, None) => erase_and_reseal_data_pages(self.inner.data, self.inner.writable_len),
-            (failed_write_page, failed_reseal_page) => erase_and_reseal_data_pages_with_failures(
-                self.inner.data,
-                self.inner.writable_len,
-                failed_write_page,
-                failed_reseal_page,
-            ),
+        let normalization = {
+            let failed_write_page = self.fail_normalization_page.take();
+            let failed_reseal_page = self.fail_cleanup_reseal_page.take();
+            self.cleanup_reseal_failed_page = None;
+            let (result, observed_reseal_failure) = match (failed_write_page, failed_reseal_page) {
+                (None, None) => (
+                    erase_and_reseal_data_pages(self.inner.data, self.inner.writable_len),
+                    None,
+                ),
+                (failed_write_page, failed_reseal_page) => {
+                    erase_and_reseal_data_pages_with_failures(
+                        self.inner.data,
+                        self.inner.writable_len,
+                        failed_write_page,
+                        failed_reseal_page,
+                    )
+                }
+            };
+            if result.is_err() {
+                self.cleanup_reseal_failed_page = observed_reseal_failure;
+            }
+            result
         };
         #[cfg(not(test))]
         let normalization = erase_and_reseal_data_pages(self.inner.data, self.inner.writable_len);
@@ -1935,6 +1950,45 @@ impl<const N: usize> SealedSecretBytes<N> {
             .all(|byte| *byte == 0);
         seal_data(page, page_granule)?;
         Ok(erased)
+    }
+
+    #[cfg(all(
+        test,
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    pub(crate) fn writable_failed_reseal_page_is_zero_for_test(
+        &self,
+        page_index: usize,
+    ) -> Result<bool, GuardPageError> {
+        if self.state != SealedState::Poisoned
+            || self.cleanup_reseal_failed_page != Some(page_index)
+        {
+            return Err(GuardPageError {
+                operation: GuardPageOperation::Protect,
+                errno: 0,
+            });
+        }
+
+        let page_granule = platform_page_granule();
+        let offset = page_index
+            .checked_mul(page_granule)
+            .filter(|offset| *offset < self.inner.writable_len)
+            .ok_or(GuardPageError {
+                operation: GuardPageOperation::Length,
+                errno: 0,
+            })?;
+        // SAFETY: the test-only cleanup injection leaves exactly the recorded
+        // page readable after erasing it. Poisoned state prevents safe mapped
+        // exposure, and this helper neither changes protection nor returns a
+        // reference to the page.
+        let page = unsafe { self.inner.data.as_ptr().add(offset) };
+        // SAFETY: the recorded injected page is live, readable, and spans one
+        // complete page granule inside the mapping.
+        Ok(unsafe { core::slice::from_raw_parts(page, page_granule) }
+            .iter()
+            .all(|byte| *byte == 0))
     }
 
     #[cfg(all(
@@ -2751,7 +2805,8 @@ fn normalize_data_pages(
 /// protection and contents remain uncertain.
 #[cfg(feature = "page-seal")]
 fn erase_and_reseal_data_pages(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
-    erase_and_reseal_data_pages_inner(ptr, len, None, None)
+    let mut observed_reseal_failure = None;
+    erase_and_reseal_data_pages_inner(ptr, len, None, None, &mut observed_reseal_failure)
 }
 
 #[cfg(all(feature = "page-seal", test))]
@@ -2760,8 +2815,16 @@ fn erase_and_reseal_data_pages_with_failures(
     len: usize,
     failed_write_page: Option<usize>,
     failed_reseal_page: Option<usize>,
-) -> Result<(), GuardPageError> {
-    erase_and_reseal_data_pages_inner(ptr, len, failed_write_page, failed_reseal_page)
+) -> (Result<(), GuardPageError>, Option<usize>) {
+    let mut observed_reseal_failure = None;
+    let result = erase_and_reseal_data_pages_inner(
+        ptr,
+        len,
+        failed_write_page,
+        failed_reseal_page,
+        &mut observed_reseal_failure,
+    );
+    (result, observed_reseal_failure)
 }
 
 #[cfg(feature = "page-seal")]
@@ -2770,6 +2833,7 @@ fn erase_and_reseal_data_pages_inner(
     len: usize,
     _failed_write_page: Option<usize>,
     _failed_reseal_page: Option<usize>,
+    _observed_reseal_failure: &mut Option<usize>,
 ) -> Result<(), GuardPageError> {
     let page_granule = platform_page_granule();
     let mut first_error = None;
@@ -2807,6 +2871,7 @@ fn erase_and_reseal_data_pages_inner(
             // Leave the injected page writable after erasure to model a
             // failed cleanup reseal. The mapping must remain poisoned and
             // retained, while cleanup continues across later pages.
+            *_observed_reseal_failure = Some(offset / page_granule);
             if first_error.is_none() {
                 first_error = Some(GuardPageError {
                     operation: GuardPageOperation::Protect,

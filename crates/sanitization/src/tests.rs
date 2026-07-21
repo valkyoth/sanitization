@@ -4165,8 +4165,10 @@ fn sealed_secret_cleanup_reseal_failure_retains_zeroed_mapping_for_retry() {
     assert_eq!(error.report().unlock, CleanupState::NotNeeded);
     assert_eq!(error.report().unmap, CleanupState::NotNeeded);
     assert!(secret.is_poisoned());
-    assert_eq!(secret.erased_page_is_zero_for_test(0), Ok(true));
-    assert_eq!(secret.erased_page_is_zero_for_test(1), Ok(true));
+    assert_eq!(
+        secret.writable_failed_reseal_page_is_zero_for_test(0),
+        Ok(true)
+    );
     assert_eq!(
         secret.protection_report().mapping,
         ProtectionState::Established
