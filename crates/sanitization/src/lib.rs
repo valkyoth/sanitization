@@ -84,6 +84,11 @@
 //! and native hardening policy/report semantics are defined in
 //! [`docs/PROTECTION_REPORT.md`](https://github.com/valkyoth/sanitization/blob/main/docs/PROTECTION_REPORT.md).
 
+#[cfg(all(miri, test, not(debug_assertions)))]
+compile_error!(
+    "sanitization: the Miri protection simulator is restricted to debug test artifacts and must not be compiled into a release artifact"
+);
+
 #[cfg(all(
     any(
         feature = "profile-hardened-native",
@@ -149,7 +154,7 @@ compile_error!(
 #[cfg(all(
     feature = "strict-compare",
     not(any(target_arch = "x86_64", target_arch = "aarch64")),
-    not(all(miri, test))
+    not(miri)
 ))]
 compile_error!(
     "sanitization: strict-compare requires an assembly comparison backend; currently supported on x86_64 and aarch64"
@@ -180,7 +185,7 @@ mod platform;
 #[cfg(all(
     feature = "asm-compare",
     any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(all(miri, test))
+    not(miri)
 ))]
 pub(crate) use platform::compare_asm;
 #[allow(unused_imports)]

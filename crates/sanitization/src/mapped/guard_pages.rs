@@ -1778,24 +1778,15 @@ impl<const N: usize> SealedSecretBytes<N> {
         self.state = SealedState::Poisoned;
         #[cfg(test)]
         let normalization = match self.fail_normalization_page.take() {
-            Some(page_index) => normalize_data_pages_with_failure(
+            Some(page_index) => erase_and_reseal_data_pages_with_failure(
                 self.inner.data,
                 self.inner.writable_len,
-                PageProtection::ReadWrite,
                 page_index,
             ),
-            None => normalize_data_pages(
-                self.inner.data,
-                self.inner.writable_len,
-                PageProtection::ReadWrite,
-            ),
+            None => erase_and_reseal_data_pages(self.inner.data, self.inner.writable_len),
         };
         #[cfg(not(test))]
-        let normalization = normalize_data_pages(
-            self.inner.data,
-            self.inner.writable_len,
-            PageProtection::ReadWrite,
-        );
+        let normalization = erase_and_reseal_data_pages(self.inner.data, self.inner.writable_len);
 
         let normalization = match normalization {
             Ok(()) => CleanupState::Completed,
@@ -1811,7 +1802,6 @@ impl<const N: usize> SealedSecretBytes<N> {
             }
         };
 
-        crate::wipe_backend::erase(self.inner.data.as_ptr(), self.inner.writable_len);
         #[cfg(feature = "random-canary")]
         self.inner.clear_canary_material();
 
@@ -1897,6 +1887,36 @@ impl<const N: usize> SealedSecretBytes<N> {
     ))]
     pub(crate) fn fail_next_unmap_for_test(&mut self) {
         self.fail_next_unmap = true;
+    }
+
+    #[cfg(all(
+        test,
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        not(miri)
+    ))]
+    pub(crate) fn erased_page_is_zero_for_test(
+        &mut self,
+        page_index: usize,
+    ) -> Result<bool, GuardPageError> {
+        let page_granule = platform_page_granule();
+        let offset = page_index
+            .checked_mul(page_granule)
+            .filter(|offset| *offset < self.inner.writable_len)
+            .ok_or(GuardPageError {
+                operation: GuardPageOperation::Length,
+                errno: 0,
+            })?;
+        // SAFETY: the checked page offset is inside the live, page-rounded
+        // writable region owned by this test value.
+        let page = unsafe { NonNull::new_unchecked(self.inner.data.as_ptr().add(offset)) };
+        protect_data(page, page_granule)?;
+        // SAFETY: the page was made readable and spans exactly one live page.
+        let erased = unsafe { core::slice::from_raw_parts(page.as_ptr(), page_granule) }
+            .iter()
+            .all(|byte| *byte == 0);
+        seal_data(page, page_granule)?;
+        Ok(erased)
     }
 
     #[cfg(all(
@@ -2684,24 +2704,51 @@ fn normalize_data_pages(
     len: usize,
     protection: PageProtection,
 ) -> Result<(), GuardPageError> {
-    normalize_data_pages_inner(ptr, len, protection, None)
+    let page_granule = platform_page_granule();
+    let mut first_error = None;
+
+    for offset in (0..len).step_by(page_granule) {
+        // SAFETY: guarded writable regions are page-aligned, page-rounded,
+        // and live for `len` bytes. `offset` is strictly inside that range.
+        let page = unsafe { NonNull::new_unchecked(ptr.as_ptr().add(offset)) };
+
+        if let Err(error) = apply_page_protection(page, page_granule, protection) {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
+    }
+
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+/// Make each page writable, erase it immediately, and restore no-access.
+///
+/// Processing continues after a page failure so every independently writable
+/// page is erased even when another page cannot be normalized. The caller must
+/// retain the mapping when any page reports an error because that failed page's
+/// protection and contents remain uncertain.
+#[cfg(feature = "page-seal")]
+fn erase_and_reseal_data_pages(ptr: NonNull<u8>, len: usize) -> Result<(), GuardPageError> {
+    erase_and_reseal_data_pages_inner(ptr, len, None)
 }
 
 #[cfg(all(feature = "page-seal", test))]
-fn normalize_data_pages_with_failure(
+fn erase_and_reseal_data_pages_with_failure(
     ptr: NonNull<u8>,
     len: usize,
-    protection: PageProtection,
     page_index: usize,
 ) -> Result<(), GuardPageError> {
-    normalize_data_pages_inner(ptr, len, protection, Some(page_index))
+    erase_and_reseal_data_pages_inner(ptr, len, Some(page_index))
 }
 
 #[cfg(feature = "page-seal")]
-fn normalize_data_pages_inner(
+fn erase_and_reseal_data_pages_inner(
     ptr: NonNull<u8>,
     len: usize,
-    protection: PageProtection,
     _failed_page: Option<usize>,
 ) -> Result<(), GuardPageError> {
     let page_granule = platform_page_granule();
@@ -2714,8 +2761,8 @@ fn normalize_data_pages_inner(
 
         #[cfg(test)]
         if _failed_page == Some(offset / page_granule) {
-            // Leave the injected page inaccessible to model a failed
-            // normalization whose final protection cannot be trusted.
+            // Keep the injected page inaccessible while other pages continue
+            // through immediate erase-and-reseal cleanup.
             let _ = seal_data(page, page_granule);
             if first_error.is_none() {
                 first_error = Some(GuardPageError {
@@ -2726,7 +2773,16 @@ fn normalize_data_pages_inner(
             continue;
         }
 
-        if let Err(error) = apply_page_protection(page, page_granule, protection) {
+        if let Err(error) = protect_data(page, page_granule) {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+            continue;
+        }
+
+        crate::wipe_backend::erase(page.as_ptr(), page_granule);
+
+        if let Err(error) = seal_data(page, page_granule) {
             if first_error.is_none() {
                 first_error = Some(error);
             }

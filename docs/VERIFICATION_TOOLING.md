@@ -168,7 +168,9 @@ the fixed, dynamic, text, and pooled native locked-container lifecycle through
 a core-unit-test-only `cfg(all(miri, test))` aligned-allocation model. The model
 verifies complete clearing before deallocation but does not execute or validate
 OS syscalls, page permissions, locking, dump/fork policy, or CSPRNG behavior.
-Downstream Miri execution of mapped constructors remains unsupported.
+Downstream Miri execution of mapped constructors remains unsupported. Portable
+comparison code is selected under Miri even in downstream builds and has a
+dedicated integration test.
 Kani includes complete fixed-secret replacement in addition to clearing,
 comparison, capacity, and protection-report properties.
 
@@ -179,11 +181,14 @@ not receive the core crate's `cfg(test)`, so executing native comparison
 assembly there would be unsupported by Miri.
 
 `scripts/verify-miri-test-gates.py` rejects production source gates where
-`miri` can change behavior without `test`, verifies every mapped simulator has
-the native `not(all(miri, test))` complement, and compiles a normal release
-library with a manually supplied `--cfg miri`. This prevents that user-settable
-flag from selecting simulated memory protection, random canaries, comparison,
-cache-flush, register-scrub, or page-size behavior in a production artifact.
+`miri` can change protection behavior without `test`, verifies every mapped
+simulator has the native `not(all(miri, test))` complement, compiles a normal
+release library with a manually supplied `--cfg miri`, and verifies that a
+release build forging both `cfg(miri)` and `cfg(test)` is rejected. Comparison
+is the deliberate exception: Miri always selects the portable implementation,
+which provides interpreter compatibility without simulating an OS protection.
+The release helper also refuses ambient Rust flags and records those channels
+in evidence. These checks assume a trusted compiler invocation.
 
 The Loom model covers:
 

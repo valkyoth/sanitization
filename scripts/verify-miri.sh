@@ -12,6 +12,7 @@ fi
 cargo +"${toolchain}" miri test -p sanitization --no-default-features
 cargo +"${toolchain}" miri test -p sanitization --features alloc
 cargo +"${toolchain}" miri test -p sanitization --all-features --lib
+cargo +"${toolchain}" miri test -p sanitization --test miri_downstream
 cargo +"${toolchain}" miri test -p sanitization \
     --no-default-features \
     --features derive \

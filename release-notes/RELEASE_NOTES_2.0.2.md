@@ -16,15 +16,18 @@ teardown without changing the public API.
 Miri does not execute or validate real `mmap`, `mlock`, dump/fork policy,
 CSPRNG, page-protection, or guard-page operations. Simulated successful report
 states are test state only; native target evidence remains required. A normal
-build with `--cfg miri` does not select the simulator. Downstream Miri tests
-that execute native mapped constructors remain unsupported and should
-target-gate those paths.
+build with `--cfg miri` does not select the simulator, and a release build that
+also forges `cfg(test)` is rejected. Downstream Miri uses portable comparison
+code, while tests that execute native mapped constructors remain unsupported
+and should target-gate those paths.
 
 The same condition now protects every production comparison, AArch64
 page-size, cache-flush, register-scrub, guard-page, and interop cfg boundary. A
-release gate statically rejects Miri behavior switches without `test` and
-compiles a normal release library with a manually supplied `--cfg miri` to
-guard against recurrence.
+release gate statically rejects Miri protection behavior switches without
+`test`, compiles a normal release library with a manually supplied `--cfg miri`,
+and rejects the forged release simulator combination. The release helper also
+refuses ambient `RUSTFLAGS` and `CARGO_ENCODED_RUSTFLAGS`; evidence records both
+channels. These checks treat the compiler invocation as trusted.
 
 The full Miri workflow runs all-feature mapped lifecycle coverage as core
 library unit tests and runs derive and companion integrations with portable
@@ -38,10 +41,11 @@ mapping immediately before unlock and unmap. This includes mapping padding and
 integrity metadata in addition to the secret payload.
 
 `SealedSecretBytes` no longer unmaps pages when cleanup cannot confirm that
-every page is writable and erased. It retains the poisoned mapping and any
-established lock for checked retry; `Drop` deliberately leaves that mapping to
-process teardown rather than returning unwiped physical pages to the operating
-system.
+every page is erased. Cleanup now makes each page writable, erases it, and
+reseals it immediately, continuing across other pages after a failure. It
+retains the poisoned mapping, any uncertain page, and any established lock for
+checked retry; `Drop` deliberately leaves that mapping to process teardown
+rather than returning uncertain physical pages to the operating system.
 
 Mapped native and `subtle` equality traits now fail closed with a false choice
 on integrity failure instead of selecting an implicit panic policy. Checked

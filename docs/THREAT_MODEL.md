@@ -94,8 +94,9 @@ request and achieved outcome described in `docs/PROTECTION_REPORT.md`.
 - Using Miri as evidence for native memory-lock, mapping, page-protection,
   dump/fork-policy, CSPRNG, or guard-page syscalls. The core crate's Miri unit
   tests exercise a test-only allocation model for locked-container lifecycle
-  and clear-before-release invariants; downstream mapped constructors and the
-  real OS paths still require native platform tests.
+  and clear-before-release invariants. Downstream comparison uses portable code,
+  while downstream mapped constructors and the real OS paths still require
+  native platform tests.
 - Using Kani as proof of real concurrent execution or atomic interleavings.
   Kani's configured harnesses provide bounded sequential functional evidence.
 - Soundly scrubbing old stack frames, prior Rust move copies, all CPU
@@ -334,11 +335,12 @@ where accidental fork inheritance is an audit blocker.
 With `page-seal`, fixed-size secret data pages are changed to no-access between
 scoped accesses. The access window itself remains readable/writable, requires
 `&mut self`, and is guarded against ordinary reentry. Normal return and panic
-unwinding attempt to reseal. A failed transition first normalizes every page
-to read/write; cleanup wipes only if all pages reach that known state, and
-otherwise retains the inaccessible poisoned mapping and any established memory
-lock without attempting release. A checked cleanup call may retry the
-normalization. Default constructors require Linux
+unwinding attempt to reseal. Cleanup after a failed transition processes every
+page independently: each page made writable is erased and resealed immediately, and
+processing continues after individual failures. If any page remains uncertain,
+cleanup retains the poisoned mapping and any established memory lock without
+attempting release. A checked cleanup call may retry every page. Default
+constructors require Linux
 `MADV_WIPEONFORK`, preventing an unrelated thread's fork during the access
 window from retaining readable child bytes. Fork-capable targets without a
 reviewed equivalent require an explicit lower-assurance policy; Windows

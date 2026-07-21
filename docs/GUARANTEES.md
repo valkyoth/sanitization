@@ -205,11 +205,12 @@ claim are the stale-handle defense.
 With the opt-in `page-seal` feature, `SealedSecretBytes<N>` keeps its data pages
 inaccessible between scoped mutable-borrow access windows. Normal return and
 panic unwinding both attempt to restore no-access protection. A detected
-normal-return transition failure normalizes every data page to read/write,
-clears only after all pages are confirmed writable, and retires the mapping
-instead of returning the closure result. If normalization fails, cleanup does
-not dereference, unlock, or unmap the uncertain pages. The poisoned mapping and
-any established memory lock remain retryable instead of returning unwiped
+normal-return transition failure initiates cleanup. Cleanup makes each page
+writable, immediately clears it, and restores no-access before advancing. It
+continues after individual failures, so successfully transitioned pages are
+erased and resealed even when another page remains uncertain. If any transition
+fails, cleanup does not unlock or unmap the poisoned mapping. The mapping and
+any established memory lock remain retryable instead of returning uncertain
 physical pages to the operating system.
 
 Default page-sealed constructors require Linux `MADV_WIPEONFORK`. A child
@@ -228,10 +229,11 @@ Page-sealed cleanup is explicitly fallible. `SealedSecretBytes<N>` provides
 `SecureSanitize`, zeroize interop traits, or stable-storage marker traits
 because an operating-system failure may prevent an inaccessible page from
 becoming writable. Explicit close reports normalization, unlock, and unmap
-outcomes. A live, unwiped mapping remains poisoned and locked after failed
-normalization and can retry. A confirmed-wiped mapping may be unlocked after
-failed release; successful release retires it and implicitly disposes of its
-lock.
+outcomes. A mapping with any uncertain page remains poisoned and locked after a
+failed transition and can retry; pages successfully processed during that
+attempt are already erased and resealed. A confirmed-wiped mapping may be
+unlocked after failed release; successful release retires it and implicitly
+disposes of its lock.
 
 ## Evidence
 

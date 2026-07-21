@@ -144,7 +144,7 @@
       "coverage": [
         "interpreter checks for supported safe and unsafe-boundary core paths",
         "all-feature core library unit tests through the private lifecycle model",
-        "portable derive integration and companion crate paths without native assembly"
+        "portable downstream comparison, derive integration, and companion crate paths without native assembly"
       ]
     },
     {
@@ -153,7 +153,8 @@
       "coverage": [
         "Miri simulator selection requires cfg(all(miri, test))",
         "native backend complements remain selected outside crate unit tests",
-        "normal release compilation retains native paths under a manually supplied cfg(miri)"
+        "normal release compilation retains native paths under a manually supplied cfg(miri)",
+        "release compilation rejects forged cfg(miri) plus cfg(test) simulator selection"
       ]
     },
     {

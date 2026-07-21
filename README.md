@@ -392,9 +392,11 @@ to the normative documents.
 Page-sealed callers that must observe final mapping cleanup should call
 `SealedSecretBytes::try_close()` before drop. It reports page normalization,
 unlock, and unmap failures without exposing bytes, addresses, or canary values;
-failed normalization retains the mapping and any established lock without
-attempting unmap. `Drop` follows the same security-first retention policy and
-remains the final best-effort fallback.
+cleanup makes each page writable, erases it, and reseals it independently.
+If any page transition fails, successfully processed pages are already erased
+and resealed, while the uncertain page, mapping, and any established lock are
+retained without attempting unmap. `Drop` follows the same security-first
+retention policy and remains the final best-effort fallback.
 
 High-assurance applications should use `AllowlistedSecret<T, P>` as their
 internal production alias, keep `P` private or `pub(crate)`, and run
@@ -524,8 +526,9 @@ Important limits include:
 - cache flush and register scrub helpers cover only their documented target
   subsets;
 - Core Miri unit tests model locked-container lifecycle and verify
-  clear-before-release, but do not support downstream mapped execution or prove
-  native OS protection; Kani does not prove real concurrency.
+  clear-before-release, but do not prove native OS protection. Downstream Miri
+  uses portable comparison code, while mapped constructors remain unsupported;
+  Kani does not prove real concurrency.
 
 See [NON_GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/NON_GUARANTEES.md),
 [THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/docs/THREAT_MODEL.md), and [SECURITY.md](https://github.com/valkyoth/sanitization/blob/main/SECURITY.md) before

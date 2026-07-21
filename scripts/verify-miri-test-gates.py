@@ -14,6 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "crates" / "sanitization" / "src"
 MAPPED_BACKEND = SOURCE_ROOT / "mapped" / "memory_lock_native.rs"
 CANARY_BACKEND = SOURCE_ROOT / "canary.rs"
+DOWNSTREAM_MIRI_COMPARE_PATHS = {
+    Path("crates/sanitization/src/ct.rs"),
+    Path("crates/sanitization/src/lib.rs"),
+    Path("crates/sanitization/src/owned.rs"),
+    Path("crates/sanitization/src/platform.rs"),
+}
 
 
 def fail(message: str) -> None:
@@ -45,6 +51,19 @@ def function_cfgs(source: str, name: str) -> list[str]:
     return [compact(match.group("attrs")) for match in pattern.finditer(source)]
 
 
+def is_downstream_miri_comparison_gate(path: Path, expression: str) -> bool:
+    relative = path.relative_to(ROOT)
+    if relative not in DOWNSTREAM_MIRI_COMPARE_PATHS:
+        return False
+    if 'feature="asm-compare"' in expression and "not(miri)" in expression:
+        return True
+    return (
+        relative == Path("crates/sanitization/src/lib.rs")
+        and 'feature="strict-compare"' in expression
+        and "not(miri)" in expression
+    )
+
+
 def verify_source_gates() -> None:
     for path in sorted(SOURCE_ROOT.rglob("*.rs")):
         if path.name == "tests.rs":
@@ -52,7 +71,11 @@ def verify_source_gates() -> None:
         source = path.read_text(encoding="utf-8")
         for expression in cfg_expressions(source):
             normalized = compact(expression)
-            if "miri" in normalized and "test" not in normalized:
+            if (
+                "miri" in normalized
+                and "test" not in normalized
+                and not is_downstream_miri_comparison_gate(path, normalized)
+            ):
                 fail(
                     f"{path.relative_to(ROOT)} has a Miri behavior gate without "
                     f"the crate-unit-test condition: cfg({normalized})"
@@ -84,10 +107,15 @@ def verify_source_gates() -> None:
         fail("normal builds do not unconditionally retain the native canary backend")
 
 
-def verify_forged_cfg_build() -> None:
+def forged_cfg_environment(*cfgs: str) -> dict[str, str]:
     env = os.environ.copy()
-    env["RUSTFLAGS"] = f"{env.get('RUSTFLAGS', '')} --cfg miri".strip()
-    command = [
+    env.pop("CARGO_ENCODED_RUSTFLAGS", None)
+    env["RUSTFLAGS"] = " ".join(f"--cfg {cfg}" for cfg in cfgs)
+    return env
+
+
+def forged_cfg_command(target_dir: str) -> list[str]:
+    return [
         "cargo",
         "check",
         "--release",
@@ -98,17 +126,70 @@ def verify_forged_cfg_build() -> None:
         "memory-lock,random-canary,asm-compare,cache-flush,register-scrub",
         "--lib",
         "--target-dir",
-        "target/miri-production-gate",
+        target_dir,
     ]
+
+
+def verify_forged_cfg_builds() -> None:
+    env = forged_cfg_environment("miri")
+    command = forged_cfg_command("target/miri-production-gate")
     result = subprocess.run(command, cwd=ROOT, env=env, check=False)
     if result.returncode != 0:
-        fail("a normal release build with --cfg miri did not retain native paths")
+        fail("a normal release build with --cfg miri did not retain native protection paths")
+
+    env = forged_cfg_environment("miri", "test")
+    command = forged_cfg_command("target/miri-forged-test-gate")
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=env,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    expected = "the Miri protection simulator is restricted to debug test artifacts"
+    if result.returncode == 0:
+        fail("a forged release build with --cfg miri --cfg test selected the simulator")
+    if expected not in result.stdout:
+        fail("the forged release build failed for an unexpected reason")
+
+
+def verify_release_flags_rejected() -> None:
+    command = [
+        sys.executable,
+        "scripts/release_crates.py",
+        "--dry-run",
+        "--yes",
+    ]
+    for name, value in (
+        ("RUSTFLAGS", "--cfg miri"),
+        ("CARGO_ENCODED_RUSTFLAGS", "--cfg\x1fmiri"),
+    ):
+        env = os.environ.copy()
+        env.pop("RUSTFLAGS", None)
+        env.pop("CARGO_ENCODED_RUSTFLAGS", None)
+        env[name] = value
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            env=env,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if result.returncode == 0:
+            fail(f"release helper accepted ambient {name}")
+        if "refusing release with ambient Rust compiler flags" not in result.stdout:
+            fail(f"release helper rejected {name} for an unexpected reason")
 
 
 def main() -> int:
     verify_source_gates()
-    verify_forged_cfg_build()
-    print("Miri simulators are restricted to crate unit tests")
+    verify_forged_cfg_builds()
+    verify_release_flags_rejected()
+    print("Miri simulators are restricted to debug crate unit-test artifacts")
     return 0
 
 

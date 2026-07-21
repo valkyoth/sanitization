@@ -4090,6 +4090,7 @@ fn sealed_secret_explicit_close_reports_failures_and_supports_retry() {
     assert_eq!(report.unlock, CleanupState::NotNeeded);
     assert_eq!(report.unmap, CleanupState::NotNeeded);
     assert!(secret.is_poisoned());
+    assert_eq!(secret.erased_page_is_zero_for_test(0), Ok(true));
     assert_eq!(
         secret.try_with_secret(|_| ()),
         Err(SealedSecretAccessError::Poisoned)
@@ -4142,6 +4143,7 @@ fn sealed_secret_retains_lock_and_mapping_when_normalization_fails() {
     assert_eq!(cleanup.unlock, CleanupState::NotNeeded);
     assert_eq!(cleanup.unmap, CleanupState::NotNeeded);
     assert!(secret.is_poisoned());
+    assert_eq!(secret.erased_page_is_zero_for_test(0), Ok(true));
     assert!(secret.protection_report().memory_is_locked());
     assert_eq!(secret.protection_report().locked_bytes, locked_bytes);
     assert_eq!(

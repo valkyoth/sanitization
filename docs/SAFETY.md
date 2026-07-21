@@ -413,8 +413,13 @@ Invariant:
   rollback, and drop paths, and asserts that every simulated mapping is
   entirely zero before deallocation. Modeled `Established` report states do not
   mean an OS control was applied. A normal build with `--cfg miri` uses the
-  native backend. Downstream Miri execution of mapped constructors, guard pages,
-  and page sealing remains unsupported.
+  native backend, and a release build that also forges `cfg(test)` is rejected.
+  Comparison code uses its portable backend whenever Miri is active so ordinary
+  downstream secret comparisons remain interpretable. Downstream Miri execution
+  of mapped constructors, guard pages, and page sealing remains unsupported.
+  Compiler cfgs and rustflags are trusted build inputs; the release helper
+  rejects ambient `RUSTFLAGS` and `CARGO_ENCODED_RUSTFLAGS` rather than claiming
+  to defend against a hostile compiler invocation.
 - Drop ignores unlock/unmap errors because destructors cannot report failure.
 - `SecretPool<N, SLOTS>` owns exactly one locked mapping. `N * SLOTS` is
   checked for overflow before mapping, then rounded to the platform page
@@ -651,28 +656,30 @@ Invariant:
   region, leaves the underlying guarded owner poisoned, and returns an
   integrity error after resealing.
 - A failed unseal, reseal, or initial seal may have changed only part of the
-  requested range. The state becomes poisoned immediately. Cleanup applies a
-  read/write transition to each page independently and wipes only if every
-  page is confirmed writable.
-- If page normalization fails, cleanup never dereferences the uncertain
-  mapping and does not unlock or unmap it. The mapping remains poisoned and any
-  established memory lock remains active so a later checked cleanup can retry
-  normalization without first releasing unwiped physical pages.
-- `try_close()` exposes the same normalization, conditional clear, mapping
+  requested range. The state becomes poisoned immediately. Cleanup handles
+  each page independently: it makes one page writable, erases the complete
+  page, restores no-access, and then advances. Processing continues after a
+  page failure, so every successfully transitioned page is erased and resealed
+  immediately while the failed page remains uncertain.
+- If any page transition fails, cleanup does not unlock or unmap the mapping.
+  The mapping remains poisoned and any established memory lock remains active
+  so a later checked cleanup can retry without first releasing uncertain
+  physical pages.
+- `try_close()` exposes the same per-page clear-and-reseal, mapping
   release, and fallback unlock path used by `Drop`. Its report contains only
   operation names and platform error codes. Mapping release is attempted only
-  after every payload page was confirmed writable and erased. A failed release
+  after every payload page was confirmed erased. A failed release
   may then unlock the erased mapping; a successful release retires the value.
 - Default constructors require Linux `MADV_WIPEONFORK`. Fork-policy syscalls
   are independent of memory locking because `madvise` does not require
   `mlock`. Windows process creation does not clone the address space. Other
   fork-capable targets fail the default constructor and require an explicit
   lower-assurance protection request.
-- Drop uses the same per-page normalization, conditional volatile clear,
-  release, and fallback-unlock helper as `try_close()`, but necessarily
-  discards its report. If making every page writable fails, Drop intentionally
-  retains the inaccessible mapping and any established lock until process exit
-  rather than returning unwiped physical pages to the operating system.
+- Drop uses the same per-page writable transition, immediate volatile clear,
+  reseal, release, and fallback-unlock helper as `try_close()`, but necessarily
+  discards its report. If any page transition fails, Drop intentionally retains
+  the poisoned mapping and any established lock until process exit rather than
+  returning uncertain physical pages to the operating system.
 - Because making a sealed page writable is fallible, this type exposes
   `try_secure_sanitize()` and does not implement infallible sanitization,
   zeroize-on-drop, or stable-storage marker traits.

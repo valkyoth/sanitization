@@ -10,6 +10,7 @@ cite.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -92,6 +93,10 @@ def main() -> int:
         "git": git_metadata(),
         "rustc": rustc_version(),
         "installed_targets": installed_targets(),
+        "build_environment": {
+            "RUSTFLAGS": os.environ.get("RUSTFLAGS", ""),
+            "CARGO_ENCODED_RUSTFLAGS": os.environ.get("CARGO_ENCODED_RUSTFLAGS", ""),
+        },
         "tools": {
             "cargo_kani": optional_tool(["cargo", "kani", "--version"]),
             "cargo_miri": optional_tool(["cargo", "+nightly", "miri", "--version"]),

@@ -12,8 +12,9 @@
 - Enforce complete mapping clearing immediately before native unlock and unmap;
   the Miri backend asserts clear-before-release for every simulated mapping.
 - Preserve a poisoned page-sealed mapping and any established memory lock when
-  normalization cannot confirm that every page is writable and erased; unmap
-  is deferred until a checked cleanup retry succeeds.
+  a page transition fails. Cleanup now erases and reseals each successfully
+  transitioned page immediately, continues across the range, and defers unmap
+  until a checked cleanup retry confirms every page was erased.
 - Make mapped native and `subtle` equality traits return a false choice on
   integrity failure instead of panicking, while checked comparison retains the
   typed corruption error.
@@ -25,9 +26,11 @@
 - Restrict every Miri mapping and canary simulator to the crate's own unit-test
   build. A normal build supplied with `--cfg miri` continues through the real
   native backend instead of silently reporting simulated protections.
-- Apply the same unit-test-only gate policy to comparison, AArch64 page-size,
-  cache-flush, register-scrub, guard-page, and interop paths, with a release
-  compile regression check for manually supplied `--cfg miri` flags.
+- Reject release builds that forge both `cfg(miri)` and `cfg(test)`, reject
+  ambient Rust flags in the release helper, and record both Rust flag channels
+  in release evidence. Compiler invocation remains a trusted input.
+- Select portable comparison code whenever Miri is active, including downstream
+  builds, while retaining unit-test-only gates for OS-protection simulators.
 - Split Miri verification between the all-feature core unit-test model and
   portable derive/companion integration runs, avoiding unsupported native
   assembly without exposing a production simulator.

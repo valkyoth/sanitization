@@ -22,6 +22,7 @@ Publish order:
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -96,6 +97,20 @@ def require_clean_tree(*, allow_dirty: bool) -> None:
         print(status, file=sys.stderr)
         print("Commit or stash changes, or pass --allow-dirty.", file=sys.stderr)
         sys.exit(1)
+
+
+def verify_release_rustflags() -> None:
+    configured = {
+        name: os.environ.get(name, "")
+        for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS")
+        if os.environ.get(name, "")
+    }
+    if configured:
+        names = ", ".join(sorted(configured))
+        raise RuntimeError(
+            f"refusing release with ambient Rust compiler flags in {names}; "
+            "use a clean release environment so cfg-based security gates cannot be overridden"
+        )
 
 
 def verify_versions(expected_version: str) -> None:
@@ -345,6 +360,7 @@ def main() -> int:
         parser.error("--prepare-only cannot be combined with --require-tag")
 
     require_clean_tree(allow_dirty=args.allow_dirty or args.dry_run)
+    verify_release_rustflags()
     verify_versions(args.version)
     verify_proc_macro_lockstep(args.version)
     verify_publish_order()

@@ -76,8 +76,13 @@ pages. The core crate's `cfg(all(miri, test))` unit-test backend models
 locked-container allocation and lifecycle transitions with ordinary aligned
 allocations and verifies clear-before-release; its successful protection report
 states are simulated and do not establish an OS guarantee. Downstream Miri
-execution of mapped constructors remains unsupported. Native tests are required
-to exercise the actual platform paths.
+uses portable comparison code, but execution of mapped constructors remains
+unsupported. A release build that forges both `cfg(miri)` and `cfg(test)` is
+rejected, and the release helper refuses ambient `RUSTFLAGS` and
+`CARGO_ENCODED_RUSTFLAGS`. These controls assume a trusted Rust toolchain and
+build invocation; they are not protection against a malicious compiler or an
+operator who deliberately changes the source or release process. Native tests
+are required to exercise the actual platform paths.
 
 Kani performs bounded functional verification and treats configured harnesses
 sequentially. It does not model real thread scheduling, concurrent atomic
@@ -188,20 +193,22 @@ feature will be deferred from 2.0 stable.
 
 POSIX permits a failed protection update to have changed only part of a
 multi-page range. After any failed page-seal transition, the implementation
-therefore treats the mapping as poisoned until every page is independently
-confirmed writable. If normalization fails, it does not attempt a wipe, unlock,
-or unmap through uncertain page protections. The inaccessible or partially
-protected mapping may consequently remain allocated and locked until a checked
-cleanup retry succeeds or the process exits, without being exposed again
-through safe APIs. After confirmed erasure, an unmap failure may retain the
-mapping but cleanup may remove its lock because the payload was wiped.
+therefore treats the mapping as poisoned. Cleanup handles pages independently:
+each page that can be made writable is immediately erased and resealed before
+cleanup advances. A failed page remains uncertain, but does not prevent later
+pages from receiving the same treatment. If any transition fails, the
+implementation does not unlock or unmap the poisoned mapping. It may remain
+allocated and locked until a checked cleanup retry succeeds or the process
+exits, without being exposed again through safe APIs. This does not guarantee
+that the failed page was erased. After every page is confirmed erased, an unmap
+failure may retain the mapping but cleanup may remove its lock.
 
 `try_close()` makes these cleanup outcomes observable and retryable while the
 mapping remains live. It does not make the operating-system operations
-infallible, guarantee that a failed normalization was later wiped, or recover a
-mapping after unmap has succeeded. `Drop` cannot return the report and remains
-best effort; on normalization failure it deliberately leaks the inaccessible
-mapping until process exit rather than releasing unwiped pages.
+infallible, guarantee that a page whose transition failed was wiped, or recover
+a mapping after unmap has succeeded. `Drop` cannot return the report and remains
+best effort; on a page-transition failure it deliberately retains the poisoned
+mapping until process exit rather than releasing uncertain pages.
 
 Linux default constructors require wipe-on-fork. Fork-capable targets without
 a reviewed equivalent do not claim that a page-sealed access window is

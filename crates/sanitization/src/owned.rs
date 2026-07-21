@@ -712,7 +712,7 @@ pub(crate) fn constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
     #[cfg(all(
         feature = "asm-compare",
         any(target_arch = "x86_64", target_arch = "aarch64"),
-        not(all(miri, test))
+        not(miri)
     ))]
     {
         crate::compare_asm::constant_time_eq_equal_len(left, right)
@@ -721,7 +721,7 @@ pub(crate) fn constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
     #[cfg(not(all(
         feature = "asm-compare",
         any(target_arch = "x86_64", target_arch = "aarch64"),
-        not(all(miri, test))
+        not(miri)
     )))]
     {
         portable_constant_time_eq_equal_len(left, right)
@@ -733,7 +733,7 @@ pub(crate) fn constant_time_eq_equal_len(left: &[u8], right: &[u8]) -> bool {
     all(
         feature = "asm-compare",
         any(target_arch = "x86_64", target_arch = "aarch64"),
-        not(all(miri, test))
+        not(miri)
     ),
     allow(dead_code)
 )]

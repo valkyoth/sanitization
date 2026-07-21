@@ -151,7 +151,7 @@ pub(crate) mod linux_aarch64_page_size {
 #[cfg(all(
     feature = "asm-compare",
     any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(all(miri, test))
+    not(miri)
 ))]
 #[allow(unsafe_code)]
 pub(crate) mod compare_asm {

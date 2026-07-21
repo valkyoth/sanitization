@@ -115,8 +115,9 @@ This remains a dependency-free lexical gate. Aliases, re-exports, macros,
 generated code, and later data flow from an ordinary named binding require
 human review or an application-selected AST-aware lint.
 
-Page-sealed storage provides `try_close()` for observable cleanup. If explicit
-cleanup cannot normalize inaccessible pages, the value remains poisoned and
-access is rejected; no unlock or unmap is attempted. The caller may retry
-cleanup or terminate according to policy. `Drop` follows the same retention
-policy but cannot report failure because Rust destructors cannot return errors.
+Page-sealed storage provides `try_close()` for observable cleanup. It processes
+pages independently, immediately erasing and resealing each page that becomes
+writable. If any page transition fails, the value remains poisoned, access is
+rejected, and no unlock or unmap is attempted. The caller may retry cleanup or
+terminate according to policy. `Drop` follows the same retention policy but
+cannot report failure because Rust destructors cannot return errors.

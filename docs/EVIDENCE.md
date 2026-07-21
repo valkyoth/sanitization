@@ -105,9 +105,15 @@ or guard-page syscalls. Only the core crate's unit-test build under
 simulators; any `ProtectionState::Established` value there is a modeled
 state-machine result and is not evidence of an achieved OS protection. A
 normal build with a manually supplied `--cfg miri` still uses the native
-backend. Downstream Miri tests that execute mapped constructors are unsupported
-and must target-gate those paths. Guard pages and page sealing remain outside
-Miri. Native Linux tests cover the real locked and guarded UTF-8 wrappers;
+backend, while a forged release combination of `cfg(miri)` and `cfg(test)` is
+compile-rejected. Comparison primitives select the portable backend whenever
+Miri is active, including when the crate is a downstream dependency. Downstream
+Miri tests that execute mapped constructors are unsupported and must target-gate
+those paths. The release helper refuses ambient `RUSTFLAGS` and
+`CARGO_ENCODED_RUSTFLAGS`, and evidence metadata records both values. Compiler
+flags remain trusted build inputs rather than an adversarial boundary. Guard
+pages and page sealing remain outside Miri. Native Linux tests cover the real
+locked and guarded UTF-8 wrappers;
 other supported platforms require their own native evidence.
 
 Run Kani proofs directly when `cargo-kani` is installed:
