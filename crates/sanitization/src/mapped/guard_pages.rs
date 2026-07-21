@@ -1949,6 +1949,9 @@ impl<const N: usize> SealedSecretBytes<N> {
             .iter()
             .all(|byte| *byte == 0);
         seal_data(page, page_granule)?;
+        if self.cleanup_reseal_failed_page == Some(page_index) {
+            self.cleanup_reseal_failed_page = None;
+        }
         Ok(erased)
     }
 
@@ -1958,7 +1961,13 @@ impl<const N: usize> SealedSecretBytes<N> {
         any(target_arch = "x86_64", target_arch = "aarch64"),
         not(miri)
     ))]
-    pub(crate) fn writable_failed_reseal_page_is_zero_for_test(
+    /// Observes a page left readable by an injected cleanup-reseal failure.
+    ///
+    /// # Safety
+    ///
+    /// The recorded page must not have been resealed outside the helpers that
+    /// maintain `cleanup_reseal_failed_page` since the injected failure.
+    pub(crate) unsafe fn writable_failed_reseal_page_is_zero_for_test(
         &self,
         page_index: usize,
     ) -> Result<bool, GuardPageError> {

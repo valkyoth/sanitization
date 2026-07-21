@@ -4148,6 +4148,7 @@ fn sealed_secret_cleanup_continues_after_first_page_failure() {
     any(target_arch = "x86_64", target_arch = "aarch64"),
     not(miri)
 ))]
+#[allow(unsafe_code)]
 #[test]
 fn sealed_secret_cleanup_reseal_failure_retains_zeroed_mapping_for_retry() {
     const N: usize = 128 * 1024;
@@ -4165,8 +4166,10 @@ fn sealed_secret_cleanup_reseal_failure_retains_zeroed_mapping_for_retry() {
     assert_eq!(error.report().unlock, CleanupState::NotNeeded);
     assert_eq!(error.report().unmap, CleanupState::NotNeeded);
     assert!(secret.is_poisoned());
+    // SAFETY: this is the first operation after the injected cleanup-reseal
+    // failure; no helper has changed the recorded page's readable state.
     assert_eq!(
-        secret.writable_failed_reseal_page_is_zero_for_test(0),
+        unsafe { secret.writable_failed_reseal_page_is_zero_for_test(0) },
         Ok(true)
     );
     assert_eq!(
