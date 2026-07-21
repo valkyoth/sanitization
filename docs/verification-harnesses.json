@@ -140,7 +140,7 @@
     {
       "name": "release-package-archives",
       "claim": "Every generated crate archive contains the reviewed workspace sources, coordinated release versions, no forbidden repository-only material, and no relative README links to unpackaged repository documentation.",
-      "command": "scripts/verify-release-packages.py --version 2.0.2"
+      "command": "scripts/verify-release-packages.py --version 2.0.3"
     }
   ]
 }

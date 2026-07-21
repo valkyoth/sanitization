@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.3
+
+- Add policy-aware, in-place runtime-length constructors for
+  `LockedSecretVec` and `GuardedSecretVec`, ensuring every required runtime
+  control is established before a decoder, RNG, KDF, or protocol callback can
+  materialize secret bytes.
+- Add matching protected fill constructors for `LockedSecretString` and
+  `GuardedSecretString`, with clear-on-error UTF-8 validation.
+- Introduce `ProtectedSecretFillError<E>` and
+  `ProtectedSecretTextFillError<E>` so protection, callback, integrity, length,
+  and UTF-8 failures remain distinguishable.
+- Restrict fill callbacks to the requested public capacity even when a guarded
+  mapping has a larger page-rounded payload, and clear the complete unreported
+  tail before returning success.
+- Place and verify the suffix canary at the advertised capacity boundary while
+  a callback runs, detecting an unsafe decoder write past that boundary before
+  moving the canary to the initialized length.
+- Add native and Miri-model regression coverage for policy ordering, degraded
+  setup rejection, typed failures, tail handling, UTF-8 rejection, and canary
+  corruption.
+- Coordinate all five workspace crates and the exact runtime/derive dependency
+  at version `2.0.3`.
+
 ## 2.0.2
 
 - Add a `cfg(all(miri, test))` aligned-allocation backend for native

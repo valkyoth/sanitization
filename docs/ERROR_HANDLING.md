@@ -181,6 +181,26 @@ public report fields once and record the accepted deployment mode. Cargo
 features only describe compiled capability; they do not replace this runtime
 decision.
 
+## Protected Dynamic Filling
+
+`ProtectedSecretFillError<E>` keeps dynamic initialization failures separate:
+
+- `Protection` means a required control failed before the callback ran and
+  retains the partial report and rollback outcome;
+- `Fill` preserves the decoder, RNG, KDF, or protocol error;
+- `Integrity` means a canary changed while the callback held the destination;
+- `Length` means the callback reported more initialized bytes than requested.
+
+`ProtectedSecretTextFillError<E>` adds `Utf8`; invalid initialized bytes are
+cleared before that error is returned. These types intentionally do not collapse
+corruption into an ordinary decoder failure. An application can treat
+`Integrity` as security telemetry or a fail-stop event without logging bytes,
+addresses, or canary material.
+
+For controls marked `Preferred`, construction can still succeed with a degraded
+report. Mark every control that must exist before plaintext is written as
+`Required`.
+
 ## Fail-Stop Helpers
 
 Explicitly named `*_or_panic` methods remain available for binaries with a

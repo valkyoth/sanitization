@@ -802,6 +802,68 @@ impl fmt::Display for ProtectionError {
 #[cfg(feature = "std")]
 impl std::error::Error for ProtectionError {}
 
+/// Error returned when protected dynamic storage cannot be established and
+/// filled in place.
+///
+/// This keeps protection setup, caller-provided filling, and initialized
+/// length validation as separate failure classes. In particular,
+/// [`ProtectedSecretFillError::Protection`] retains the partial protection and
+/// rollback reports from [`ProtectionError`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProtectedSecretFillError<E> {
+    /// A required runtime protection could not be established before the fill
+    /// closure was invoked.
+    Protection(ProtectionError),
+    /// The caller-provided fill closure returned an error.
+    Fill(E),
+    /// Integrity canaries were corrupted while the fill closure had access
+    /// to the destination.
+    Integrity(CanaryCorruptedError),
+    /// The fill closure reported more initialized bytes than the mapping can
+    /// hold.
+    Length(crate::LengthError),
+}
+
+impl<E: fmt::Display> fmt::Display for ProtectedSecretFillError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Protection(error) => error.fmt(formatter),
+            Self::Fill(error) => write!(formatter, "protected secret fill failed: {error}"),
+            Self::Integrity(error) => error.fmt(formatter),
+            Self::Length(error) => error.fmt(formatter),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<E> std::error::Error for ProtectedSecretFillError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Protection(error) => Some(error),
+            Self::Fill(error) => Some(error),
+            Self::Integrity(error) => Some(error),
+            Self::Length(error) => Some(error),
+        }
+    }
+}
+
+impl<E> From<ProtectionError> for ProtectedSecretFillError<E> {
+    #[inline]
+    fn from(error: ProtectionError) -> Self {
+        Self::Protection(error)
+    }
+}
+
+impl<E> From<crate::LengthError> for ProtectedSecretFillError<E> {
+    #[inline]
+    fn from(error: crate::LengthError) -> Self {
+        Self::Length(error)
+    }
+}
+
 #[allow(dead_code)]
 pub(crate) const fn unavailable_state(requirement: Requirement) -> Result<ProtectionState, ()> {
     match requirement {

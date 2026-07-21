@@ -30,7 +30,7 @@ Optional derive macros for the `sanitization` crate.
 Use through the main crate:
 
 ```toml
-sanitization = { version = "2.0.2", features = ["derive"] }
+sanitization = { version = "2.0.3", features = ["derive"] }
 ```
 
 The derive crate only generates calls to traits from `sanitization`; it does

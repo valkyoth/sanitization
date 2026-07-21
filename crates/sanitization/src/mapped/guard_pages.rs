@@ -10,9 +10,9 @@ use core::{
 use core::cell::Cell;
 
 use super::{
-    CanaryCorruptedError, ForkPolicy, ForkProtectionRequest, ProtectionControl, ProtectionError,
-    ProtectionFailure, ProtectionReport, ProtectionRequest, ProtectionState, Requirement,
-    RollbackReport, RollbackState, SecretIntegrityError,
+    CanaryCorruptedError, ForkPolicy, ForkProtectionRequest, ProtectedSecretFillError,
+    ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport, ProtectionRequest,
+    ProtectionState, Requirement, RollbackReport, RollbackState, SecretIntegrityError,
 };
 
 #[cfg(all(
@@ -712,6 +712,157 @@ impl GuardedSecretVec {
             canary,
         };
         secret.write_canaries();
+        Ok(secret)
+    }
+
+    /// Create guarded dynamic storage by copying a slice only after all
+    /// required controls have been established.
+    ///
+    /// Guard pages are intrinsic and required. Mark memory locking, dump
+    /// exclusion, fork policy, canaries, or other controls
+    /// [`Requirement::Required`] when they must also precede secret
+    /// materialization.
+    pub fn from_slice_with_protection(
+        bytes: &[u8],
+        request: ProtectionRequest,
+    ) -> Result<Self, ProtectedSecretFillError<core::convert::Infallible>> {
+        Self::try_from_exact_len_with_protection(bytes.len(), request, |output| {
+            output.copy_from_slice(bytes);
+            Ok::<(), core::convert::Infallible>(())
+        })
+    }
+
+    /// Generate bytes directly into guarded dynamic storage after all
+    /// required controls have been established.
+    pub fn from_fn_with_protection(
+        len: usize,
+        request: ProtectionRequest,
+        mut make_byte: impl FnMut(usize) -> u8,
+    ) -> Result<Self, ProtectedSecretFillError<core::convert::Infallible>> {
+        Self::try_from_exact_len_with_protection(len, request, |output| {
+            let mut index = 0;
+            while index < len {
+                output[index] = make_byte(index);
+                index += 1;
+            }
+            Ok::<(), core::convert::Infallible>(())
+        })
+    }
+
+    /// Fallibly generate bytes directly into guarded dynamic storage after
+    /// all required controls have been established.
+    pub fn try_from_fn_with_protection<E>(
+        len: usize,
+        request: ProtectionRequest,
+        mut make_byte: impl FnMut(usize) -> Result<u8, E>,
+    ) -> Result<Self, ProtectedSecretFillError<E>> {
+        Self::try_from_exact_len_with_protection(len, request, |output| {
+            let mut index = 0;
+            while index < len {
+                output[index] = make_byte(index)?;
+                index += 1;
+            }
+            Ok(())
+        })
+    }
+
+    /// Fill an exact-length guarded payload only after all required controls
+    /// have been established.
+    ///
+    /// If `fill` panics, clear-on-drop ownership remains active for the entire
+    /// writable mapping during unwinding.
+    pub fn from_exact_len_with_protection(
+        len: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]),
+    ) -> Result<Self, ProtectedSecretFillError<core::convert::Infallible>> {
+        Self::try_from_exact_len_with_protection(len, request, |output| {
+            fill(output);
+            Ok::<(), core::convert::Infallible>(())
+        })
+    }
+
+    /// Fallible variant of
+    /// [`GuardedSecretVec::from_exact_len_with_protection`].
+    ///
+    /// The fill closure is never invoked when a required control fails. A
+    /// fill error clears the complete writable mapping before returning.
+    pub fn try_from_exact_len_with_protection<E>(
+        len: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<(), E>,
+    ) -> Result<Self, ProtectedSecretFillError<E>> {
+        Self::try_from_capacity_with_protection(len, request, |output| {
+            fill(output)?;
+            Ok(len)
+        })
+    }
+
+    /// Fill guarded dynamic storage and return the initialized byte length.
+    ///
+    /// This is the infallible-fill counterpart of
+    /// [`GuardedSecretVec::try_from_capacity_with_protection`].
+    pub fn from_capacity_with_protection(
+        capacity: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> usize,
+    ) -> Result<Self, ProtectedSecretFillError<core::convert::Infallible>> {
+        Self::try_from_capacity_with_protection(capacity, request, |output| {
+            Ok::<usize, core::convert::Infallible>(fill(output))
+        })
+    }
+
+    /// Fill guarded dynamic storage only after all required controls have
+    /// been established.
+    ///
+    /// This constructor supports runtime-length decoders and generators
+    /// without materializing plaintext before mandatory guard, lock, dump,
+    /// fork, or canary controls succeed. The closure is not invoked when any
+    /// [`Requirement::Required`] control fails. Controls marked
+    /// [`Requirement::Preferred`] retain their normal degraded-success
+    /// semantics and remain visible through [`GuardedSecretVec::protection_report`].
+    ///
+    /// If `fill` fails or reports more than `capacity` initialized bytes, the
+    /// complete writable mapping is cleared before the error is returned.
+    /// Unused tail bytes are also cleared before successful construction.
+    pub fn try_from_capacity_with_protection<E>(
+        capacity: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+    ) -> Result<Self, ProtectedSecretFillError<E>> {
+        let mut secret = Self::with_capacity_with_protection(capacity, request)
+            .map_err(ProtectedSecretFillError::Protection)?;
+        // During filling, place the suffix canary at the caller-visible
+        // capacity boundary rather than at the page-rounded payload end.
+        // This detects an unsafe decoder writing beyond the advertised
+        // output slice before the canary is moved to the initialized length.
+        secret.len = capacity;
+        secret.write_canaries();
+        compiler_fence(Ordering::SeqCst);
+        let fill_result = fill(&mut secret.as_mut_capacity_slice()[..capacity]);
+        secret
+            .verify_integrity()
+            .map_err(ProtectedSecretFillError::Integrity)?;
+        let len = match fill_result {
+            Ok(len) => len,
+            Err(error) => {
+                secret.clear_secret();
+                return Err(ProtectedSecretFillError::Fill(error));
+            }
+        };
+        if len > capacity {
+            secret.clear_secret();
+            return Err(ProtectedSecretFillError::Length(crate::LengthError {
+                expected: capacity,
+                actual: len,
+            }));
+        }
+
+        if len < secret.data_capacity {
+            let spare = &mut secret.as_mut_capacity_slice()[len..];
+            crate::wipe_backend::erase(spare.as_mut_ptr(), spare.len());
+        }
+        secret.finish_initialization(len);
         Ok(secret)
     }
 

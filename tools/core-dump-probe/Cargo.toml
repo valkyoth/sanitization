@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-sanitization = { version = "2.0.2", path = "../../crates/sanitization", features = ["memory-lock"] }
+sanitization = { version = "2.0.3", path = "../../crates/sanitization", features = ["memory-lock"] }

@@ -64,6 +64,34 @@ or `try_from_fn` over constructing an unlocked array and moving it into the
 mapping. Avoid cloning, formatting, and `to_vec` on secrets; place unavoidable
 scratch storage under clear-on-drop ownership and minimize exposure scope.
 
+For a decoder whose exact output length is known only after writing, establish
+the policy before decoding and return the initialized prefix length:
+
+```rust,no_run
+# #[cfg(feature = "memory-lock")]
+# {
+use sanitization::{LockedSecretVec, ProtectionRequest};
+
+let decoded = LockedSecretVec::try_from_capacity_with_protection(
+    4096,
+    ProtectionRequest::profile_hardened_native(),
+    |output| {
+        output[..5].copy_from_slice(b"token");
+        Ok::<usize, std::io::Error>(5)
+    },
+)?;
+assert_eq!(decoded.try_constant_time_eq(b"token"), Ok(true));
+# Ok::<(), Box<dyn std::error::Error>>(())
+# }
+```
+
+The callback receives exactly the requested capacity even when a guarded
+mapping owns a larger page-rounded payload. Required protection failure prevents
+the callback from running. The constructor verifies canaries at the advertised
+capacity boundary, rejects over-reported lengths, and clears every unreported
+tail byte. `GuardedSecretVec` exposes the same API. The locked and guarded
+string wrappers additionally validate UTF-8 and clear invalid payloads.
+
 Use named profile constructors when their policy matches the deployment. Use a
 custom request only when required/preferred controls genuinely differ. See
 [`PROTECTION_REPORT.md`](PROTECTION_REPORT.md) and

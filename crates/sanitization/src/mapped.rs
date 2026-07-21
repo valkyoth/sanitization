@@ -14,10 +14,10 @@ use crate::{ct, SecureSanitize};
 mod protection;
 pub use protection::{
     CanaryCorruptedError, ForkPolicy, ForkProtectionReport, ForkProtectionRequest, IntegrityResult,
-    MappedResult, ProtectionControl, ProtectionError, ProtectionFailure, ProtectionReport,
-    ProtectionRequest, ProtectionState, Requirement, RollbackReport, RollbackState,
-    SecretIntegrityError, SecretIntegrityResult, SecretIntegrityResultExt, SecretPoolReport,
-    SecretPoolSlotId,
+    MappedResult, ProtectedSecretFillError, ProtectionControl, ProtectionError, ProtectionFailure,
+    ProtectionReport, ProtectionRequest, ProtectionState, Requirement, RollbackReport,
+    RollbackState, SecretIntegrityError, SecretIntegrityResult, SecretIntegrityResultExt,
+    SecretPoolReport, SecretPoolSlotId,
 };
 
 #[cfg(all(
@@ -193,6 +193,72 @@ impl std::error::Error for SecretTextIntegrityError {
     }
 }
 
+/// Error returned when protected UTF-8 storage cannot be established, filled,
+/// or validated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProtectedSecretTextFillError<E> {
+    /// A required runtime protection could not be established before filling.
+    Protection(ProtectionError),
+    /// The caller-provided fill closure returned an error.
+    Fill(E),
+    /// Integrity canaries were corrupted while the fill closure had access.
+    Integrity(CanaryCorruptedError),
+    /// The fill closure reported more initialized bytes than requested.
+    Length(crate::LengthError),
+    /// The initialized bytes were not valid UTF-8 and were cleared.
+    Utf8(core::str::Utf8Error),
+}
+
+impl<E> From<ProtectedSecretFillError<E>> for ProtectedSecretTextFillError<E> {
+    #[inline]
+    fn from(error: ProtectedSecretFillError<E>) -> Self {
+        match error {
+            ProtectedSecretFillError::Protection(error) => Self::Protection(error),
+            ProtectedSecretFillError::Fill(error) => Self::Fill(error),
+            ProtectedSecretFillError::Integrity(error) => Self::Integrity(error),
+            ProtectedSecretFillError::Length(error) => Self::Length(error),
+        }
+    }
+}
+
+impl<E> From<SecretTextIntegrityError> for ProtectedSecretTextFillError<E> {
+    #[inline]
+    fn from(error: SecretTextIntegrityError) -> Self {
+        match error {
+            SecretTextIntegrityError::Canary(error) => Self::Integrity(error),
+            SecretTextIntegrityError::Utf8(error) => Self::Utf8(error),
+        }
+    }
+}
+
+impl<E: fmt::Display> fmt::Display for ProtectedSecretTextFillError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Protection(error) => error.fmt(formatter),
+            Self::Fill(error) => write!(formatter, "protected secret text fill failed: {error}"),
+            Self::Integrity(error) => error.fmt(formatter),
+            Self::Length(error) => error.fmt(formatter),
+            Self::Utf8(error) => error.fmt(formatter),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<E> std::error::Error for ProtectedSecretTextFillError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Protection(error) => Some(error),
+            Self::Fill(error) => Some(error),
+            Self::Integrity(error) => Some(error),
+            Self::Length(error) => Some(error),
+            Self::Utf8(error) => Some(error),
+        }
+    }
+}
+
 /// UTF-8 text stored in a private platform mapping locked against paging.
 ///
 /// This wrapper delegates allocation, locking, dump/fork exclusion, canary
@@ -265,6 +331,36 @@ impl LockedSecretString {
     ) -> Result<Self, ProtectionError> {
         LockedSecretVec::with_capacity_with_protection(capacity, request)
             .map(|inner| Self { inner })
+    }
+
+    /// Fill a runtime-length UTF-8 payload only after all required controls
+    /// have been established.
+    ///
+    /// The closure receives exactly `capacity` bytes and returns the number
+    /// initialized. Invalid UTF-8, partial fill failures, excessive lengths,
+    /// and canary corruption clear the mapping before returning an error.
+    #[inline]
+    pub fn try_from_capacity_with_protection<E>(
+        capacity: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+    ) -> Result<Self, ProtectedSecretTextFillError<E>> {
+        let inner = LockedSecretVec::try_from_capacity_with_protection(capacity, request, fill)
+            .map_err(ProtectedSecretTextFillError::from)?;
+        Self::from_locked_secret_vec(inner).map_err(ProtectedSecretTextFillError::from)
+    }
+
+    /// Fill an exact-length UTF-8 payload after required controls succeed.
+    #[inline]
+    pub fn try_from_exact_len_with_protection<E>(
+        len: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<(), E>,
+    ) -> Result<Self, ProtectedSecretTextFillError<E>> {
+        Self::try_from_capacity_with_protection(len, request, |output| {
+            fill(output)?;
+            Ok(len)
+        })
     }
 
     /// Copy UTF-8 text directly into a locked platform mapping.
@@ -624,6 +720,36 @@ impl GuardedSecretString {
     ) -> Result<Self, ProtectionError> {
         GuardedSecretVec::with_capacity_with_protection(capacity, request)
             .map(|inner| Self { inner })
+    }
+
+    /// Fill a runtime-length UTF-8 payload only after all required controls
+    /// have been established.
+    ///
+    /// The closure receives exactly `capacity` bytes and returns the number
+    /// initialized. Invalid UTF-8, partial fill failures, excessive lengths,
+    /// and canary corruption clear the mapping before returning an error.
+    #[inline]
+    pub fn try_from_capacity_with_protection<E>(
+        capacity: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+    ) -> Result<Self, ProtectedSecretTextFillError<E>> {
+        let inner = GuardedSecretVec::try_from_capacity_with_protection(capacity, request, fill)
+            .map_err(ProtectedSecretTextFillError::from)?;
+        Self::from_guarded_secret_vec(inner).map_err(ProtectedSecretTextFillError::from)
+    }
+
+    /// Fill an exact-length UTF-8 payload after required controls succeed.
+    #[inline]
+    pub fn try_from_exact_len_with_protection<E>(
+        len: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<(), E>,
+    ) -> Result<Self, ProtectedSecretTextFillError<E>> {
+        Self::try_from_capacity_with_protection(len, request, |output| {
+            fill(output)?;
+            Ok(len)
+        })
     }
 
     /// Copy UTF-8 text directly into a guarded platform mapping.

@@ -83,21 +83,21 @@ Fixed-size `no_std` secrets need no feature flags:
 
 ```toml
 [dependencies]
-sanitization = "2.0.2"
+sanitization = "2.0.3"
 ```
 
 Heap-backed byte and text containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.0.2", features = ["alloc"] }
+sanitization = { version = "2.0.3", features = ["alloc"] }
 ```
 
 Recommended native hardening profile:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.0.2", features = ["profile-hardened-native"] }
+sanitization = { version = "2.0.3", features = ["profile-hardened-native"] }
 ```
 
 This profile includes OS-random canaries and `strict-canary-check`. Enabling
@@ -108,7 +108,7 @@ Optional derives:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.0.2", features = ["derive"] }
+sanitization = { version = "2.0.3", features = ["derive"] }
 ```
 
 See the complete [feature reference](https://github.com/valkyoth/sanitization/blob/main/docs/FEATURES.md) before combining
@@ -332,6 +332,35 @@ assert_eq!(key.try_constant_time_eq(&[7; 32]), Ok(true));
 # }
 ```
 
+Runtime-length decoders should use the policy-aware dynamic constructor. The
+mapping and every `Required` control are established before the callback runs;
+decoder failure, excessive output length, invalid integrity canaries, and the
+unreported tail are cleared before an error or value is returned:
+
+```rust,no_run
+# #[cfg(feature = "memory-lock")]
+# {
+use sanitization::{LockedSecretVec, ProtectionRequest};
+
+let request = ProtectionRequest::profile_hardened_native();
+let decoded = LockedSecretVec::try_from_capacity_with_protection(
+    4096,
+    request,
+    |output| {
+        output[..5].copy_from_slice(b"token");
+        Ok::<usize, std::io::Error>(5)
+    },
+)?;
+
+assert_eq!(decoded.try_constant_time_eq(b"token"), Ok(true));
+# Ok::<(), Box<dyn std::error::Error>>(())
+# }
+```
+
+`GuardedSecretVec` provides the same constructor. `LockedSecretString` and
+`GuardedSecretString` provide matching policy-aware fill constructors and
+clear the mapping when the initialized prefix is not valid UTF-8.
+
 Prefer direct final-storage generation through `try_from_fn`, `try_from_fill`,
 or `try_init_with`. Avoid `Clone`, `to_vec`, formatting, and temporary arrays
 for secret material. Keep unavoidable cryptographic scratch buffers in
@@ -504,7 +533,7 @@ when installed. Native target evidence and timing runs are documented in
 Release publication is staged through:
 
 ```bash
-scripts/release_crates.py --version 2.0.2 --prepare-only
+scripts/release_crates.py --version 2.0.3 --prepare-only
 scripts/release_crates.py --require-tag
 ```
 

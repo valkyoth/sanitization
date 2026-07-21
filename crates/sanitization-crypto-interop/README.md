@@ -47,7 +47,7 @@ AArch64 and fail closed on unsupported non-Miri targets.
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "2.0.2", features = ["sha2", "blake3", "hmac-sha2", "strict-compare"] }
+sanitization-crypto-interop = { version = "2.0.3", features = ["sha2", "blake3", "hmac-sha2", "strict-compare"] }
 ```
 
 ## SHA-2
@@ -107,7 +107,7 @@ scope for high-assurance deployments.
 
 ```toml
 [dependencies]
-sanitization-crypto-interop = { version = "2.0.2", features = ["hmac-sha2"] }
+sanitization-crypto-interop = { version = "2.0.3", features = ["hmac-sha2"] }
 ```
 
 ```rust

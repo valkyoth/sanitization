@@ -391,6 +391,14 @@ Invariant:
   with `canary-check`, both canary regions are verified. They clear partial
   output on a returned generator error and retain clear-on-drop ownership
   during panic unwinding.
+- Policy-aware dynamic fill constructors establish every required control
+  before invoking the callback. The callback sees exactly the requested public
+  capacity, including when guard-page allocation rounds the writable payload
+  upward. During filling, the suffix canary is placed at that advertised
+  boundary and verified afterward. Fill, integrity, and excessive-length
+  failures clear the mapping; success clears the complete unreported tail
+  before moving the suffix canary to the initialized length. Protected text
+  wrappers then validate UTF-8 without reallocating and clear invalid input.
 - Replacement helpers stage the new value in a fresh locked mapping before
   clearing and swapping out the old mapping. Filled replacement mappings are
   integrity-checked after the callback and before the swap. If mapping setup,
