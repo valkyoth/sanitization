@@ -147,6 +147,38 @@ fn miri_models_locked_mapping_lifecycle_without_native_syscalls() {
     drop(reused);
     drop(second);
     drop(pool);
+
+    #[cfg(feature = "zeroize-interop")]
+    {
+        fn assert_zeroize_interop<T: zeroize::Zeroize + zeroize::ZeroizeOnDrop>() {}
+
+        assert_zeroize_interop::<LockedSecretVec>();
+        assert_zeroize_interop::<LockedSecretString>();
+
+        let mut bytes = LockedSecretVec::from_slice(b"interop").unwrap();
+        zeroize::Zeroize::zeroize(&mut bytes);
+        assert_eq!(bytes.try_with_secret(<[u8]>::len), Ok(0));
+
+        let mut string = LockedSecretString::from_secret_str("interop").unwrap();
+        zeroize::Zeroize::zeroize(&mut string);
+        assert_eq!(string.try_with_secret(str::len), Ok(0));
+    }
+
+    #[cfg(feature = "subtle-interop")]
+    {
+        fn assert_subtle_interop<T: subtle::ConstantTimeEq>() {}
+
+        assert_subtle_interop::<LockedSecretVec>();
+        assert_subtle_interop::<LockedSecretString>();
+
+        let left = LockedSecretVec::from_slice(b"interop").unwrap();
+        let right = LockedSecretVec::from_slice(b"interop").unwrap();
+        assert!(bool::from(subtle::ConstantTimeEq::ct_eq(&left, &right)));
+
+        let left = LockedSecretString::from_secret_str("interop").unwrap();
+        let right = LockedSecretString::from_secret_str("interop").unwrap();
+        assert!(bool::from(subtle::ConstantTimeEq::ct_eq(&left, &right)));
+    }
 }
 
 #[cfg(all(
@@ -4055,12 +4087,19 @@ fn sealed_secret_explicit_close_reports_failures_and_supports_retry() {
     assert_eq!(error.operation(), GuardPageOperation::Protect);
     assert_eq!(error.errno(), 0);
     assert!(report.normalization_failed());
-    assert!(report.unmap_failed());
+    assert_eq!(report.unlock, CleanupState::NotNeeded);
+    assert_eq!(report.unmap, CleanupState::NotNeeded);
     assert!(secret.is_poisoned());
     assert_eq!(
         secret.try_with_secret(|_| ()),
         Err(SealedSecretAccessError::Poisoned)
     );
+
+    let error = secret.try_close().unwrap_err();
+    let report = error.report();
+    assert_eq!(report.normalization, CleanupState::Completed);
+    assert!(report.unmap_failed());
+    assert!(secret.is_poisoned());
 
     secret.try_close().unwrap();
     assert!(secret.is_retired());
@@ -4079,7 +4118,7 @@ fn sealed_secret_explicit_close_reports_failures_and_supports_retry() {
     not(miri)
 ))]
 #[test]
-fn sealed_secret_retains_lock_when_unwiped_mapping_release_fails() {
+fn sealed_secret_retains_lock_and_mapping_when_normalization_fails() {
     const N: usize = 8 * 1024;
     let request = ProtectionRequest::locked_guarded();
     let mut secret = SealedSecretBytes::<N>::zeroed_with_protection(request).unwrap();
@@ -4101,10 +4140,23 @@ fn sealed_secret_retains_lock_when_unwiped_mapping_release_fails() {
 
     assert!(cleanup.normalization_failed());
     assert_eq!(cleanup.unlock, CleanupState::NotNeeded);
-    assert!(cleanup.unmap_failed());
+    assert_eq!(cleanup.unmap, CleanupState::NotNeeded);
     assert!(secret.is_poisoned());
     assert!(secret.protection_report().memory_is_locked());
     assert_eq!(secret.protection_report().locked_bytes, locked_bytes);
+    assert_eq!(
+        secret.protection_report().mapping,
+        ProtectionState::Established
+    );
+
+    let error = secret.try_close().unwrap_err();
+    let cleanup = error.report();
+    assert_eq!(cleanup.normalization, CleanupState::Completed);
+    assert_eq!(cleanup.unlock, CleanupState::Completed);
+    assert!(cleanup.unmap_failed());
+    assert!(secret.is_poisoned());
+    assert!(!secret.protection_report().memory_is_locked());
+    assert_eq!(secret.protection_report().locked_bytes, 0);
     assert_eq!(
         secret.protection_report().mapping,
         ProtectionState::Established
@@ -4751,6 +4803,18 @@ fn locked_secret_vec_canaries_detect_corruption() {
     secret.corrupt_prefix_canary_for_test();
 
     assert_eq!(
+        ct::ConstantTimeEq::ct_eq(&secret, b"secret".as_slice())
+            .declassify_u8("test verifies corrupted mapped vector comparison fails closed"),
+        0
+    );
+
+    #[cfg(feature = "subtle-interop")]
+    {
+        let same = LockedSecretVec::from_slice(b"secret").unwrap();
+        assert!(!bool::from(subtle::ConstantTimeEq::ct_eq(&secret, &same)));
+    }
+
+    assert_eq!(
         secret.try_with_secret(|bytes| bytes[0]),
         Err(CanaryCorruptedError)
     );
@@ -4824,6 +4888,18 @@ fn locked_secret_canary_checked_apis_detect_corruption() {
     );
 
     secret.corrupt_prefix_canary_for_test();
+
+    assert_eq!(
+        ct::ConstantTimeEq::ct_eq(&secret, [1, 2, 3, 4].as_slice())
+            .declassify_u8("test verifies corrupted mapped secret comparison fails closed"),
+        0
+    );
+
+    #[cfg(feature = "subtle-interop")]
+    {
+        let same = LockedSecretBytes::<4>::from_array([1, 2, 3, 4]).unwrap();
+        assert!(!bool::from(subtle::ConstantTimeEq::ct_eq(&secret, &same)));
+    }
 
     assert_eq!(
         secret.try_expose_secret(|bytes| bytes[0]),
@@ -5256,6 +5332,12 @@ fn secret_pool_slot_canaries_detect_corruption() {
     slot.corrupt_prefix_canary_for_test();
 
     assert_eq!(
+        ct::ConstantTimeEq::ct_eq(&slot, [1, 2, 3, 4].as_slice())
+            .declassify_u8("test verifies corrupted pool slot comparison fails closed"),
+        0
+    );
+
+    assert_eq!(
         slot.try_expose_secret(|bytes| bytes[0]),
         Err(CanaryCorruptedError)
     );
@@ -5521,6 +5603,18 @@ fn guarded_secret_vec_canaries_detect_corruption() {
     assert_eq!(secret.try_with_secret(|bytes| bytes[5]), Ok(6));
 
     secret.corrupt_suffix_canary_for_test();
+
+    assert_eq!(
+        ct::ConstantTimeEq::ct_eq(&secret, [1, 2, 3, 4, 5, 6].as_slice())
+            .declassify_u8("test verifies corrupted guarded vector comparison fails closed"),
+        0
+    );
+
+    #[cfg(feature = "subtle-interop")]
+    {
+        let same = GuardedSecretVec::from_slice(&[1, 2, 3, 4, 5, 6]).unwrap();
+        assert!(!bool::from(subtle::ConstantTimeEq::ct_eq(&secret, &same)));
+    }
 
     assert_eq!(
         secret.try_with_secret(|bytes| bytes[0]),

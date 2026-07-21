@@ -155,8 +155,12 @@ cleanup reports at their reviewed operational boundary.
 With canaries enabled, ordinary mapped operations verify integrity before
 exposure, mutation, copying, replacement, and comparison. A mismatch clears or
 retires the affected storage and returns `CanaryCorruptedError` or
-`SecretIntegrityError<E>`. Explicit `*_or_panic` helpers exist only for callers
-that deliberately choose fail-stop behavior.
+`SecretIntegrityError<E>`. Native and `subtle` `ConstantTimeEq` traits cannot
+represent an integrity error, so their mapped-container implementations clear
+or quarantine the affected storage and return a false choice. Use the checked
+`try_constant_time_eq` methods when corruption must remain distinguishable from
+ordinary inequality. Explicit `*_or_panic` helpers exist only for callers that
+deliberately choose fail-stop behavior.
 
 Do not catch an integrity error and continue using the value as if the check
 were advisory. Treat the storage as untrusted and follow the method's documented

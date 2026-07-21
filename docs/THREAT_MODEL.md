@@ -336,9 +336,9 @@ scoped accesses. The access window itself remains readable/writable, requires
 `&mut self`, and is guarded against ordinary reentry. Normal return and panic
 unwinding attempt to reseal. A failed transition first normalizes every page
 to read/write; cleanup wipes only if all pages reach that known state, and
-otherwise attempts release while retaining any established memory lock. If
-release also fails, the inaccessible poisoned mapping remains locked. Default
-constructors require Linux
+otherwise retains the inaccessible poisoned mapping and any established memory
+lock without attempting release. A checked cleanup call may retry the
+normalization. Default constructors require Linux
 `MADV_WIPEONFORK`, preventing an unrelated thread's fork during the access
 window from retaining readable child bytes. Fork-capable targets without a
 reviewed equivalent require an explicit lower-assurance policy; Windows

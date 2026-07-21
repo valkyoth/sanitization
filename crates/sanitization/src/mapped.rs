@@ -953,16 +953,20 @@ mod native_ct_memory_lock_impls {
     impl<const N: usize> ct::ConstantTimeEq for LockedSecretBytes<N> {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
-            self.expose_secret_or_panic(|left| {
-                other.expose_secret_or_panic(|right| ct::eq_fixed(left, right))
-            })
+            match self.try_expose_secret(|left| {
+                other.try_expose_secret(|right| ct::eq_fixed(left, right))
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => ct::Choice::FALSE,
+            }
         }
     }
 
     impl<const N: usize> ct::ConstantTimeEq<[u8]> for LockedSecretBytes<N> {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
-            self.expose_secret_or_panic(|left| ct::eq_public_len(left, other))
+            self.try_expose_secret(|left| ct::eq_public_len(left, other))
+                .unwrap_or(ct::Choice::FALSE)
         }
     }
 
@@ -971,9 +975,12 @@ mod native_ct_memory_lock_impls {
     {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
-            self.expose_secret_or_panic(|left| {
-                other.expose_secret_or_panic(|right| ct::eq_fixed(left, right))
-            })
+            match self.try_expose_secret(|left| {
+                other.try_expose_secret(|right| ct::eq_fixed(left, right))
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => ct::Choice::FALSE,
+            }
         }
     }
 
@@ -982,7 +989,8 @@ mod native_ct_memory_lock_impls {
     {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
-            self.expose_secret_or_panic(|left| ct::eq_public_len(left, other))
+            self.try_expose_secret(|left| ct::eq_public_len(left, other))
+                .unwrap_or(ct::Choice::FALSE)
         }
     }
 
@@ -990,9 +998,12 @@ mod native_ct_memory_lock_impls {
     impl ct::ConstantTimeEq for LockedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
-            self.with_secret_or_panic(|left| {
-                other.with_secret_or_panic(|right| ct::eq_public_len(left, right))
-            })
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| ct::eq_public_len(left, right))
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => ct::Choice::FALSE,
+            }
         }
     }
 
@@ -1000,7 +1011,8 @@ mod native_ct_memory_lock_impls {
     impl ct::ConstantTimeEq<[u8]> for LockedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
-            self.with_secret_or_panic(|left| ct::eq_public_len(left, other))
+            self.try_with_secret(|left| ct::eq_public_len(left, other))
+                .unwrap_or(ct::Choice::FALSE)
         }
     }
 
@@ -1045,16 +1057,20 @@ mod native_ct_guard_page_impls {
     impl ct::ConstantTimeEq for GuardedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> ct::Choice {
-            self.with_secret_or_panic(|left| {
-                other.with_secret_or_panic(|right| ct::eq_public_len(left, right))
-            })
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| ct::eq_public_len(left, right))
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => ct::Choice::FALSE,
+            }
         }
     }
 
     impl ct::ConstantTimeEq<[u8]> for GuardedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &[u8]) -> ct::Choice {
-            self.with_secret_or_panic(|left| ct::eq_public_len(left, other))
+            self.try_with_secret(|left| ct::eq_public_len(left, other))
+                .unwrap_or(ct::Choice::FALSE)
         }
     }
 

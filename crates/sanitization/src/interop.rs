@@ -114,11 +114,7 @@ mod zeroize_interop {
     #[cfg(feature = "memory-lock")]
     impl<const N: usize> zeroize::ZeroizeOnDrop for LockedSecretBytes<N> {}
 
-    #[cfg(all(
-        feature = "memory-lock",
-        not(target_arch = "wasm32"),
-        not(all(miri, test))
-    ))]
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
     impl zeroize::Zeroize for LockedSecretVec {
         #[inline]
         fn zeroize(&mut self) {
@@ -126,18 +122,10 @@ mod zeroize_interop {
         }
     }
 
-    #[cfg(all(
-        feature = "memory-lock",
-        not(target_arch = "wasm32"),
-        not(all(miri, test))
-    ))]
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
     impl zeroize::ZeroizeOnDrop for LockedSecretVec {}
 
-    #[cfg(all(
-        feature = "memory-lock",
-        not(target_arch = "wasm32"),
-        not(all(miri, test))
-    ))]
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
     impl zeroize::Zeroize for LockedSecretString {
         #[inline]
         fn zeroize(&mut self) {
@@ -145,11 +133,7 @@ mod zeroize_interop {
         }
     }
 
-    #[cfg(all(
-        feature = "memory-lock",
-        not(target_arch = "wasm32"),
-        not(all(miri, test))
-    ))]
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
     impl zeroize::ZeroizeOnDrop for LockedSecretString {}
 
     #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
@@ -243,40 +227,37 @@ mod subtle_interop {
     impl<const N: usize> ConstantTimeEq for LockedSecretBytes<N> {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
-            Choice::from(
-                other.expose_secret_or_panic(|bytes| self.constant_time_eq_or_panic(bytes)) as u8,
-            )
+            match self.try_expose_secret(|left| {
+                other.try_expose_secret(|right| {
+                    Choice::from(constant_time_eq_slices(left, right) as u8)
+                })
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => Choice::from(0),
+            }
         }
     }
 
-    #[cfg(all(
-        feature = "memory-lock",
-        not(target_arch = "wasm32"),
-        not(all(miri, test))
-    ))]
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
     impl ConstantTimeEq for LockedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
-            Choice::from(
-                other.with_secret_or_panic(|bytes| self.constant_time_eq_or_panic(bytes)) as u8,
-            )
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| {
+                    Choice::from(constant_time_eq_slices(left, right) as u8)
+                })
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => Choice::from(0),
+            }
         }
     }
 
-    #[cfg(all(
-        feature = "memory-lock",
-        not(target_arch = "wasm32"),
-        not(all(miri, test))
-    ))]
+    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32")))]
     impl ConstantTimeEq for LockedSecretString {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
-            Choice::from(
-                other
-                    .inner
-                    .with_secret_or_panic(|bytes| self.inner.constant_time_eq_or_panic(bytes))
-                    as u8,
-            )
+            self.inner.ct_eq(&other.inner)
         }
     }
 
@@ -284,9 +265,14 @@ mod subtle_interop {
     impl ConstantTimeEq for GuardedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
-            Choice::from(
-                other.with_secret_or_panic(|bytes| self.constant_time_eq_or_panic(bytes)) as u8,
-            )
+            match self.try_with_secret(|left| {
+                other.try_with_secret(|right| {
+                    Choice::from(constant_time_eq_slices(left, right) as u8)
+                })
+            }) {
+                Ok(Ok(choice)) => choice,
+                Ok(Err(_)) | Err(_) => Choice::from(0),
+            }
         }
     }
 
@@ -294,12 +280,7 @@ mod subtle_interop {
     impl ConstantTimeEq for GuardedSecretString {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
-            Choice::from(
-                other
-                    .inner
-                    .with_secret_or_panic(|bytes| self.inner.constant_time_eq_or_panic(bytes))
-                    as u8,
-            )
+            self.inner.ct_eq(&other.inner)
         }
     }
 }

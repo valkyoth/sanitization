@@ -208,9 +208,9 @@ panic unwinding both attempt to restore no-access protection. A detected
 normal-return transition failure normalizes every data page to read/write,
 clears only after all pages are confirmed writable, and retires the mapping
 instead of returning the closure result. If normalization fails, cleanup does
-not dereference the uncertain mapping and attempts release while preserving any
-established memory lock. If release also fails, the poisoned mapping remains
-locked and retryable instead of making unwiped bytes pageable.
+not dereference, unlock, or unmap the uncertain pages. The poisoned mapping and
+any established memory lock remain retryable instead of returning unwiped
+physical pages to the operating system.
 
 Default page-sealed constructors require Linux `MADV_WIPEONFORK`. A child
 created while an unrelated thread has opened an access window therefore
@@ -229,8 +229,9 @@ Page-sealed cleanup is explicitly fallible. `SealedSecretBytes<N>` provides
 because an operating-system failure may prevent an inaccessible page from
 becoming writable. Explicit close reports normalization, unlock, and unmap
 outcomes. A live, unwiped mapping remains poisoned and locked after failed
-release and can retry. A confirmed-wiped mapping may be unlocked after failed
-release; successful release retires it and implicitly disposes of its lock.
+normalization and can retry. A confirmed-wiped mapping may be unlocked after
+failed release; successful release retires it and implicitly disposes of its
+lock.
 
 ## Evidence
 

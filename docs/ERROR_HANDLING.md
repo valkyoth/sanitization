@@ -200,13 +200,13 @@ applications that require observable cleanup. It returns `CleanupError` with a
 `CleanupReport`; the report contains only operation classifications and
 platform error codes.
 
-An unmap failure leaves the value poisoned, rejects later secret access, and
-permits another `try_close()` attempt. If normalization did not establish that
-the payload was erased, an existing memory lock is retained and `unlock` is
-reported as `NotNeeded`. If the payload was erased, cleanup may unlock after a
-failed unmap and updates the retained `ProtectionReport` accordingly.
-Successful unmap retires the value and implicitly releases its lock even when
-an earlier operation reported an error because no mapping remains to retry.
+Normalization failure leaves the value poisoned, retains the mapping and any
+established memory lock, reports `unlock` and `unmap` as `NotNeeded`, and
+permits another `try_close()` attempt. Cleanup does not release inaccessible or
+uncertain pages before erasure. After successful normalization and erasure, an
+unmap failure remains retryable; cleanup may then unlock the erased mapping and
+updates the retained `ProtectionReport` accordingly. Successful unmap retires
+the value and implicitly releases any remaining lock.
 Applications can treat any error as a security event or invoke a reviewed
 fail-stop policy. `Drop` still invokes the same cleanup path when explicit
 close was omitted or failed.

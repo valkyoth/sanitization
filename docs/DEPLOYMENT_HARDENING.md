@@ -116,6 +116,7 @@ generated code, and later data flow from an ordinary named binding require
 human review or an application-selected AST-aware lint.
 
 Page-sealed storage provides `try_close()` for observable cleanup. If explicit
-cleanup fails, the value remains poisoned and access is rejected; the caller
-may retry cleanup or terminate according to policy. `Drop` remains the final
-best-effort fallback because Rust destructors cannot return an error.
+cleanup cannot normalize inaccessible pages, the value remains poisoned and
+access is rejected; no unlock or unmap is attempted. The caller may retry
+cleanup or terminate according to policy. `Drop` follows the same retention
+policy but cannot report failure because Rust destructors cannot return errors.

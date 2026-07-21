@@ -37,6 +37,18 @@ native production dependencies select a simulator.
 mapping immediately before unlock and unmap. This includes mapping padding and
 integrity metadata in addition to the secret payload.
 
+`SealedSecretBytes` no longer unmaps pages when cleanup cannot confirm that
+every page is writable and erased. It retains the poisoned mapping and any
+established lock for checked retry; `Drop` deliberately leaves that mapping to
+process teardown rather than returning unwiped physical pages to the operating
+system.
+
+Mapped native and `subtle` equality traits now fail closed with a false choice
+on integrity failure instead of selecting an implicit panic policy. Checked
+`try_constant_time_eq` remains the API for distinguishing canary corruption
+from ordinary inequality. Miri now compiles and exercises the locked dynamic
+and UTF-8 zeroize/subtle interop implementations.
+
 All five workspace crates are released together at `2.0.2`, with the derive
 crate exact-pinned to the matching runtime version.
 

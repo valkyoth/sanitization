@@ -11,6 +11,14 @@
   quarantine, rollback, and drop paths.
 - Enforce complete mapping clearing immediately before native unlock and unmap;
   the Miri backend asserts clear-before-release for every simulated mapping.
+- Preserve a poisoned page-sealed mapping and any established memory lock when
+  normalization cannot confirm that every page is writable and erased; unmap
+  is deferred until a checked cleanup retry succeeds.
+- Make mapped native and `subtle` equality traits return a false choice on
+  integrity failure instead of panicking, while checked comparison retains the
+  typed corruption error.
+- Compile and exercise locked dynamic and UTF-8 zeroize/subtle interop under
+  the Miri lifecycle model.
 - Clarify throughout the evidence, safety, and threat-model documentation that
   Miri protection-report outcomes are simulated and do not prove `mlock`,
   mapping, dump/fork policy, CSPRNG, page protection, or guard-page behavior.

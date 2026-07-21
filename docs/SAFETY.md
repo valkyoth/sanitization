@@ -655,25 +655,24 @@ Invariant:
   read/write transition to each page independently and wipes only if every
   page is confirmed writable.
 - If page normalization fails, cleanup never dereferences the uncertain
-  mapping. It attempts to release the mapping while preserving any established
-  memory lock. Successful release implicitly disposes of that lock and marks
-  the value retired. If release also fails, the mapping remains poisoned and
-  locked so a later cleanup attempt cannot page unwiped bytes to disk.
+  mapping and does not unlock or unmap it. The mapping remains poisoned and any
+  established memory lock remains active so a later checked cleanup can retry
+  normalization without first releasing unwiped physical pages.
 - `try_close()` exposes the same normalization, conditional clear, mapping
   release, and fallback unlock path used by `Drop`. Its report contains only
-  operation names and platform error codes. A failed release unlocks only when
-  every payload page was first confirmed writable and erased. Successful
-  release retires the value even if an earlier cleanup operation failed.
+  operation names and platform error codes. Mapping release is attempted only
+  after every payload page was confirmed writable and erased. A failed release
+  may then unlock the erased mapping; a successful release retires the value.
 - Default constructors require Linux `MADV_WIPEONFORK`. Fork-policy syscalls
   are independent of memory locking because `madvise` does not require
   `mlock`. Windows process creation does not clone the address space. Other
   fork-capable targets fail the default constructor and require an explicit
   lower-assurance protection request.
 - Drop uses the same per-page normalization, conditional volatile clear,
-  release-first, and fallback-unlock helper as `try_close()`, but necessarily
-  discards its report. If making every page writable and releasing the mapping
-  both fail, Drop preserves an established lock but cannot truthfully guarantee
-  a volatile clear of an inaccessible page.
+  release, and fallback-unlock helper as `try_close()`, but necessarily
+  discards its report. If making every page writable fails, Drop intentionally
+  retains the inaccessible mapping and any established lock until process exit
+  rather than returning unwiped physical pages to the operating system.
 - Because making a sealed page writable is fallible, this type exposes
   `try_secure_sanitize()` and does not implement infallible sanitization,
   zeroize-on-drop, or stable-storage marker traits.

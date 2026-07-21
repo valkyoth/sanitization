@@ -1797,10 +1797,21 @@ impl<const N: usize> SealedSecretBytes<N> {
             PageProtection::ReadWrite,
         );
 
-        let wiped = normalization.is_ok();
-        if wiped {
-            crate::wipe_backend::erase(self.inner.data.as_ptr(), self.inner.writable_len);
-        }
+        let normalization = match normalization {
+            Ok(()) => CleanupState::Completed,
+            Err(error) => {
+                // The page protections are uncertain, so neither dereference
+                // nor release the mapping. Preserve any established lock and
+                // leave the poisoned value available for checked cleanup retry.
+                return CleanupReport {
+                    normalization: CleanupState::Failed(error),
+                    unlock: CleanupState::NotNeeded,
+                    unmap: CleanupState::NotNeeded,
+                };
+            }
+        };
+
+        crate::wipe_backend::erase(self.inner.data.as_ptr(), self.inner.writable_len);
         #[cfg(feature = "random-canary")]
         self.inner.clear_canary_material();
 
@@ -1816,10 +1827,10 @@ impl<const N: usize> SealedSecretBytes<N> {
         #[cfg(not(test))]
         let unmap = unmap_guarded(self.inner.base, self.inner.map_len);
 
-        // Releasing a mapping also disposes of its page lock. If release fails,
-        // retain the lock until the payload has definitely been erased.
+        // Releasing a mapping also disposes of its page lock. At this point the
+        // payload is erased, so a failed release may be followed by unlock.
         #[cfg(feature = "memory-lock")]
-        let unlock = if unmap.is_ok() || !wiped || !self.inner.locked {
+        let unlock = if unmap.is_ok() || !self.inner.locked {
             CleanupState::NotNeeded
         } else {
             match unlock_mapping(self.inner.data, self.inner.writable_len) {
@@ -1839,10 +1850,7 @@ impl<const N: usize> SealedSecretBytes<N> {
         }
 
         CleanupReport {
-            normalization: match normalization {
-                Ok(()) => CleanupState::Completed,
-                Err(error) => CleanupState::Failed(error),
-            },
+            normalization,
             unlock,
             unmap: match unmap {
                 Ok(()) => CleanupState::Completed,

@@ -179,29 +179,29 @@ register copies, historical moves, aborts, and leaked values remain outside the
 clearing guarantee.
 
 If `Drop` cannot change an already sealed page back to read/write, it cannot
-perform the normal volatile clear and instead attempts to release the mapping
-without first removing an established memory lock. If release also fails, the
-mapping remains poisoned and locked until another cleanup attempt or process
-termination. The feature therefore does not claim an infallible final wipe
-under page-protection failure. CP-16 acceptance also requires native target
-evidence and external unsafe review; otherwise the feature will be deferred
-from 2.0 stable.
+perform the normal volatile clear. It intentionally retains the poisoned
+mapping and any established memory lock until process termination instead of
+releasing unwiped physical pages. The feature therefore does not claim an
+infallible final wipe under page-protection failure. CP-16 acceptance also
+requires native target evidence and external unsafe review; otherwise the
+feature will be deferred from 2.0 stable.
 
 POSIX permits a failed protection update to have changed only part of a
 multi-page range. After any failed page-seal transition, the implementation
 therefore treats the mapping as poisoned until every page is independently
-confirmed writable or the mapping is released. If normalization fails, it
-does not attempt a wipe through uncertain page protections. An unmap failure
-may consequently retain an inaccessible or partially protected mapping until
-process exit, without exposing it again through safe APIs. When memory locking
-was established, that retained mapping stays locked; cleanup removes the lock
-after an unmap failure only when the payload was first confirmed erased.
+confirmed writable. If normalization fails, it does not attempt a wipe, unlock,
+or unmap through uncertain page protections. The inaccessible or partially
+protected mapping may consequently remain allocated and locked until a checked
+cleanup retry succeeds or the process exits, without being exposed again
+through safe APIs. After confirmed erasure, an unmap failure may retain the
+mapping but cleanup may remove its lock because the payload was wiped.
 
 `try_close()` makes these cleanup outcomes observable and retryable while the
 mapping remains live. It does not make the operating-system operations
 infallible, guarantee that a failed normalization was later wiped, or recover a
 mapping after unmap has succeeded. `Drop` cannot return the report and remains
-best effort.
+best effort; on normalization failure it deliberately leaks the inaccessible
+mapping until process exit rather than releasing unwiped pages.
 
 Linux default constructors require wipe-on-fork. Fork-capable targets without
 a reviewed equivalent do not claim that a page-sealed access window is
