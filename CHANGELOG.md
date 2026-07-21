@@ -27,6 +27,12 @@
 - Place and verify the suffix canary at the advertised capacity boundary while
   a callback runs, detecting an unsafe decoder write past that boundary before
   moving the canary to the initialized length.
+- Erase the initial length-zero suffix canary and the caller-visible payload
+  before relocating the canary and invoking protected dynamic fill callbacks,
+  preventing disclosure of canary material to decoder or generator code.
+- Clarify that mapped native and `subtle` comparison timing is conditioned on
+  intact canaries; corruption is a public operational failure that returns a
+  false choice before the payload comparison.
 - Add native and Miri-model regression coverage for policy ordering, degraded
   setup rejection, typed failures, tail handling, UTF-8 rejection, and canary
   corruption.

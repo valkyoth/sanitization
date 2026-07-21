@@ -160,6 +160,7 @@ fn miri_models_locked_mapping_lifecycle_without_native_syscalls() {
         8,
         ProtectionRequest::locked(),
         |output| {
+            assert!(output.iter().all(|byte| *byte == 0));
             output[..5].copy_from_slice(b"token");
             Ok::<usize, core::convert::Infallible>(5)
         },
@@ -5025,6 +5026,7 @@ fn locked_secret_vec_policy_aware_fill_establishes_protection_first() {
     };
     let secret = LockedSecretVec::try_from_capacity_with_protection(32, request, |output| {
         assert_eq!(output.len(), 32);
+        assert!(output.iter().all(|byte| *byte == 0));
         output[..5].copy_from_slice(b"token");
         output[5..].fill(0xa5);
         Ok::<usize, &'static str>(5)
@@ -5181,13 +5183,13 @@ fn locked_secret_vec_required_policy_failure_prevents_fill() {
 #[cfg(all(
     feature = "memory-lock",
     feature = "canary-check",
+    feature = "std",
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64"),
     not(miri)
 ))]
 #[test]
-#[allow(unsafe_code)]
-fn locked_secret_vec_policy_aware_fill_detects_suffix_corruption() {
+fn locked_secret_vec_checked_access_detects_canary_corruption() {
     let request = ProtectionRequest {
         memory_lock: Requirement::NotRequested,
         dump_exclusion: Requirement::NotRequested,
@@ -5196,19 +5198,16 @@ fn locked_secret_vec_policy_aware_fill_detects_suffix_corruption() {
         canary: Requirement::Required,
         cache_policy: Requirement::NotRequested,
     };
-    let result = LockedSecretVec::try_from_capacity_with_protection(4, request, |output| {
-        // SAFETY: This deliberately corrupts the adjacent suffix canary
-        // to model an unsafe decoder writing one byte past its output.
-        unsafe {
-            let suffix = output.as_mut_ptr().add(output.len());
-            suffix.write(suffix.read() ^ 0xff);
-        }
+    let mut secret = LockedSecretVec::try_from_capacity_with_protection(4, request, |output| {
+        output.copy_from_slice(b"data");
         Ok::<usize, core::convert::Infallible>(4)
-    });
+    })
+    .unwrap();
+    secret.corrupt_prefix_canary_for_test();
 
     assert_eq!(
-        result.err(),
-        Some(ProtectedSecretFillError::Integrity(CanaryCorruptedError))
+        secret.try_constant_time_eq(b"data"),
+        Err(CanaryCorruptedError)
     );
 }
 
@@ -6153,6 +6152,7 @@ fn guarded_secret_vec_policy_aware_fill_establishes_protection_first() {
     let request = ProtectionRequest::guarded();
     let secret = GuardedSecretVec::try_from_capacity_with_protection(32, request, |output| {
         assert_eq!(output.len(), 32);
+        assert!(output.iter().all(|byte| *byte == 0));
         output[..5].copy_from_slice(b"token");
         output[5..].fill(0xa5);
         Ok::<usize, &'static str>(5)
@@ -6274,31 +6274,28 @@ fn guarded_secret_vec_required_policy_failure_prevents_fill() {
 #[cfg(all(
     feature = "guard-pages",
     feature = "canary-check",
+    feature = "std",
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64"),
     not(miri)
 ))]
 #[test]
-#[allow(unsafe_code)]
-fn guarded_secret_vec_policy_aware_fill_detects_suffix_corruption() {
-    let result = GuardedSecretVec::try_from_capacity_with_protection(
+fn guarded_secret_vec_checked_access_detects_suffix_corruption() {
+    let mut secret = GuardedSecretVec::try_from_capacity_with_protection(
         4,
         ProtectionRequest::guarded(),
         |output| {
-            // SAFETY: This deliberately corrupts the adjacent suffix canary
-            // to model an unsafe decoder writing one byte past its output.
-            unsafe {
-                let suffix = output.as_mut_ptr().add(output.len());
-                suffix.write(suffix.read() ^ 0xff);
-            }
+            output.copy_from_slice(b"data");
             Ok::<usize, core::convert::Infallible>(4)
         },
-    );
+    )
+    .unwrap();
+    secret.corrupt_suffix_canary_for_test();
 
-    assert!(matches!(
-        result,
-        Err(ProtectedSecretFillError::Integrity(CanaryCorruptedError))
-    ));
+    assert_eq!(
+        secret.try_constant_time_eq(b"data"),
+        Err(CanaryCorruptedError)
+    );
 }
 
 #[cfg(all(

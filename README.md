@@ -337,7 +337,9 @@ assert_eq!(key.try_constant_time_eq(&[7; 32]), Ok(true));
 Runtime-length decoders should use the policy-aware dynamic constructor. The
 mapping and every `Required` control are established before the callback runs;
 decoder failure, excessive output length, invalid integrity canaries, and the
-unreported tail are cleared before an error or value is returned:
+unreported tail are cleared before an error or value is returned. The callback
+receives exactly the requested capacity, initialized to zero and without live
+canary material:
 
 ```rust,no_run
 # #[cfg(feature = "memory-lock")]

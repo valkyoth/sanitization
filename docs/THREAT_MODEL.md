@@ -283,6 +283,15 @@ Linux timing-evidence claim after repeated release-candidate leakage failures.
 `strict-compare` does not strengthen ordering, selection, copying, swapping,
 lookup, or caller code.
 
+Mapped-container comparison claims are conditioned on intact canaries. Native
+and `subtle` trait comparisons fail closed with a false choice as soon as an
+integrity check reports corruption, so their runtime may distinguish the
+public operational state "mapping corrupted" from "mapping intact." This does
+not reveal a compared secret byte, and canary state is not classified as
+secret data. Callers that need typed incident handling must use the checked
+comparison methods and treat integrity failure as a security event rather than
+as an ordinary authentication mismatch.
+
 With the `cache-flush` feature, explicit clear-and-flush helpers volatile-clear
 the target storage before attempting eviction. On x86_64, the backend verifies
 CPUID `CLFSH`, validates the reported line size, and executes `clflush` over the

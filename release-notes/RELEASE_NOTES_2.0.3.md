@@ -48,6 +48,14 @@ When canaries are enabled, the suffix canary is placed at the caller-visible
 capacity boundary while the fill callback runs and verified immediately after
 it returns. This catches an unsafe external decoder writing past its advertised
 destination before the canary is moved to the final initialized length.
+Before that relocation, the constructor erases the initial length-zero suffix
+canary and the full caller-visible payload. Initialization callbacks therefore
+receive zeroed storage and cannot observe the mapping's expected canary value.
+
+Mapped native and `subtle` comparison traits fail closed before scanning the
+payload when an integrity check reports corruption. Their data-oblivious
+comparison claim is therefore conditioned on intact canaries; applications
+requiring typed incident handling should use the checked comparison methods.
 
 Controls marked `Preferred` retain their documented degraded-success semantics.
 Applications that require a control before any plaintext is written must mark

@@ -214,6 +214,8 @@ impl<const MAX: usize> BoundedLockedSecretVec<MAX> {
         &mut self,
         bytes: &[u8],
     ) -> Result<(), BoundedMappedSecretError<MemoryLockError>> {
+        // Verify before the public bound check so corruption cannot be masked
+        // by a capacity error. The inner operation re-verifies at its boundary.
         self.verify_integrity()
             .map_err(BoundedMappedSecretError::Integrity)?;
         let _ = checked_extended_len!(self.len(), bytes.len(), MAX);
@@ -702,6 +704,8 @@ impl<const MAX: usize> BoundedLockedSecretString<MAX> {
         &mut self,
         text: &str,
     ) -> Result<(), BoundedMappedSecretError<MemoryLockError>> {
+        // Verify before the public bound check so corruption cannot be masked
+        // by a capacity error. The inner operation re-verifies at its boundary.
         self.verify_integrity()
             .map_err(BoundedMappedSecretError::Integrity)?;
         let _ = checked_extended_len!(self.len(), text.len(), MAX);

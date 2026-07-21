@@ -858,6 +858,13 @@ impl GuardedSecretVec {
     ) -> Result<Self, ProtectedSecretFillError<E>> {
         let mut secret = Self::with_capacity_with_protection(capacity, request)
             .map_err(ProtectedSecretFillError::Protection)?;
+        // Empty construction places the suffix canary at payload offset zero.
+        // Clear the complete writable payload before moving it so fill code
+        // cannot observe canary material or stale page contents.
+        {
+            let destination = secret.as_mut_capacity_slice();
+            crate::wipe_backend::erase(destination.as_mut_ptr(), destination.len());
+        }
         // During filling, place the suffix canary at the caller-visible
         // capacity boundary rather than at the page-rounded payload end.
         // This detects an unsafe decoder writing beyond the advertised

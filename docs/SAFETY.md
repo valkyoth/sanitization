@@ -396,8 +396,10 @@ Invariant:
   caller's application maximum before mapping; unbounded variants require a
   trusted, already-limited capacity. The callback sees exactly the requested
   public capacity, including when guard-page allocation rounds the writable
-  payload upward. During filling, the suffix canary is placed at that
-  advertised boundary and verified afterward. Fill, integrity, and
+  payload upward. Before exposure, the payload is erased to remove the suffix
+  canary installed for the initial empty value and to ensure callback input is
+  zeroed. During filling, the suffix canary is placed at that advertised
+  boundary and verified afterward. Fill, integrity, and
   excessive-length failures clear the mapping; success clears the complete
   unreported tail before moving the suffix canary to the initialized length.
   Protected text wrappers then validate UTF-8 without reallocating and clear

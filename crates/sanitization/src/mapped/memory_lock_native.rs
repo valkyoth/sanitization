@@ -1814,6 +1814,14 @@ impl LockedSecretVec {
     ) -> Result<Self, ProtectedSecretFillError<E>> {
         let mut secret = Self::with_capacity_with_protection(capacity, request)
             .map_err(ProtectedSecretFillError::Protection)?;
+        // `with_capacity_with_protection` initializes an empty value, so its
+        // suffix canary initially occupies the first payload bytes. Erase the
+        // caller-visible payload before relocating that canary; fill code must
+        // never observe canary material or stale mapping contents.
+        {
+            let destination = secret.as_mut_capacity_slice();
+            crate::wipe_backend::erase(destination.as_mut_ptr(), destination.len());
+        }
         // During filling, place the suffix canary at the caller-visible
         // capacity boundary. This detects an unsafe decoder writing past the
         // provided output slice before the suffix is moved to the reported
