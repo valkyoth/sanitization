@@ -856,6 +856,16 @@ impl GuardedSecretVec {
         request: ProtectionRequest,
         fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
     ) -> Result<Self, ProtectedSecretFillError<E>> {
+        Self::try_from_capacity_with_protection_inner(capacity, request, fill, |_| {})
+    }
+
+    #[inline]
+    fn try_from_capacity_with_protection_inner<E>(
+        capacity: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+        after_fill: impl FnOnce(&mut Self),
+    ) -> Result<Self, ProtectedSecretFillError<E>> {
         let mut secret = Self::with_capacity_with_protection(capacity, request)
             .map_err(ProtectedSecretFillError::Protection)?;
         // Empty construction places the suffix canary at payload offset zero.
@@ -873,6 +883,7 @@ impl GuardedSecretVec {
         secret.write_canaries();
         compiler_fence(Ordering::SeqCst);
         let fill_result = fill(&mut secret.as_mut_capacity_slice()[..capacity]);
+        after_fill(&mut secret);
         secret
             .verify_integrity()
             .map_err(ProtectedSecretFillError::Integrity)?;
@@ -897,6 +908,17 @@ impl GuardedSecretVec {
         }
         secret.finish_initialization(len);
         Ok(secret)
+    }
+
+    #[cfg(all(test, feature = "canary-check", feature = "std"))]
+    pub(crate) fn try_from_capacity_with_protection_and_corrupt_boundary_for_test<E>(
+        capacity: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+    ) -> Result<Self, ProtectedSecretFillError<E>> {
+        Self::try_from_capacity_with_protection_inner(capacity, request, fill, |secret| {
+            secret.corrupt_suffix_canary_for_test();
+        })
     }
 
     #[cfg(test)]

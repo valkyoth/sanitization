@@ -33,6 +33,9 @@
 - Clarify that mapped native and `subtle` comparison timing is conditioned on
   intact canaries; corruption is a public operational failure that returns a
   false choice before the payload comparison.
+- Exercise temporary capacity-boundary canary verification through
+  allocation-provenance-safe fault injection immediately after protected fill
+  callbacks return.
 - Add native and Miri-model regression coverage for policy ordering, degraded
   setup rejection, typed failures, tail handling, UTF-8 rejection, and canary
   corruption.

@@ -57,6 +57,11 @@ payload when an integrity check reports corruption. Their data-oblivious
 comparison claim is therefore conditioned on intact canaries; applications
 requiring typed incident handling should use the checked comparison methods.
 
+Native regression tests inject corruption from the full mapping owner directly
+after fill callbacks return, proving that the temporary canary at the requested
+capacity boundary is verified without relying on one-past-slice pointer
+arithmetic.
+
 Controls marked `Preferred` retain their documented degraded-success semantics.
 Applications that require a control before any plaintext is written must mark
 that control `Required`.

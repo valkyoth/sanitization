@@ -5189,7 +5189,7 @@ fn locked_secret_vec_required_policy_failure_prevents_fill() {
     not(miri)
 ))]
 #[test]
-fn locked_secret_vec_checked_access_detects_canary_corruption() {
+fn locked_secret_vec_policy_aware_fill_detects_capacity_boundary_corruption() {
     let request = ProtectionRequest {
         memory_lock: Requirement::NotRequested,
         dump_exclusion: Requirement::NotRequested,
@@ -5198,16 +5198,18 @@ fn locked_secret_vec_checked_access_detects_canary_corruption() {
         canary: Requirement::Required,
         cache_policy: Requirement::NotRequested,
     };
-    let mut secret = LockedSecretVec::try_from_capacity_with_protection(4, request, |output| {
-        output.copy_from_slice(b"data");
-        Ok::<usize, core::convert::Infallible>(4)
-    })
-    .unwrap();
-    secret.corrupt_prefix_canary_for_test();
+    let result = LockedSecretVec::try_from_capacity_with_protection_and_corrupt_boundary_for_test(
+        4,
+        request,
+        |output| {
+            output.copy_from_slice(b"data");
+            Ok::<usize, core::convert::Infallible>(4)
+        },
+    );
 
     assert_eq!(
-        secret.try_constant_time_eq(b"data"),
-        Err(CanaryCorruptedError)
+        result.err(),
+        Some(ProtectedSecretFillError::Integrity(CanaryCorruptedError))
     );
 }
 
@@ -6280,22 +6282,20 @@ fn guarded_secret_vec_required_policy_failure_prevents_fill() {
     not(miri)
 ))]
 #[test]
-fn guarded_secret_vec_checked_access_detects_suffix_corruption() {
-    let mut secret = GuardedSecretVec::try_from_capacity_with_protection(
+fn guarded_secret_vec_policy_aware_fill_detects_capacity_boundary_corruption() {
+    let result = GuardedSecretVec::try_from_capacity_with_protection_and_corrupt_boundary_for_test(
         4,
         ProtectionRequest::guarded(),
         |output| {
             output.copy_from_slice(b"data");
             Ok::<usize, core::convert::Infallible>(4)
         },
-    )
-    .unwrap();
-    secret.corrupt_suffix_canary_for_test();
-
-    assert_eq!(
-        secret.try_constant_time_eq(b"data"),
-        Err(CanaryCorruptedError)
     );
+
+    assert!(matches!(
+        result,
+        Err(ProtectedSecretFillError::Integrity(CanaryCorruptedError))
+    ));
 }
 
 #[cfg(all(

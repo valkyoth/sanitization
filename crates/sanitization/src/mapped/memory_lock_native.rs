@@ -1812,6 +1812,16 @@ impl LockedSecretVec {
         request: ProtectionRequest,
         fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
     ) -> Result<Self, ProtectedSecretFillError<E>> {
+        Self::try_from_capacity_with_protection_inner(capacity, request, fill, |_| {})
+    }
+
+    #[inline]
+    fn try_from_capacity_with_protection_inner<E>(
+        capacity: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+        after_fill: impl FnOnce(&mut Self),
+    ) -> Result<Self, ProtectedSecretFillError<E>> {
         let mut secret = Self::with_capacity_with_protection(capacity, request)
             .map_err(ProtectedSecretFillError::Protection)?;
         // `with_capacity_with_protection` initializes an empty value, so its
@@ -1830,6 +1840,7 @@ impl LockedSecretVec {
         secret.write_canaries();
         compiler_fence(Ordering::SeqCst);
         let fill_result = fill(&mut secret.as_mut_capacity_slice()[..capacity]);
+        after_fill(&mut secret);
         secret
             .verify_integrity()
             .map_err(ProtectedSecretFillError::Integrity)?;
@@ -1854,6 +1865,28 @@ impl LockedSecretVec {
         }
         secret.finish_initialization(len);
         Ok(secret)
+    }
+
+    #[cfg(all(test, feature = "canary-check", feature = "std"))]
+    pub(crate) fn try_from_capacity_with_protection_and_corrupt_boundary_for_test<E>(
+        capacity: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+    ) -> Result<Self, ProtectedSecretFillError<E>> {
+        Self::try_from_capacity_with_protection_inner(capacity, request, fill, |secret| {
+            if secret.map_len == 0 {
+                return;
+            }
+
+            // SAFETY: while filling, `len == capacity` and the suffix canary
+            // immediately follows that payload within the live mapping. This
+            // test hook derives its pointer from the full mapping owner, not
+            // from the narrowed callback slice.
+            unsafe {
+                let byte = secret.payload_ptr().add(secret.len);
+                core::ptr::write(byte, core::ptr::read(byte) ^ 0xFF);
+            }
+        })
     }
 
     #[cfg(test)]
