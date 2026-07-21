@@ -114,7 +114,11 @@ mod zeroize_interop {
     #[cfg(feature = "memory-lock")]
     impl<const N: usize> zeroize::ZeroizeOnDrop for LockedSecretBytes<N> {}
 
-    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    #[cfg(all(
+        feature = "memory-lock",
+        not(target_arch = "wasm32"),
+        not(all(miri, test))
+    ))]
     impl zeroize::Zeroize for LockedSecretVec {
         #[inline]
         fn zeroize(&mut self) {
@@ -122,10 +126,18 @@ mod zeroize_interop {
         }
     }
 
-    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    #[cfg(all(
+        feature = "memory-lock",
+        not(target_arch = "wasm32"),
+        not(all(miri, test))
+    ))]
     impl zeroize::ZeroizeOnDrop for LockedSecretVec {}
 
-    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    #[cfg(all(
+        feature = "memory-lock",
+        not(target_arch = "wasm32"),
+        not(all(miri, test))
+    ))]
     impl zeroize::Zeroize for LockedSecretString {
         #[inline]
         fn zeroize(&mut self) {
@@ -133,10 +145,14 @@ mod zeroize_interop {
         }
     }
 
-    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    #[cfg(all(
+        feature = "memory-lock",
+        not(target_arch = "wasm32"),
+        not(all(miri, test))
+    ))]
     impl zeroize::ZeroizeOnDrop for LockedSecretString {}
 
-    #[cfg(all(feature = "guard-pages", not(miri)))]
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
     impl zeroize::Zeroize for GuardedSecretVec {
         #[inline]
         fn zeroize(&mut self) {
@@ -144,10 +160,10 @@ mod zeroize_interop {
         }
     }
 
-    #[cfg(all(feature = "guard-pages", not(miri)))]
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
     impl zeroize::ZeroizeOnDrop for GuardedSecretVec {}
 
-    #[cfg(all(feature = "guard-pages", not(miri)))]
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
     impl zeroize::Zeroize for GuardedSecretString {
         #[inline]
         fn zeroize(&mut self) {
@@ -155,7 +171,7 @@ mod zeroize_interop {
         }
     }
 
-    #[cfg(all(feature = "guard-pages", not(miri)))]
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
     impl zeroize::ZeroizeOnDrop for GuardedSecretString {}
 }
 
@@ -233,7 +249,11 @@ mod subtle_interop {
         }
     }
 
-    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    #[cfg(all(
+        feature = "memory-lock",
+        not(target_arch = "wasm32"),
+        not(all(miri, test))
+    ))]
     impl ConstantTimeEq for LockedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
@@ -243,7 +263,11 @@ mod subtle_interop {
         }
     }
 
-    #[cfg(all(feature = "memory-lock", not(target_arch = "wasm32"), not(miri)))]
+    #[cfg(all(
+        feature = "memory-lock",
+        not(target_arch = "wasm32"),
+        not(all(miri, test))
+    ))]
     impl ConstantTimeEq for LockedSecretString {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
@@ -256,7 +280,7 @@ mod subtle_interop {
         }
     }
 
-    #[cfg(all(feature = "guard-pages", not(miri)))]
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
     impl ConstantTimeEq for GuardedSecretVec {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {
@@ -266,7 +290,7 @@ mod subtle_interop {
         }
     }
 
-    #[cfg(all(feature = "guard-pages", not(miri)))]
+    #[cfg(all(feature = "guard-pages", not(all(miri, test))))]
     impl ConstantTimeEq for GuardedSecretString {
         #[inline]
         fn ct_eq(&self, other: &Self) -> Choice {

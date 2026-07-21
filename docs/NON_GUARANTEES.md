@@ -72,10 +72,12 @@ barrier and evidence strategy, not as proof by itself.
 
 Miri cannot execute or validate the native OS facilities behind memory locking,
 private mappings, page protection, dump/fork policy, CSPRNG access, or guard
-pages. The `cfg(miri)` backend models locked-container allocation and lifecycle
-transitions with ordinary aligned allocations and verifies clear-before-release;
-its successful protection report states are simulated and do not establish an
-OS guarantee. Native tests are required to exercise the actual platform paths.
+pages. The core crate's `cfg(all(miri, test))` unit-test backend models
+locked-container allocation and lifecycle transitions with ordinary aligned
+allocations and verifies clear-before-release; its successful protection report
+states are simulated and do not establish an OS guarantee. Downstream Miri
+execution of mapped constructors remains unsupported. Native tests are required
+to exercise the actual platform paths.
 
 Kani performs bounded functional verification and treats configured harnesses
 sequentially. It does not model real thread scheduling, concurrent atomic

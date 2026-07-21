@@ -522,8 +522,9 @@ Important limits include:
 - data-oblivious source structure is not a universal hardware timing guarantee;
 - cache flush and register scrub helpers cover only their documented target
   subsets;
-- Miri models locked-container lifecycle and verifies clear-before-release, but
-  does not prove native OS protection; Kani does not prove real concurrency.
+- Core Miri unit tests model locked-container lifecycle and verify
+  clear-before-release, but do not support downstream mapped execution or prove
+  native OS protection; Kani does not prove real concurrency.
 
 See [NON_GUARANTEES.md](https://github.com/valkyoth/sanitization/blob/main/docs/NON_GUARANTEES.md),
 [THREAT_MODEL.md](https://github.com/valkyoth/sanitization/blob/main/docs/THREAT_MODEL.md), and [SECURITY.md](https://github.com/valkyoth/sanitization/blob/main/SECURITY.md) before

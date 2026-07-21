@@ -13,6 +13,9 @@ allow = [
     "Unicode-3.0",
 ]
 confidence-threshold = 0.8
+exceptions = [
+    { allow = ["NCSA"], crate = "libfuzzer-sys@0.4.13" },
+]
 
 [licenses.private]
 ignore = true

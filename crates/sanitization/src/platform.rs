@@ -1,7 +1,7 @@
 #[cfg(all(
     target_os = "linux",
     target_arch = "aarch64",
-    not(miri),
+    not(all(miri, test)),
     any(feature = "memory-lock", feature = "guard-pages")
 ))]
 #[allow(unsafe_code)]
@@ -151,7 +151,7 @@ pub(crate) mod linux_aarch64_page_size {
 #[cfg(all(
     feature = "asm-compare",
     any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(miri)
+    not(all(miri, test))
 ))]
 #[allow(unsafe_code)]
 pub(crate) mod compare_asm {
@@ -269,12 +269,12 @@ pub mod cache_flush {
     #[cfg(feature = "alloc")]
     use alloc::{string::String, vec::Vec};
     use core::fmt;
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
     use core::sync::atomic::{compiler_fence, Ordering};
 
-    #[cfg(any(all(target_arch = "x86_64", not(miri)), test))]
+    #[cfg(any(all(target_arch = "x86_64", not(all(miri, test))), test))]
     const MIN_CACHE_LINE_SIZE: usize = 8;
-    #[cfg(any(all(target_arch = "x86_64", not(miri)), test))]
+    #[cfg(any(all(target_arch = "x86_64", not(all(miri, test))), test))]
     const MAX_CACHE_LINE_SIZE: usize = 4096;
 
     /// Runtime capability required for x86 cache-line eviction.
@@ -543,7 +543,7 @@ pub mod cache_flush {
     fn flush_raw(ptr: *const u8, len: usize) -> Result<CacheFlushReport, CacheFlushError> {
         let capability = detect_capability()?;
 
-        #[cfg(all(target_arch = "x86_64", not(miri)))]
+        #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
         {
             let cache_line_size = capability.cache_line_size;
             let Some((first_line, end_line, expected_lines)) =
@@ -597,14 +597,14 @@ pub mod cache_flush {
             })
         }
 
-        #[cfg(any(not(target_arch = "x86_64"), miri))]
+        #[cfg(any(not(target_arch = "x86_64"), all(miri, test)))]
         {
             let _ = (ptr, len, capability);
             unreachable!("unsupported cache-flush targets cannot yield a capability")
         }
     }
 
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
     #[allow(unused_unsafe)]
     #[inline]
     fn detect_capability() -> Result<CacheFlushCapability, CacheFlushError> {
@@ -628,19 +628,19 @@ pub mod cache_flush {
         Ok(CacheFlushCapability { cache_line_size })
     }
 
-    #[cfg(miri)]
+    #[cfg(all(miri, test))]
     #[inline]
     const fn detect_capability() -> Result<CacheFlushCapability, CacheFlushError> {
         Err(CacheFlushError::UnavailableUnderMiri)
     }
 
-    #[cfg(all(not(target_arch = "x86_64"), not(miri)))]
+    #[cfg(all(not(target_arch = "x86_64"), not(all(miri, test))))]
     #[inline]
     const fn detect_capability() -> Result<CacheFlushCapability, CacheFlushError> {
         Err(CacheFlushError::UnsupportedArchitecture)
     }
 
-    #[cfg(any(all(target_arch = "x86_64", not(miri)), test))]
+    #[cfg(any(all(target_arch = "x86_64", not(all(miri, test))), test))]
     #[inline]
     const fn valid_cache_line_size(cache_line_size: usize) -> bool {
         cache_line_size >= MIN_CACHE_LINE_SIZE
@@ -648,7 +648,7 @@ pub mod cache_flush {
             && cache_line_size.is_power_of_two()
     }
 
-    #[cfg(any(all(target_arch = "x86_64", not(miri)), test))]
+    #[cfg(any(all(target_arch = "x86_64", not(all(miri, test))), test))]
     #[inline]
     fn cache_line_range(
         start: usize,
@@ -704,18 +704,18 @@ pub mod cache_flush {
 #[cfg(feature = "register-scrub")]
 #[allow(unsafe_code)]
 pub mod register_scrub {
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
     use core::sync::atomic::AtomicU8;
     use core::sync::atomic::{compiler_fence, Ordering};
 
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
     const AVX_UNKNOWN: u8 = 0;
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
     const AVX_SUPPORTED: u8 = 1;
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
     const AVX_NOT_SUPPORTED: u8 = 2;
 
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
     static AVX_STATE: AtomicU8 = AtomicU8::new(AVX_UNKNOWN);
 
     /// Architectural register subset scrubbed by one call.
@@ -769,16 +769,19 @@ pub mod register_scrub {
     pub fn scrub_simd_registers() -> RegisterScrubReport {
         compiler_fence(Ordering::SeqCst);
 
-        #[cfg(all(target_arch = "x86_64", not(miri)))]
+        #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
         let report = scrub_x86_64_simd_registers();
 
-        #[cfg(all(target_arch = "aarch64", not(miri)))]
+        #[cfg(all(target_arch = "aarch64", not(all(miri, test))))]
         let report = scrub_aarch64_neon_registers();
 
-        #[cfg(miri)]
+        #[cfg(all(miri, test))]
         let report = RegisterScrubReport::UnavailableUnderMiri;
 
-        #[cfg(all(not(miri), not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+        #[cfg(all(
+            not(all(miri, test)),
+            not(any(target_arch = "x86_64", target_arch = "aarch64"))
+        ))]
         let report = RegisterScrubReport::UnsupportedArchitecture;
 
         compiler_fence(Ordering::SeqCst);
@@ -786,7 +789,7 @@ pub mod register_scrub {
     }
 
     /// Clear x86_64 XMM registers with zeroing instructions.
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
     #[must_use]
     #[inline(never)]
     pub fn scrub_x86_64_simd_registers() -> RegisterScrubReport {
@@ -798,7 +801,7 @@ pub mod register_scrub {
         }
     }
 
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
     #[inline(never)]
     fn scrub_x86_64_sse_registers() {
         // SAFETY: These instructions write only caller-saved architectural
@@ -823,7 +826,11 @@ pub mod register_scrub {
         }
     }
 
-    #[cfg(all(target_arch = "x86_64", not(target_os = "windows"), not(miri)))]
+    #[cfg(all(
+        target_arch = "x86_64",
+        not(target_os = "windows"),
+        not(all(miri, test))
+    ))]
     #[inline(never)]
     fn scrub_x86_64_avx_registers() -> RegisterScrubReport {
         // SAFETY: `avx_os_supported` verified AVX and XMM/YMM OS save support.
@@ -854,7 +861,7 @@ pub mod register_scrub {
         RegisterScrubReport::X86AvxYmm0To15
     }
 
-    #[cfg(all(target_arch = "x86_64", target_os = "windows", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", target_os = "windows", not(all(miri, test))))]
     #[inline(never)]
     fn scrub_x86_64_avx_registers() -> RegisterScrubReport {
         scrub_x86_64_sse_registers();
@@ -867,7 +874,7 @@ pub mod register_scrub {
         RegisterScrubReport::X86WindowsCallerSavedXmmAndYmmUpper
     }
 
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
     #[inline]
     fn avx_os_supported() -> bool {
         let cached = AVX_STATE.load(Ordering::Relaxed);
@@ -890,7 +897,7 @@ pub mod register_scrub {
         detected
     }
 
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    #[cfg(all(target_arch = "x86_64", not(all(miri, test))))]
     #[inline]
     fn detect_avx_os_support() -> bool {
         const CPUID_1_ECX_OSXSAVE: u32 = 1 << 27;
@@ -915,7 +922,7 @@ pub mod register_scrub {
     }
 
     /// Clear AArch64 NEON vector registers with zeroing instructions.
-    #[cfg(all(target_arch = "aarch64", not(miri)))]
+    #[cfg(all(target_arch = "aarch64", not(all(miri, test))))]
     #[must_use]
     #[inline(never)]
     pub fn scrub_aarch64_neon_registers() -> RegisterScrubReport {

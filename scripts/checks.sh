@@ -5,6 +5,7 @@ cargo fmt --check
 scripts/verify-action-pins.sh
 scripts/verify-feature-profiles.py
 scripts/verify-verification-harnesses.py
+scripts/verify-miri-test-gates.py
 scripts/test-declassification-reasons.py
 scripts/lint-declassification-reasons.py
 scripts/test-storage-policy-lint.py

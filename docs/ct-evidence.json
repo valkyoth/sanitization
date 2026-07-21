@@ -141,7 +141,20 @@
     {
       "name": "miri",
       "command": "scripts/verify-miri.sh",
-      "coverage": ["interpreter checks for supported safe and unsafe-boundary paths"]
+      "coverage": [
+        "interpreter checks for supported safe and unsafe-boundary core paths",
+        "all-feature core library unit tests through the private lifecycle model",
+        "portable derive integration and companion crate paths without native assembly"
+      ]
+    },
+    {
+      "name": "miri-test-backend-gates",
+      "command": "scripts/verify-miri-test-gates.py",
+      "coverage": [
+        "Miri simulator selection requires cfg(all(miri, test))",
+        "native backend complements remain selected outside crate unit tests",
+        "normal release compilation retains native paths under a manually supplied cfg(miri)"
+      ]
     },
     {
       "name": "kani",

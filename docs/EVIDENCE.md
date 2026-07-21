@@ -100,12 +100,15 @@ rollback, and drop logic, and asserts that the complete simulated mapping is
 zero before deallocation.
 
 Miri cannot execute native OS mapping, locking, protection, dump/fork-policy,
-or guard-page syscalls. Under `cfg(miri)`, only those syscall/CSPRNG boundaries
-are replaced by test simulators; any `ProtectionState::Established` value is a
-modeled state-machine result and is not evidence of an achieved OS protection.
-Guard pages and page sealing remain outside Miri. Native Linux tests cover the
-real locked and guarded UTF-8 wrappers; other supported platforms require their
-own native evidence.
+or guard-page syscalls. Only the core crate's unit-test build under
+`cfg(all(miri, test))` replaces those syscall/CSPRNG boundaries with test
+simulators; any `ProtectionState::Established` value there is a modeled
+state-machine result and is not evidence of an achieved OS protection. A
+normal build with a manually supplied `--cfg miri` still uses the native
+backend. Downstream Miri tests that execute mapped constructors are unsupported
+and must target-gate those paths. Guard pages and page sealing remain outside
+Miri. Native Linux tests cover the real locked and guarded UTF-8 wrappers;
+other supported platforms require their own native evidence.
 
 Run Kani proofs directly when `cargo-kani` is installed:
 

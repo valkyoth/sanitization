@@ -164,12 +164,26 @@ does not exercise unsupported targets or prove syscall semantics.
 ## Formal And Concurrency Checks
 
 Miri additionally covers `sanitization-bytes`, the crypto companion paths, and
-the fixed, dynamic, and pooled native locked-container lifecycle through a
-`cfg(miri)` aligned-allocation model. The model verifies complete clearing
-before deallocation but does not execute or validate OS syscalls, page
-permissions, locking, dump/fork policy, or CSPRNG behavior.
+the fixed, dynamic, text, and pooled native locked-container lifecycle through
+a core-unit-test-only `cfg(all(miri, test))` aligned-allocation model. The model
+verifies complete clearing before deallocation but does not execute or validate
+OS syscalls, page permissions, locking, dump/fork policy, or CSPRNG behavior.
+Downstream Miri execution of mapped constructors remains unsupported.
 Kani includes complete fixed-secret replacement in addition to clearing,
 comparison, capacity, and protection-report properties.
+
+The Miri workflow runs the core all-feature lifecycle suite as library unit
+tests so the private model is available. Derive integration tests and companion
+crate tests run with portable comparison features; their dependency build does
+not receive the core crate's `cfg(test)`, so executing native comparison
+assembly there would be unsupported by Miri.
+
+`scripts/verify-miri-test-gates.py` rejects production source gates where
+`miri` can change behavior without `test`, verifies every mapped simulator has
+the native `not(all(miri, test))` complement, and compiles a normal release
+library with a manually supplied `--cfg miri`. This prevents that user-settable
+flag from selecting simulated memory protection, random canaries, comparison,
+cache-flush, register-scrub, or page-size behavior in a production artifact.
 
 The Loom model covers:
 

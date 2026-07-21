@@ -3890,13 +3890,13 @@ fn rounded_mapping_len(len: usize) -> Result<usize, MemoryLockError> {
         })
 }
 
-#[cfg(not(miri))]
+#[cfg(not(all(miri, test)))]
 #[inline]
 fn backend_page_granule() -> usize {
     platform_page_granule()
 }
 
-#[cfg(miri)]
+#[cfg(all(miri, test))]
 #[inline]
 const fn backend_page_granule() -> usize {
     // This is an allocator alignment for the Miri model, not an observed OS
@@ -3904,13 +3904,13 @@ const fn backend_page_granule() -> usize {
     4096
 }
 
-#[cfg(not(miri))]
+#[cfg(not(all(miri, test)))]
 #[inline]
 fn backend_map_private(len: usize) -> Result<NonNull<u8>, MemoryLockError> {
     map_private(len)
 }
 
-#[cfg(miri)]
+#[cfg(all(miri, test))]
 fn backend_map_private(len: usize) -> Result<NonNull<u8>, MemoryLockError> {
     use std::alloc::{alloc_zeroed, Layout};
 
@@ -3929,13 +3929,13 @@ fn backend_map_private(len: usize) -> Result<NonNull<u8>, MemoryLockError> {
     })
 }
 
-#[cfg(not(miri))]
+#[cfg(not(all(miri, test)))]
 #[inline]
 fn backend_lock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
     lock_mapping(ptr, len)
 }
 
-#[cfg(miri)]
+#[cfg(all(miri, test))]
 #[inline]
 fn backend_lock_mapping(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
     // Modeled success permits state-transition testing. No OS memory lock is
@@ -3943,61 +3943,61 @@ fn backend_lock_mapping(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLock
     Ok(())
 }
 
-#[cfg(not(miri))]
+#[cfg(not(all(miri, test)))]
 #[inline]
 fn backend_mark_dontdump(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
     mark_dontdump(ptr, len)
 }
 
-#[cfg(miri)]
+#[cfg(all(miri, test))]
 #[inline]
 fn backend_mark_dontdump(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
     Ok(())
 }
 
-#[cfg(not(miri))]
+#[cfg(not(all(miri, test)))]
 #[inline]
 fn backend_mark_dontfork(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
     mark_dontfork(ptr, len)
 }
 
-#[cfg(miri)]
+#[cfg(all(miri, test))]
 #[inline]
 fn backend_mark_dontfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
     Ok(())
 }
 
-#[cfg(not(miri))]
+#[cfg(not(all(miri, test)))]
 #[inline]
 fn backend_mark_wipeonfork(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
     mark_wipeonfork(ptr, len)
 }
 
-#[cfg(miri)]
+#[cfg(all(miri, test))]
 #[inline]
 fn backend_mark_wipeonfork(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
     Ok(())
 }
 
-#[cfg(not(miri))]
+#[cfg(not(all(miri, test)))]
 #[inline]
 fn backend_unlock_mapping(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
     unlock_mapping(ptr, len)
 }
 
-#[cfg(miri)]
+#[cfg(all(miri, test))]
 #[inline]
 fn backend_unlock_mapping(_ptr: NonNull<u8>, _len: usize) -> Result<(), MemoryLockError> {
     Ok(())
 }
 
-#[cfg(not(miri))]
+#[cfg(not(all(miri, test)))]
 #[inline]
 fn backend_unmap_private(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
     unmap_private(ptr, len)
 }
 
-#[cfg(miri)]
+#[cfg(all(miri, test))]
 fn backend_unmap_private(ptr: NonNull<u8>, len: usize) -> Result<(), MemoryLockError> {
     use std::alloc::{dealloc, Layout};
 

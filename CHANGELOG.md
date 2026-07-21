@@ -2,10 +2,10 @@
 
 ## 2.0.2
 
-- Add a `cfg(miri)` aligned-allocation backend for native
+- Add a `cfg(all(miri, test))` aligned-allocation backend for native
   `LockedSecretBytes`, `LockedSecretVec`, `LockedSecretString`, and
-  `SecretPool` lifecycle tests so downstream Miri runs do not execute
-  unsupported inline assembly.
+  `SecretPool` lifecycle tests so core Miri coverage can exercise those state
+  transitions without executing unsupported inline assembly.
 - Model random-canary generation under Miri without making a randomness claim,
   and cover construction, replacement, dynamic growth, pool reuse, canary
   quarantine, rollback, and drop paths.
@@ -14,6 +14,17 @@
 - Clarify throughout the evidence, safety, and threat-model documentation that
   Miri protection-report outcomes are simulated and do not prove `mlock`,
   mapping, dump/fork policy, CSPRNG, page protection, or guard-page behavior.
+- Restrict every Miri mapping and canary simulator to the crate's own unit-test
+  build. A normal build supplied with `--cfg miri` continues through the real
+  native backend instead of silently reporting simulated protections.
+- Apply the same unit-test-only gate policy to comparison, AArch64 page-size,
+  cache-flush, register-scrub, guard-page, and interop paths, with a release
+  compile regression check for manually supplied `--cfg miri` flags.
+- Split Miri verification between the all-feature core unit-test model and
+  portable derive/companion integration runs, avoiding unsupported native
+  assembly without exposing a production simulator.
+- Scope the exact `libfuzzer-sys 0.4.13` NCSA license exception to the fuzz
+  dependency graph so other cargo-deny graphs do not carry a stale exception.
 - Coordinate all five workspace crates and the exact runtime/derive dependency
   at version `2.0.2`.
 

@@ -1621,7 +1621,7 @@ fn bytes_eq_equal_len(left: &[u8], right: &[u8]) -> Choice {
     #[cfg(all(
         feature = "asm-compare",
         any(target_arch = "x86_64", target_arch = "aarch64"),
-        not(miri)
+        not(all(miri, test))
     ))]
     {
         Choice::from_u8(crate::compare_asm::equal_len_choice_bit(left, right))
@@ -1630,7 +1630,7 @@ fn bytes_eq_equal_len(left: &[u8], right: &[u8]) -> Choice {
     #[cfg(not(all(
         feature = "asm-compare",
         any(target_arch = "x86_64", target_arch = "aarch64"),
-        not(miri)
+        not(all(miri, test))
     )))]
     {
         let mut diff = 0u8;

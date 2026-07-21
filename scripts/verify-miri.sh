@@ -11,7 +11,13 @@ fi
 
 cargo +"${toolchain}" miri test -p sanitization --no-default-features
 cargo +"${toolchain}" miri test -p sanitization --features alloc
-cargo +"${toolchain}" miri test -p sanitization --all-features
+cargo +"${toolchain}" miri test -p sanitization --all-features --lib
+cargo +"${toolchain}" miri test -p sanitization \
+    --no-default-features \
+    --features derive \
+    --test derive
 cargo +"${toolchain}" miri test -p sanitization-arrayvec
 cargo +"${toolchain}" miri test -p sanitization-bytes
-cargo +"${toolchain}" miri test -p sanitization-crypto-interop --features sha2,blake3,hmac-sha2
+cargo +"${toolchain}" miri test -p sanitization-crypto-interop \
+    --no-default-features \
+    --features sha2,blake3,hmac-sha2

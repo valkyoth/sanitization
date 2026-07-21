@@ -407,13 +407,14 @@ Invariant:
 - `&mut self` is required for mutation and clearing.
 - Drop volatile-clears the full mapping before attempting platform unlock and
   release.
-- Under `cfg(miri)`, native syscall and CSPRNG boundaries are replaced with a
-  test-only aligned-allocation model. The model exercises mapped ownership,
-  replacement, growth, canary, quarantine, rollback, and drop paths, and
-  asserts that every simulated mapping is entirely zero before deallocation.
-  Modeled `Established` report states do not mean an OS control was applied.
-  Guard pages and page sealing remain excluded because allocator storage cannot
-  faithfully model page permissions.
+- Under `cfg(all(miri, test))`, the core crate's unit-test build replaces native
+  syscall and CSPRNG boundaries with a test-only aligned-allocation model. The
+  model exercises mapped ownership, replacement, growth, canary, quarantine,
+  rollback, and drop paths, and asserts that every simulated mapping is
+  entirely zero before deallocation. Modeled `Established` report states do not
+  mean an OS control was applied. A normal build with `--cfg miri` uses the
+  native backend. Downstream Miri execution of mapped constructors, guard pages,
+  and page sealing remains unsupported.
 - Drop ignores unlock/unmap errors because destructors cannot report failure.
 - `SecretPool<N, SLOTS>` owns exactly one locked mapping. `N * SLOTS` is
   checked for overflow before mapping, then rounded to the platform page

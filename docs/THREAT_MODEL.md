@@ -92,9 +92,10 @@ request and achieved outcome described in `docs/PROTECTION_REPORT.md`.
   variable secret length. Validation and length mismatch behavior treats those
   values as public metadata and is not claimed to be data-oblivious.
 - Using Miri as evidence for native memory-lock, mapping, page-protection,
-  dump/fork-policy, CSPRNG, or guard-page syscalls. Miri exercises a test-only
-  allocation model for locked-container lifecycle and clear-before-release
-  invariants; those OS paths still require native platform tests.
+  dump/fork-policy, CSPRNG, or guard-page syscalls. The core crate's Miri unit
+  tests exercise a test-only allocation model for locked-container lifecycle
+  and clear-before-release invariants; downstream mapped constructors and the
+  real OS paths still require native platform tests.
 - Using Kani as proof of real concurrent execution or atomic interleavings.
   Kani's configured harnesses provide bounded sequential functional evidence.
 - Soundly scrubbing old stack frames, prior Rust move copies, all CPU

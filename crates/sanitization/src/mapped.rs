@@ -47,7 +47,7 @@ mod memory_lock;
     )
 ))]
 #[allow(unsafe_code)]
-#[cfg_attr(miri, allow(dead_code))]
+#[cfg_attr(all(miri, test), allow(dead_code))]
 #[path = "mapped/memory_lock_native.rs"]
 mod memory_lock;
 
@@ -114,7 +114,7 @@ pub type LockedSecretBytesCheckedCopyError = SecretIntegrityError<crate::LengthE
         target_os = "netbsd",
         target_os = "dragonfly",
     ),
-    not(miri)
+    not(all(miri, test))
 ))]
 #[allow(unsafe_code)]
 #[path = "mapped/guard_pages.rs"]
@@ -136,7 +136,7 @@ mod guard_pages;
         target_os = "netbsd",
         target_os = "dragonfly",
     ),
-    not(miri)
+    not(all(miri, test))
 ))]
 pub use guard_pages::{
     GuardPageError, GuardPageOperation, GuardedSecretVec, GuardedSecretVecGenerateError,
@@ -158,7 +158,7 @@ pub use guard_pages::{
         target_os = "netbsd",
         target_os = "dragonfly",
     ),
-    not(miri)
+    not(all(miri, test))
 ))]
 pub use guard_pages::{
     CleanupError, CleanupReport, CleanupState, SealedSecretAccessError, SealedSecretBytes,
@@ -578,7 +578,7 @@ impl fmt::Debug for LockedSecretString {
         target_os = "netbsd",
         target_os = "dragonfly",
     ),
-    not(miri)
+    not(all(miri, test))
 ))]
 pub struct GuardedSecretString {
     pub(crate) inner: GuardedSecretVec,
@@ -600,7 +600,7 @@ pub struct GuardedSecretString {
         target_os = "netbsd",
         target_os = "dragonfly",
     ),
-    not(miri)
+    not(all(miri, test))
 ))]
 impl GuardedSecretString {
     /// Allocate empty guarded text storage with at least `capacity` UTF-8 bytes.
@@ -838,7 +838,7 @@ impl GuardedSecretString {
         target_os = "netbsd",
         target_os = "dragonfly",
     ),
-    not(miri)
+    not(all(miri, test))
 ))]
 impl TryFrom<GuardedSecretVec> for GuardedSecretString {
     type Error = SecretTextIntegrityError;
@@ -865,7 +865,7 @@ impl TryFrom<GuardedSecretVec> for GuardedSecretString {
         target_os = "netbsd",
         target_os = "dragonfly",
     ),
-    not(miri)
+    not(all(miri, test))
 ))]
 impl From<GuardedSecretString> for GuardedSecretVec {
     #[inline]
@@ -890,7 +890,7 @@ impl From<GuardedSecretString> for GuardedSecretVec {
         target_os = "netbsd",
         target_os = "dragonfly",
     ),
-    not(miri)
+    not(all(miri, test))
 ))]
 impl SecureSanitize for GuardedSecretString {
     #[inline]
@@ -915,7 +915,7 @@ impl SecureSanitize for GuardedSecretString {
         target_os = "netbsd",
         target_os = "dragonfly",
     ),
-    not(miri)
+    not(all(miri, test))
 ))]
 impl fmt::Debug for GuardedSecretString {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1037,7 +1037,7 @@ mod native_ct_memory_lock_impls {
         target_os = "netbsd",
         target_os = "dragonfly",
     ),
-    not(miri)
+    not(all(miri, test))
 ))]
 mod native_ct_guard_page_impls {
     use super::*;

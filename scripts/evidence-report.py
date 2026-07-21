@@ -109,6 +109,7 @@ def main() -> int:
             "scripts/verify-loom.sh",
             "scripts/verify-kani.sh",
             "scripts/verify-miri.sh",
+            "scripts/verify-miri-test-gates.py",
             "scripts/verify-verification-harnesses.py",
             "scripts/test-verification-fail-closed.py",
             "scripts/verify-evidence.py",

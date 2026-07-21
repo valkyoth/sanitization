@@ -59,8 +59,13 @@
     },
     {
       "name": "platform-independent-miri",
-      "claim": "Platform-independent unsafe boundaries and companion storage paths pass Miri.",
+      "claim": "Core all-feature lifecycle unit tests and portable derive and companion storage paths pass Miri without executing native assembly.",
       "command": "scripts/verify-miri.sh"
+    },
+    {
+      "name": "miri-test-backend-gates",
+      "claim": "Miri syscall and CSPRNG simulators remain restricted to core unit tests, while a normal release build with a manually supplied cfg(miri) retains native paths.",
+      "command": "scripts/verify-miri-test-gates.py"
     },
     {
       "name": "address-sanitizer",

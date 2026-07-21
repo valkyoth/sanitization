@@ -27,8 +27,13 @@ manifests=(
 )
 
 for manifest in "${manifests[@]}"; do
+    config='deny.toml'
+    if [ "$manifest" = 'fuzz/Cargo.toml' ]; then
+        config='fuzz/deny.toml'
+    fi
+
     cargo deny \
-        --config deny.toml \
+        --config "$config" \
         --manifest-path "$manifest" \
         --locked \
         check \

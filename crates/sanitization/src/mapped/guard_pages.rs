@@ -20,7 +20,7 @@ use super::{
     feature = "page-seal",
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(miri)
+    not(all(miri, test))
 ))]
 unsafe extern "C" {
     fn fork() -> i32;
