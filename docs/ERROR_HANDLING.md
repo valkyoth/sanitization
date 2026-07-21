@@ -185,11 +185,18 @@ decision.
 
 `ProtectedSecretFillError<E>` keeps dynamic initialization failures separate:
 
+- `CapacityLimit` means an application maximum rejected the requested public
+  capacity before mapping or callback execution;
 - `Protection` means a required control failed before the callback ran and
   retains the partial report and rollback outcome;
 - `Fill` preserves the decoder, RNG, KDF, or protocol error;
 - `Integrity` means a canary changed while the callback held the destination;
 - `Length` means the callback reported more initialized bytes than requested.
+
+Use bounded fills whenever capacity comes from a protocol field, decoder
+estimate, file, or other untrusted source. The unbounded variants accept only
+trusted, already-limited capacities; fallible mapping is not itself a resource
+limit on overcommitting operating systems.
 
 `ProtectedSecretTextFillError<E>` adds `Utf8`; invalid initialized bytes are
 cleared before that error is returned. These types intentionally do not collapse

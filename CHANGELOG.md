@@ -11,6 +11,9 @@
 - Introduce `ProtectedSecretFillError<E>` and
   `ProtectedSecretTextFillError<E>` so protection, callback, integrity, length,
   and UTF-8 failures remain distinguishable.
+- Add bounded policy-aware constructors for locked and guarded byte and UTF-8
+  storage. Oversized untrusted capacities are rejected before mapping or fill
+  callback execution through a distinct `CapacityLimit` error.
 - Restrict fill callbacks to the requested public capacity even when a guarded
   mapping has a larger page-rounded payload, and clear the complete unreported
   tail before returning success.
@@ -20,6 +23,9 @@
 - Add native and Miri-model regression coverage for policy ordering, degraded
   setup rejection, typed failures, tail handling, UTF-8 rejection, and canary
   corruption.
+- Make canary and tail-erasure regressions deterministic without depending on
+  the host's memory-lock quota, and make the high-assurance decoder example
+  require dump and fork exclusion before materialization.
 - Coordinate all five workspace crates and the exact runtime/derive dependency
   at version `2.0.3`.
 

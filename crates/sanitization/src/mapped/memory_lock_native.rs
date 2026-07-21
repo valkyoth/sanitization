@@ -1770,12 +1770,36 @@ impl LockedSecretVec {
         })
     }
 
+    /// Bounded variant of
+    /// [`LockedSecretVec::try_from_capacity_with_protection`].
+    ///
+    /// Use this constructor whenever `capacity` originates from an untrusted
+    /// protocol length, decoder hint, or message field. A capacity above
+    /// `maximum` is rejected before mapping, locking, or invoking `fill`.
+    pub fn try_from_capacity_bounded_with_protection<E>(
+        capacity: usize,
+        maximum: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+    ) -> Result<Self, ProtectedSecretFillError<E>> {
+        if capacity > maximum {
+            return Err(ProtectedSecretFillError::CapacityLimit {
+                maximum,
+                actual: capacity,
+            });
+        }
+
+        Self::try_from_capacity_with_protection(capacity, request, fill)
+    }
+
     /// Fill protected dynamic storage only after all required controls have
     /// been established.
     ///
-    /// This constructor is intended for decoders, KDFs, RNGs, and protocol
-    /// APIs that know a public maximum output size before producing secret
-    /// bytes. The closure is not invoked when mapping setup or any
+    /// This unbounded constructor is intended for trusted capacities that the
+    /// application has already limited. Use
+    /// [`LockedSecretVec::try_from_capacity_bounded_with_protection`] at
+    /// untrusted protocol boundaries. The closure is not invoked when mapping
+    /// setup or any
     /// [`Requirement::Required`] control fails. Controls marked
     /// [`Requirement::Preferred`] retain their normal degraded-success
     /// semantics and remain visible through [`LockedSecretVec::protection_report`].
@@ -1822,6 +1846,25 @@ impl LockedSecretVec {
         }
         secret.finish_initialization(len);
         Ok(secret)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn unreported_tail_is_clear_for_test(&self) -> bool {
+        #[cfg(feature = "canary-check")]
+        let tail_start = self.len.saturating_add(CANARY_SIZE).min(self.data_capacity);
+        #[cfg(not(feature = "canary-check"))]
+        let tail_start = self.len;
+        let mut index = tail_start;
+        while index < self.data_capacity {
+            // SAFETY: `index < data_capacity`, and the mapping remains live for
+            // the duration of `&self`. Volatile reads make this a direct check
+            // of the mapped bytes rather than an optimizer-derived result.
+            if unsafe { core::ptr::read_volatile(self.payload_ptr().add(index)) } != 0 {
+                return false;
+            }
+            index += 1;
+        }
+        true
     }
 
     /// Create locked dynamic storage by copying bytes from a slice.

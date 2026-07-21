@@ -197,6 +197,14 @@ impl std::error::Error for SecretTextIntegrityError {
 /// or validated.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProtectedSecretTextFillError<E> {
+    /// The requested public capacity exceeded the caller-supplied application
+    /// maximum. No mapping was created and the fill closure was not invoked.
+    CapacityLimit {
+        /// Largest permitted UTF-8 byte capacity.
+        maximum: usize,
+        /// Capacity requested by the caller.
+        actual: usize,
+    },
     /// A required runtime protection could not be established before filling.
     Protection(ProtectionError),
     /// The caller-provided fill closure returned an error.
@@ -213,6 +221,9 @@ impl<E> From<ProtectedSecretFillError<E>> for ProtectedSecretTextFillError<E> {
     #[inline]
     fn from(error: ProtectedSecretFillError<E>) -> Self {
         match error {
+            ProtectedSecretFillError::CapacityLimit { maximum, actual } => {
+                Self::CapacityLimit { maximum, actual }
+            }
             ProtectedSecretFillError::Protection(error) => Self::Protection(error),
             ProtectedSecretFillError::Fill(error) => Self::Fill(error),
             ProtectedSecretFillError::Integrity(error) => Self::Integrity(error),
@@ -234,6 +245,10 @@ impl<E> From<SecretTextIntegrityError> for ProtectedSecretTextFillError<E> {
 impl<E: fmt::Display> fmt::Display for ProtectedSecretTextFillError<E> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::CapacityLimit { maximum, actual } => write!(
+                formatter,
+                "protected secret text capacity {actual} exceeds application maximum {maximum}"
+            ),
             Self::Protection(error) => error.fmt(formatter),
             Self::Fill(error) => write!(formatter, "protected secret text fill failed: {error}"),
             Self::Integrity(error) => error.fmt(formatter),
@@ -250,6 +265,7 @@ where
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::CapacityLimit { .. } => None,
             Self::Protection(error) => Some(error),
             Self::Fill(error) => Some(error),
             Self::Integrity(error) => Some(error),
@@ -347,6 +363,24 @@ impl LockedSecretString {
     ) -> Result<Self, ProtectedSecretTextFillError<E>> {
         let inner = LockedSecretVec::try_from_capacity_with_protection(capacity, request, fill)
             .map_err(ProtectedSecretTextFillError::from)?;
+        Self::from_locked_secret_vec(inner).map_err(ProtectedSecretTextFillError::from)
+    }
+
+    /// Bounded policy-aware UTF-8 fill for untrusted capacities.
+    ///
+    /// A capacity above `maximum` is rejected before mapping or invoking
+    /// `fill`.
+    #[inline]
+    pub fn try_from_capacity_bounded_with_protection<E>(
+        capacity: usize,
+        maximum: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+    ) -> Result<Self, ProtectedSecretTextFillError<E>> {
+        let inner = LockedSecretVec::try_from_capacity_bounded_with_protection(
+            capacity, maximum, request, fill,
+        )
+        .map_err(ProtectedSecretTextFillError::from)?;
         Self::from_locked_secret_vec(inner).map_err(ProtectedSecretTextFillError::from)
     }
 
@@ -736,6 +770,24 @@ impl GuardedSecretString {
     ) -> Result<Self, ProtectedSecretTextFillError<E>> {
         let inner = GuardedSecretVec::try_from_capacity_with_protection(capacity, request, fill)
             .map_err(ProtectedSecretTextFillError::from)?;
+        Self::from_guarded_secret_vec(inner).map_err(ProtectedSecretTextFillError::from)
+    }
+
+    /// Bounded policy-aware UTF-8 fill for untrusted capacities.
+    ///
+    /// A capacity above `maximum` is rejected before mapping or invoking
+    /// `fill`.
+    #[inline]
+    pub fn try_from_capacity_bounded_with_protection<E>(
+        capacity: usize,
+        maximum: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+    ) -> Result<Self, ProtectedSecretTextFillError<E>> {
+        let inner = GuardedSecretVec::try_from_capacity_bounded_with_protection(
+            capacity, maximum, request, fill,
+        )
+        .map_err(ProtectedSecretTextFillError::from)?;
         Self::from_guarded_secret_vec(inner).map_err(ProtectedSecretTextFillError::from)
     }
 

@@ -143,6 +143,25 @@ fn miri_models_locked_mapping_lifecycle_without_native_syscalls() {
         .satisfies(ProtectionRequest::locked()));
     drop(policy_dynamic);
 
+    let bounded_callback_ran = core::cell::Cell::new(false);
+    assert_eq!(
+        LockedSecretVec::try_from_capacity_bounded_with_protection(
+            9,
+            8,
+            ProtectionRequest::locked(),
+            |_| {
+                bounded_callback_ran.set(true);
+                Ok::<usize, core::convert::Infallible>(0)
+            },
+        )
+        .err(),
+        Some(ProtectedSecretFillError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert!(!bounded_callback_ran.get());
+
     assert_eq!(
         LockedSecretVec::try_from_capacity_with_protection(
             4,
@@ -3407,6 +3426,25 @@ fn bounded_secret_string_enforces_utf8_byte_limit() {
 ))]
 #[test]
 fn locked_secret_string_preserves_utf8_and_lock_lifecycle() {
+    let bounded_callback_ran = core::cell::Cell::new(false);
+    assert_eq!(
+        LockedSecretString::try_from_capacity_bounded_with_protection(
+            9,
+            8,
+            ProtectionRequest::locked(),
+            |_| {
+                bounded_callback_ran.set(true);
+                Ok::<usize, core::convert::Infallible>(0)
+            },
+        )
+        .err(),
+        Some(ProtectedSecretTextFillError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert!(!bounded_callback_ran.get());
+
     let mut secret = match LockedSecretString::from_secret_str("token") {
         Ok(secret) => secret,
         Err(_) => return,
@@ -3466,6 +3504,25 @@ fn locked_secret_string_preserves_utf8_and_lock_lifecycle() {
 ))]
 #[test]
 fn guarded_secret_string_preserves_utf8_and_guard_lifecycle() {
+    let bounded_callback_ran = core::cell::Cell::new(false);
+    assert_eq!(
+        GuardedSecretString::try_from_capacity_bounded_with_protection(
+            9,
+            8,
+            ProtectionRequest::guarded(),
+            |_| {
+                bounded_callback_ran.set(true);
+                Ok::<usize, core::convert::Infallible>(0)
+            },
+        )
+        .err(),
+        Some(ProtectedSecretTextFillError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert!(!bounded_callback_ran.get());
+
     let mut secret = match GuardedSecretString::from_secret_str("token") {
         Ok(secret) => secret,
         Err(_) => return,
@@ -4930,20 +4987,26 @@ fn locked_secret_vec_can_fill_in_place() {
 ))]
 #[test]
 fn locked_secret_vec_policy_aware_fill_establishes_protection_first() {
-    let request = ProtectionRequest::locked();
-    let secret = match LockedSecretVec::try_from_capacity_with_protection(8, request, |output| {
-        output[..5].copy_from_slice(b"token");
-        output[5..].copy_from_slice(b"old");
-        Ok::<usize, &'static str>(5)
-    }) {
-        Ok(secret) => secret,
-        Err(ProtectedSecretFillError::Protection(_)) => return,
-        Err(error) => panic!("unexpected protected fill error: {error}"),
+    let request = ProtectionRequest {
+        memory_lock: Requirement::NotRequested,
+        dump_exclusion: Requirement::NotRequested,
+        fork: ForkProtectionRequest::inherit(),
+        guard_pages: Requirement::NotRequested,
+        canary: Requirement::NotRequested,
+        cache_policy: Requirement::NotRequested,
     };
+    let secret = LockedSecretVec::try_from_capacity_with_protection(32, request, |output| {
+        assert_eq!(output.len(), 32);
+        output[..5].copy_from_slice(b"token");
+        output[5..].fill(0xa5);
+        Ok::<usize, &'static str>(5)
+    })
+    .unwrap();
 
     assert!(secret.protection_report().satisfies(request));
     assert_eq!(secret.len(), 5);
     assert!(secret.constant_time_eq_or_panic(b"token"));
+    assert!(secret.unreported_tail_is_clear_for_test());
 
     assert_eq!(
         LockedSecretVec::try_from_capacity_with_protection(4, request, |output| {
@@ -4964,6 +5027,20 @@ fn locked_secret_vec_policy_aware_fill_establishes_protection_first() {
             actual: 5,
         }))
     );
+
+    let callback_ran = core::cell::Cell::new(false);
+    assert_eq!(
+        LockedSecretVec::try_from_capacity_bounded_with_protection(9, 8, request, |_| {
+            callback_ran.set(true);
+            Ok::<usize, &'static str>(0)
+        },)
+        .err(),
+        Some(ProtectedSecretFillError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert!(!callback_ran.get());
 }
 
 #[cfg(all(
@@ -5008,25 +5085,28 @@ fn locked_secret_vec_required_policy_failure_prevents_fill() {
 #[test]
 #[allow(unsafe_code)]
 fn locked_secret_vec_policy_aware_fill_detects_suffix_corruption() {
-    let result = LockedSecretVec::try_from_capacity_with_protection(
-        4,
-        ProtectionRequest::locked(),
-        |output| {
-            // SAFETY: This deliberately corrupts the adjacent suffix canary
-            // to model an unsafe decoder writing one byte past its output.
-            unsafe {
-                let suffix = output.as_mut_ptr().add(output.len());
-                suffix.write(suffix.read() ^ 0xff);
-            }
-            Ok::<usize, core::convert::Infallible>(4)
-        },
-    );
+    let request = ProtectionRequest {
+        memory_lock: Requirement::NotRequested,
+        dump_exclusion: Requirement::NotRequested,
+        fork: ForkProtectionRequest::inherit(),
+        guard_pages: Requirement::NotRequested,
+        canary: Requirement::Required,
+        cache_policy: Requirement::NotRequested,
+    };
+    let result = LockedSecretVec::try_from_capacity_with_protection(4, request, |output| {
+        // SAFETY: This deliberately corrupts the adjacent suffix canary
+        // to model an unsafe decoder writing one byte past its output.
+        unsafe {
+            let suffix = output.as_mut_ptr().add(output.len());
+            suffix.write(suffix.read() ^ 0xff);
+        }
+        Ok::<usize, core::convert::Infallible>(4)
+    });
 
-    assert!(matches!(
-        result,
-        Err(ProtectedSecretFillError::Integrity(CanaryCorruptedError))
-            | Err(ProtectedSecretFillError::Protection(_))
-    ));
+    assert_eq!(
+        result.err(),
+        Some(ProtectedSecretFillError::Integrity(CanaryCorruptedError))
+    );
 }
 
 #[cfg(all(
@@ -5968,10 +6048,10 @@ fn guarded_secret_vec_can_initialize_from_fallible_fn() {
 #[test]
 fn guarded_secret_vec_policy_aware_fill_establishes_protection_first() {
     let request = ProtectionRequest::guarded();
-    let secret = GuardedSecretVec::try_from_capacity_with_protection(8, request, |output| {
-        assert_eq!(output.len(), 8);
+    let secret = GuardedSecretVec::try_from_capacity_with_protection(32, request, |output| {
+        assert_eq!(output.len(), 32);
         output[..5].copy_from_slice(b"token");
-        output[5..].copy_from_slice(b"old");
+        output[5..].fill(0xa5);
         Ok::<usize, &'static str>(5)
     })
     .unwrap();
@@ -5979,6 +6059,7 @@ fn guarded_secret_vec_policy_aware_fill_establishes_protection_first() {
     assert!(secret.protection_report().satisfies(request));
     assert_eq!(secret.len(), 5);
     assert!(secret.constant_time_eq_or_panic(b"token"));
+    assert!(secret.unreported_tail_is_clear_for_test());
 
     assert_eq!(
         GuardedSecretVec::try_from_capacity_with_protection(4, request, |output| {
@@ -5999,6 +6080,20 @@ fn guarded_secret_vec_policy_aware_fill_establishes_protection_first() {
             actual: 5,
         }))
     );
+
+    let callback_ran = core::cell::Cell::new(false);
+    assert_eq!(
+        GuardedSecretVec::try_from_capacity_bounded_with_protection(9, 8, request, |_| {
+            callback_ran.set(true);
+            Ok::<usize, &'static str>(0)
+        },)
+        .err(),
+        Some(ProtectedSecretFillError::CapacityLimit {
+            maximum: 8,
+            actual: 9,
+        })
+    );
+    assert!(!callback_ran.get());
 }
 
 #[cfg(all(

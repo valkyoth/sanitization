@@ -166,15 +166,20 @@ only when the report marks the control failed, unsupported, or
 compatibility-only. Reports expose operational sizes and platform error codes,
 but never secret bytes, canary values, or mapping addresses.
 
-For runtime-length decoders and generators,
-`try_from_capacity_with_protection` on locked or guarded dynamic storage
-establishes required controls before invoking user code. This prevents the
+For runtime-length decoders and generators, the bounded policy-aware
+constructors on locked or guarded dynamic storage reject capacities above an
+application maximum, then establish required controls before invoking user
+code. This prevents resource consumption driven by an untrusted length and
+prevents the
 crate from intentionally materializing plaintext into a mapping after a
 required lock, guard, dump, fork, or canary control failed. Controls marked
 `Preferred` may still degrade by design, so high-assurance callers must mark
 pre-materialization requirements as `Required`. Unsafe decoder code, privileged
 in-process writes, and copies created by the callback remain outside the
 library's authority; boundary canaries are detection rather than prevention.
+The unbounded variants require a trusted, already-limited capacity. Anonymous
+mapping overcommit and later page-touching cleanup make successful allocation
+an insufficient resource-admission policy by itself.
 
 The named native profiles preserve this separation. They bundle reviewed
 features and expose matching `ProtectionRequest` constructors; they do not turn

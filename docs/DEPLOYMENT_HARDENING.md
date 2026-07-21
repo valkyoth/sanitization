@@ -104,12 +104,19 @@ Prefer generation directly into final locked storage through `from_fill`,
 buffers under clear-on-drop ownership, avoid `Clone`, `to_vec`, and formatting,
 and keep exposure closures short.
 
-For dynamic decoders, use `LockedSecretVec::try_from_capacity_with_protection`
-or `GuardedSecretVec::try_from_capacity_with_protection`. Do not decode first
-and inspect `ProtectionReport` afterward when plaintext must never exist under
-degraded controls. Mark those controls `Required`; a preferred control is
-explicit permission for degraded construction. Protected string wrappers
-provide the same fill ordering and reject invalid UTF-8 after clearing it.
+For dynamic decoders, use
+`LockedSecretVec::try_from_capacity_bounded_with_protection` or
+`GuardedSecretVec::try_from_capacity_bounded_with_protection` whenever the
+capacity is influenced by untrusted input. Do not decode first and inspect
+`ProtectionReport` afterward when plaintext must never exist under degraded
+controls. Mark those controls `Required`; a preferred control is explicit
+permission for degraded construction. Protected string wrappers provide the
+same fill ordering and reject invalid UTF-8 after clearing it.
+
+The unbounded variants are for trusted, already-limited capacities. A large
+anonymous mapping may succeed under virtual-memory overcommit and become
+expensive only when tail clearing or `Drop` touches its pages; fallible mapping
+alone is therefore not an application-level resource bound.
 
 The repository's `lint-fail-closed-initialization.py` gate rejects `try_*`
 results discarded through `drop(...)`, `.ok()`, or unhandled underscore

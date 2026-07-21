@@ -812,12 +812,38 @@ impl GuardedSecretVec {
         })
     }
 
+    /// Bounded variant of
+    /// [`GuardedSecretVec::try_from_capacity_with_protection`].
+    ///
+    /// Use this constructor whenever `capacity` originates from an untrusted
+    /// protocol length, decoder hint, or message field. A capacity above
+    /// `maximum` is rejected before mapping, protection setup, or invoking
+    /// `fill`.
+    pub fn try_from_capacity_bounded_with_protection<E>(
+        capacity: usize,
+        maximum: usize,
+        request: ProtectionRequest,
+        fill: impl FnOnce(&mut [u8]) -> Result<usize, E>,
+    ) -> Result<Self, ProtectedSecretFillError<E>> {
+        if capacity > maximum {
+            return Err(ProtectedSecretFillError::CapacityLimit {
+                maximum,
+                actual: capacity,
+            });
+        }
+
+        Self::try_from_capacity_with_protection(capacity, request, fill)
+    }
+
     /// Fill guarded dynamic storage only after all required controls have
     /// been established.
     ///
-    /// This constructor supports runtime-length decoders and generators
-    /// without materializing plaintext before mandatory guard, lock, dump,
-    /// fork, or canary controls succeed. The closure is not invoked when any
+    /// This unbounded constructor supports trusted capacities that the
+    /// application has already limited. Use
+    /// [`GuardedSecretVec::try_from_capacity_bounded_with_protection`] at
+    /// untrusted protocol boundaries. No plaintext is materialized before
+    /// mandatory guard, lock, dump, fork, or canary controls succeed. The
+    /// closure is not invoked when any
     /// [`Requirement::Required`] control fails. Controls marked
     /// [`Requirement::Preferred`] retain their normal degraded-success
     /// semantics and remain visible through [`GuardedSecretVec::protection_report`].
@@ -864,6 +890,24 @@ impl GuardedSecretVec {
         }
         secret.finish_initialization(len);
         Ok(secret)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn unreported_tail_is_clear_for_test(&self) -> bool {
+        #[cfg(feature = "canary-check")]
+        let tail_start = self.len.saturating_add(CANARY_SIZE).min(self.data_capacity);
+        #[cfg(not(feature = "canary-check"))]
+        let tail_start = self.len;
+        let mut index = tail_start;
+        while index < self.data_capacity {
+            // SAFETY: `index < data_capacity`, and the guarded writable region
+            // remains mapped for the duration of `&self`.
+            if unsafe { core::ptr::read_volatile(self.payload_ptr().add(index)) } != 0 {
+                return false;
+            }
+            index += 1;
+        }
+        true
     }
 
     /// Create a guarded secret buffer by copying bytes from a slice.

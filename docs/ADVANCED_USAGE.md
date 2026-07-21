@@ -70,11 +70,24 @@ the policy before decoding and return the initialized prefix length:
 ```rust,no_run
 # #[cfg(feature = "memory-lock")]
 # {
-use sanitization::{LockedSecretVec, ProtectionRequest};
+use sanitization::{
+    ForkProtectionRequest, LockedSecretVec, ProtectionRequest, Requirement,
+};
 
-let decoded = LockedSecretVec::try_from_capacity_with_protection(
-    4096,
-    ProtectionRequest::profile_hardened_native(),
+const MAX_DECODED_SECRET_BYTES: usize = 4096;
+let decoder_capacity = 4096; // Derived from validated public input.
+let request = ProtectionRequest {
+    memory_lock: Requirement::Required,
+    dump_exclusion: Requirement::Required,
+    fork: ForkProtectionRequest::exclude(Requirement::Required),
+    guard_pages: Requirement::NotRequested,
+    canary: Requirement::Required,
+    cache_policy: Requirement::NotRequested,
+};
+let decoded = LockedSecretVec::try_from_capacity_bounded_with_protection(
+    decoder_capacity,
+    MAX_DECODED_SECRET_BYTES,
+    request,
     |output| {
         output[..5].copy_from_slice(b"token");
         Ok::<usize, std::io::Error>(5)
@@ -91,6 +104,13 @@ the callback from running. The constructor verifies canaries at the advertised
 capacity boundary, rejects over-reported lengths, and clears every unreported
 tail byte. `GuardedSecretVec` exposes the same API. The locked and guarded
 string wrappers additionally validate UTF-8 and clear invalid payloads.
+
+Use unbounded policy-aware constructors only when the capacity has already been
+limited by trusted application logic. The bounded variants reject oversized
+public input before allocating a mapping or invoking the fill callback. The
+request above is deliberately stricter than `profile_hardened_native()`: that
+portable profile treats dump and fork exclusion as preferred and can therefore
+return a degraded mapping.
 
 Use named profile constructors when their policy matches the deployment. Use a
 custom request only when required/preferred controls genuinely differ. See

@@ -11,6 +11,11 @@ constructors for exact-length and capacity-bounded output. Every control marked
 RNGs, KDFs, and protocol implementations write directly into final protected
 storage without first materializing plaintext under a degraded mapping.
 
+Explicit `try_from_capacity_bounded_with_protection` constructors reject
+untrusted decoder capacities above an application maximum before mapping or
+callback execution. The unbounded variants are documented for trusted,
+already-limited capacities only.
+
 The callback receives exactly the requested public capacity. This remains true
 when guard-page allocation rounds its internal writable payload to a larger
 page boundary. Success clears the entire unreported tail; callback failure and
@@ -23,7 +28,7 @@ invalid payloads before returning an error.
 ## Typed integrity boundary
 
 `ProtectedSecretFillError<E>` distinguishes required-protection setup,
-callback, canary-integrity, and length failures.
+callback, canary-integrity, capacity-limit, and reported-length failures.
 `ProtectedSecretTextFillError<E>` adds UTF-8 validation failure.
 
 When canaries are enabled, the suffix canary is placed at the caller-visible
@@ -34,6 +39,10 @@ destination before the canary is moved to the final initialized length.
 Controls marked `Preferred` retain their documented degraded-success semantics.
 Applications that require a control before any plaintext is written must mark
 that control `Required`.
+
+The primary high-assurance example requires memory locking, dump exclusion,
+fork exclusion, and canaries before decoding. It does not use the portable
+profile's explicitly degraded dump/fork policy.
 
 All five workspace crates are released together at `2.0.3`, with the derive
 crate exact-pinned to the matching runtime version.

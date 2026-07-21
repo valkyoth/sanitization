@@ -340,11 +340,23 @@ unreported tail are cleared before an error or value is returned:
 ```rust,no_run
 # #[cfg(feature = "memory-lock")]
 # {
-use sanitization::{LockedSecretVec, ProtectionRequest};
+use sanitization::{
+    ForkProtectionRequest, LockedSecretVec, ProtectionRequest, Requirement,
+};
 
-let request = ProtectionRequest::profile_hardened_native();
-let decoded = LockedSecretVec::try_from_capacity_with_protection(
-    4096,
+const MAX_DECODED_SECRET_BYTES: usize = 4096;
+let decoder_capacity = 4096; // Validate the protocol length before this point.
+let request = ProtectionRequest {
+    memory_lock: Requirement::Required,
+    dump_exclusion: Requirement::Required,
+    fork: ForkProtectionRequest::exclude(Requirement::Required),
+    guard_pages: Requirement::NotRequested,
+    canary: Requirement::Required,
+    cache_policy: Requirement::NotRequested,
+};
+let decoded = LockedSecretVec::try_from_capacity_bounded_with_protection(
+    decoder_capacity,
+    MAX_DECODED_SECRET_BYTES,
     request,
     |output| {
         output[..5].copy_from_slice(b"token");
@@ -360,6 +372,13 @@ assert_eq!(decoded.try_constant_time_eq(b"token"), Ok(true));
 `GuardedSecretVec` provides the same constructor. `LockedSecretString` and
 `GuardedSecretString` provide matching policy-aware fill constructors and
 clear the mapping when the initialized prefix is not valid UTF-8.
+
+The unbounded `try_from_capacity_with_protection` variants accept only trusted,
+already-limited capacities. At message, file, or decoder boundaries, use the
+`*_bounded_with_protection` variants so an attacker-controlled size is rejected
+before mapping or page-touching cleanup. `profile_hardened_native()` permits
+explicit degraded success for dump and fork exclusion; use a custom request
+like the one above when plaintext must not be materialized without them.
 
 Prefer direct final-storage generation through `try_from_fn`, `try_from_fill`,
 or `try_init_with`. Avoid `Clone`, `to_vec`, formatting, and temporary arrays

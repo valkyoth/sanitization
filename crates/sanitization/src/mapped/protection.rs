@@ -811,6 +811,14 @@ impl std::error::Error for ProtectionError {}
 /// rollback reports from [`ProtectionError`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProtectedSecretFillError<E> {
+    /// The requested public capacity exceeded the caller-supplied application
+    /// maximum. No mapping was created and the fill closure was not invoked.
+    CapacityLimit {
+        /// Largest permitted capacity.
+        maximum: usize,
+        /// Capacity requested by the caller.
+        actual: usize,
+    },
     /// A required runtime protection could not be established before the fill
     /// closure was invoked.
     Protection(ProtectionError),
@@ -827,6 +835,10 @@ pub enum ProtectedSecretFillError<E> {
 impl<E: fmt::Display> fmt::Display for ProtectedSecretFillError<E> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::CapacityLimit { maximum, actual } => write!(
+                formatter,
+                "protected secret capacity {actual} exceeds application maximum {maximum}"
+            ),
             Self::Protection(error) => error.fmt(formatter),
             Self::Fill(error) => write!(formatter, "protected secret fill failed: {error}"),
             Self::Integrity(error) => error.fmt(formatter),
@@ -842,6 +854,7 @@ where
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::CapacityLimit { .. } => None,
             Self::Protection(error) => Some(error),
             Self::Fill(error) => Some(error),
             Self::Integrity(error) => Some(error),
