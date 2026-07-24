@@ -29,7 +29,7 @@ Small `bytes` integration crate for [`sanitization`](https://crates.io/crates/sa
 
 The main `sanitization` crate stays dependency-free. This sister crate provides
 `SecretBytesMut`, a clear-on-drop wrapper around `bytes::BytesMut` for projects
-that already use `bytes`. Its manifest requires `bytes 1.11.1` or newer so a
+that already use `bytes`. Its manifest requires `bytes 1.12.1` or newer so a
 fresh downstream resolution cannot select releases affected by
 `RUSTSEC-2026-0007`.
 

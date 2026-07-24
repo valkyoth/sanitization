@@ -37,7 +37,7 @@ COMPANIONS = {
 }
 
 MINIMUM_COMPANION_DEPENDENCIES = {
-    ("sanitization-bytes", "bytes"): "1.11.1",
+    ("sanitization-bytes", "bytes"): "1.12.1",
 }
 
 FORBIDDEN_WIPE_PRIMITIVES = (
