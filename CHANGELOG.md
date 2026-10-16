@@ -13,7 +13,8 @@
   `0.68.0` instead of its moving `latest` default.
 - Refresh README installation examples, toolchain documentation, API
   snapshots, package verification metadata, and coordinated release tooling;
-  remove redundant per-package homepage metadata newly warned on by Cargo.
+  remove redundant homepage metadata newly warned on by Cargo while retaining
+  canonical repository links in every published package.
 - Coordinate all six workspace crates and the exact runtime/derive dependency
   at version `2.1.1`.
 

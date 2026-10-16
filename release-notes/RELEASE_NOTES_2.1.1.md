@@ -21,8 +21,8 @@ without changing the minimum supported Rust version or the documented 2.1 API.
   moving latest-version default.
 - README examples, package verification metadata, API snapshots, and release
   commands now target `2.1.1`.
-- Redundant per-package homepage metadata is removed so Cargo `1.99.1` builds
-  and release tooling remain warning-free; repository links are unchanged.
+- Redundant homepage metadata is removed so Cargo `1.99.1` and nightly release
+  tooling remain warning-free; canonical repository links are unchanged.
 
 ## Coordinated Crates
 

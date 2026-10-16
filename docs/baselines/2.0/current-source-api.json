@@ -998,7 +998,7 @@
   "scope": "source-level declarations, manifests, features, and source hashes",
   "semantic_check": "CP-22 cargo-semver-checks and rustdoc API comparison",
   "source_hashes": {
-    "Cargo.toml": "83ca482a44907bff038e3c0bbaf36b63e7ad65c81f977b70c2adecd527d2d44c",
+    "Cargo.toml": "5918ad61a80e24dabeab0cfa420bd513ac7e4399ae25cd72a1dc868c899049f8",
     "crates/sanitization-arrayvec/Cargo.toml": "eaee4e19d3535ecdb022a18793db4846ce94d6efd1280b1912cd2ce892d51fc1",
     "crates/sanitization-arrayvec/src/lib.rs": "49d076169d5c5b2629bf69133f8c60ee30d384c6f33d2be0bc674e681298ae0b",
     "crates/sanitization-bytes/Cargo.toml": "eefbd592cbaa0f3ba8d69b7ef9f8ad4fb9836c7fbb898c2327fb20242b703c13",
