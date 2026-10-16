@@ -29,7 +29,7 @@
 
 ```toml
 [dependencies]
-sanitization-secrecy = "2.1.0"
+sanitization-secrecy = "2.1.1"
 ```
 
 Applications can preserve `secrecy::...` import paths with a Cargo package
@@ -37,7 +37,7 @@ alias:
 
 ```toml
 [dependencies]
-secrecy = { package = "sanitization-secrecy", version = "2.1.0" }
+secrecy = { package = "sanitization-secrecy", version = "2.1.1" }
 ```
 
 Legacy generic types that cannot attest stable storage can request the
@@ -47,7 +47,7 @@ explicit reduced-assurance newtype:
 [dependencies]
 secrecy = {
     package = "sanitization-secrecy",
-    version = "2.1.0",
+    version = "2.1.1",
     features = ["hazmat-unrestricted-exposure"],
 }
 ```

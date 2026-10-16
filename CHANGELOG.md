@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.1.1
+
+- Pin release development to Rust `1.99.1` while retaining Rust `1.90.0` as
+  the minimum supported Rust version and extending the compatibility matrix
+  through the latest stable release.
+- Update SHA-2 to `0.11.1` and `syn` to `3.0.9`, and refresh every workspace,
+  fuzzing, and standalone-tool lockfile to current compatible dependency
+  releases, including `zeroize 1.9.1` and `serde_json 1.0.154`.
+- Update the SHA-pinned `actions/upload-artifact` GitHub Action to `7.0.2`,
+  retain current checkout and Rust cache pins, and pin Kani verification to
+  `0.68.0` instead of its moving `latest` default.
+- Refresh README installation examples, toolchain documentation, API
+  snapshots, package verification metadata, and coordinated release tooling;
+  remove redundant per-package homepage metadata newly warned on by Cargo.
+- Coordinate all six workspace crates and the exact runtime/derive dependency
+  at version `2.1.1`.
+
 ## 2.1.0
 
 - Add `sanitization-secrecy`, an isolated compatibility companion for

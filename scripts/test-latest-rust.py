@@ -57,23 +57,23 @@ def main() -> int:
         toolchain = root / "rust-toolchain.toml"
         manifest = root / "channel-rust-stable.toml"
 
-        write_toolchain(toolchain, "1.98.1")
-        write_manifest(manifest, "1.98.1")
+        write_toolchain(toolchain, "1.99.1")
+        write_manifest(manifest, "1.99.1")
         result = run_check(toolchain, manifest)
         require(result.returncode == 0, result.stderr)
-        require("matches official stable 1.98.1" in result.stdout, result.stdout)
+        require("matches official stable 1.99.1" in result.stdout, result.stdout)
 
-        write_toolchain(toolchain, "1.98.0")
+        write_toolchain(toolchain, "1.99.0")
         result = run_check(toolchain, manifest)
         require(result.returncode == 1, result.stdout)
-        require("pins 1.98.0, official stable is 1.98.1" in result.stderr, result.stderr)
+        require("pins 1.99.0, official stable is 1.99.1" in result.stderr, result.stderr)
 
         write_toolchain(toolchain, "stable")
         result = run_check(toolchain, manifest)
         require(result.returncode == 1, result.stdout)
         require("must pin an exact stable patch version" in result.stderr, result.stderr)
 
-        write_toolchain(toolchain, "1.98.1")
+        write_toolchain(toolchain, "1.99.1")
         manifest.write_text("[pkg.cargo]\nversion = 1\n", encoding="utf-8")
         result = run_check(toolchain, manifest)
         require(result.returncode == 1, result.stdout)

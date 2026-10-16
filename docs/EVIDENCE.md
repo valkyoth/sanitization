@@ -127,7 +127,7 @@ scripts/verify-kani.sh
 
 Latest local run while preparing the 2.0 CP-20 evidence slice:
 
-- Kani version: `Kani Rust Verifier 0.67.0`;
+- Kani version: `Kani Rust Verifier 0.68.0`;
 - result: all configured `scripts/verify-kani.sh` harnesses passed for
   `no-default-features`, `alloc`, and `std` runs.
 

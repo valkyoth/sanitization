@@ -86,21 +86,21 @@ Fixed-size `no_std` secrets need no feature flags:
 
 ```toml
 [dependencies]
-sanitization = "2.1.0"
+sanitization = "2.1.1"
 ```
 
 Heap-backed byte and text containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.1.0", features = ["alloc"] }
+sanitization = { version = "2.1.1", features = ["alloc"] }
 ```
 
 Recommended native hardening profile:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.1.0", features = ["profile-hardened-native"] }
+sanitization = { version = "2.1.1", features = ["profile-hardened-native"] }
 ```
 
 This profile includes OS-random canaries and `strict-canary-check`. Enabling
@@ -111,7 +111,7 @@ Optional derives:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.1.0", features = ["derive"] }
+sanitization = { version = "2.1.1", features = ["derive"] }
 ```
 
 See the complete [feature reference](https://github.com/valkyoth/sanitization/blob/main/docs/FEATURES.md) before combining
@@ -494,7 +494,7 @@ JIT boundary. See [FEATURE_PROFILES.md](https://github.com/valkyoth/sanitization
 | --- | --- |
 | License | `MIT OR Apache-2.0` |
 | MSRV | Rust `1.90.0` |
-| Pinned toolchain | Rust `1.98.1` |
+| Pinned toolchain | Rust `1.99.1` |
 | Default target | `no_std` |
 | Default external runtime dependencies | zero |
 | Unsafe policy | denied at crate root and isolated in documented modules |
@@ -516,7 +516,7 @@ High-assurance users should read these documents in order:
 
 ## Rust Version Support
 
-The MSRV is Rust `1.90.0`. Release development is pinned to Rust `1.98.1`, and
+The MSRV is Rust `1.90.0`. Release development is pinned to Rust `1.99.1`, and
 the release gate checks compatibility from `1.90.0` through the pinned stable
 toolchain. The online release preflight also verifies that the pin is the
 current stable patch release without changing the MSRV.
@@ -569,7 +569,7 @@ when installed. Native target evidence and timing runs are documented in
 Release publication is staged through:
 
 ```bash
-scripts/release_crates.py --version 2.1.0 --prepare-only
+scripts/release_crates.py --version 2.1.1 --prepare-only
 scripts/release_crates.py --require-tag
 ```
 

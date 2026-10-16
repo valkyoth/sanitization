@@ -7,7 +7,6 @@ description = "Optional derive macros for the sanitization crate."
 license.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/sanitization-derive"
-homepage.workspace = true
 repository.workspace = true
 keywords = ["zeroize", "secrets", "security", "derive"]
 categories = ["cryptography", "no-std", "memory-management"]
@@ -26,4 +25,4 @@ proc-macro = true
 [dependencies]
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
-syn = { version = "3.0.4", features = ["full"] }
+syn = { version = "3.0.9", features = ["full"] }

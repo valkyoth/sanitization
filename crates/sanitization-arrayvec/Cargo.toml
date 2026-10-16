@@ -7,7 +7,6 @@ description = "ArrayVec integration wrappers for the sanitization crate."
 license.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/sanitization-arrayvec"
-homepage.workspace = true
 repository.workspace = true
 keywords = ["zeroize", "secrets", "security", "arrayvec", "no-std"]
 categories = ["cryptography", "no-std", "memory-management"]
@@ -23,7 +22,7 @@ clearing-owner = "sanitization"
 
 [dependencies]
 arrayvec = { version = "0.7", default-features = false }
-sanitization = { version = "2.1.0", path = "../sanitization", default-features = false }
+sanitization = { version = "2.1.1", path = "../sanitization", default-features = false }
 
 [package.metadata.docs.rs]
 all-features = true

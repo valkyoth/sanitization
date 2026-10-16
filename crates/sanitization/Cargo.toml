@@ -7,7 +7,6 @@ description = "Dependency-free no_std secret memory sanitization with safe defau
 license.workspace = true
 readme = "../../README.md"
 documentation = "https://docs.rs/sanitization"
-homepage.workspace = true
 repository.workspace = true
 keywords = ["zeroize", "secrets", "security", "no-std", "memory"]
 categories = ["cryptography", "no-std", "memory-management"]
@@ -27,7 +26,7 @@ default-runtime-dependencies = 0
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(miri)'] }
 
 [dependencies]
-sanitization-derive = { version = "=2.1.0", path = "../sanitization-derive", optional = true }
+sanitization-derive = { version = "=2.1.1", path = "../sanitization-derive", optional = true }
 serde = { version = "1.0.229", default-features = false, features = ["alloc"], optional = true }
 subtle = { version = "2", default-features = false, optional = true }
 zeroize = { version = "1", default-features = false, optional = true }

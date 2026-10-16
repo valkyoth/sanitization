@@ -7,7 +7,6 @@ description = "Migration-compatible secrecy-style wrappers backed by sanitizatio
 license.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/sanitization-secrecy"
-homepage.workspace = true
 repository.workspace = true
 keywords = ["secrets", "security", "secrecy", "zeroize", "no-std"]
 categories = ["cryptography", "memory-management", "no-std"]
@@ -29,7 +28,7 @@ serde-compat-unbounded = ["serde"]
 zeroize-interop = ["dep:zeroize"]
 
 [dependencies]
-sanitization = { version = "2.1.0", path = "../sanitization", default-features = false, features = ["alloc"] }
+sanitization = { version = "2.1.1", path = "../sanitization", default-features = false, features = ["alloc"] }
 serde = { version = "1.0.229", default-features = false, features = ["alloc"], optional = true }
 zeroize = { version = "1", default-features = false, features = ["alloc"], optional = true }
 

@@ -32,7 +32,7 @@ Existing `secrecy::...` imports can remain unchanged by aliasing the package:
 
 ```toml
 [dependencies]
-secrecy = { package = "sanitization-secrecy", version = "2.1.0" }
+secrecy = { package = "sanitization-secrecy", version = "2.1.1" }
 ```
 
 This alias changes only the dependency's local name. It does not make
@@ -46,7 +46,7 @@ contracts, enable the explicit unrestricted newtype only for that migration:
 [dependencies]
 secrecy = {
     package = "sanitization-secrecy",
-    version = "2.1.0",
+    version = "2.1.1",
     features = ["hazmat-unrestricted-exposure"],
 }
 ```
@@ -62,7 +62,7 @@ requirement:
 [dependencies]
 secrecy = {
     package = "sanitization-secrecy",
-    version = "2.1.0",
+    version = "2.1.1",
     features = ["serde"],
 }
 ```
@@ -105,8 +105,8 @@ Enable the derive macro when using the derived form shown below:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.1.0", features = ["derive"] }
-secrecy = { package = "sanitization-secrecy", version = "2.1.0" }
+sanitization = { version = "2.1.1", features = ["derive"] }
+secrecy = { package = "sanitization-secrecy", version = "2.1.1" }
 ```
 
 ```rust
