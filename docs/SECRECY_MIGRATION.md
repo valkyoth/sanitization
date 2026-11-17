@@ -32,7 +32,7 @@ Existing `secrecy::...` imports can remain unchanged by aliasing the package:
 
 ```toml
 [dependencies]
-secrecy = { package = "sanitization-secrecy", version = "2.1.2" }
+secrecy = { package = "sanitization-secrecy", version = "2.2.0" }
 ```
 
 This alias changes only the dependency's local name. It does not make
@@ -46,7 +46,7 @@ contracts, enable the explicit unrestricted newtype only for that migration:
 [dependencies]
 secrecy = {
     package = "sanitization-secrecy",
-    version = "2.1.2",
+    version = "2.2.0",
     features = ["hazmat-unrestricted-exposure"],
 }
 ```
@@ -62,7 +62,7 @@ requirement:
 [dependencies]
 secrecy = {
     package = "sanitization-secrecy",
-    version = "2.1.2",
+    version = "2.2.0",
     features = ["serde"],
 }
 ```
@@ -74,6 +74,7 @@ secrecy = {
 | `SecretBox<S>` | Supported with a `SecureSanitize` bound |
 | `SecretSlice<S>` | Supported |
 | `SecretString` | Supported |
+| Bounded UTF-8 conversion (adapter extension) | `SecretString::try_from_string_bounded::<MAX>` wipes the owned source, including spare capacity, on success or error. `try_from_str_bounded::<MAX>` accepts a borrowed source. Both check byte length before allocating. |
 | `ExposeSecret` | `SecretBox` requires `StableSharedSecretStorage`; `UnrestrictedSecretBox` is available behind `hazmat-unrestricted-exposure` |
 | `ExposeSecretMut` | `SecretBox` requires `StableMutableSecretStorage`; `UnrestrictedSecretBox` is available behind `hazmat-unrestricted-exposure` |
 | `UnrestrictedSecretBox<S>` | Explicit reduced-assurance newtype behind `hazmat-unrestricted-exposure`; feature activation never broadens `SecretBox` |
@@ -105,8 +106,8 @@ Enable the derive macro when using the derived form shown below:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.1.2", features = ["derive"] }
-secrecy = { package = "sanitization-secrecy", version = "2.1.2" }
+sanitization = { version = "2.2.0", features = ["derive"] }
+secrecy = { package = "sanitization-secrecy", version = "2.2.0" }
 ```
 
 ```rust

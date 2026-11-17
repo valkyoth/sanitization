@@ -136,14 +136,14 @@ dependencies = [
 
 [[package]]
 name = "sanitization"
-version = "2.1.2"
+version = "2.2.0"
 dependencies = [
  "sanitization-derive",
 ]
 
 [[package]]
 name = "sanitization-arrayvec"
-version = "2.1.2"
+version = "2.2.0"
 dependencies = [
  "arrayvec",
  "sanitization",
@@ -151,7 +151,7 @@ dependencies = [
 
 [[package]]
 name = "sanitization-crypto-interop"
-version = "2.1.2"
+version = "2.2.0"
 dependencies = [
  "blake3",
  "sanitization",
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "sanitization-derive"
-version = "2.1.2"
+version = "2.2.0"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -29,7 +29,7 @@
 
 ```toml
 [dependencies]
-sanitization-secrecy = "2.1.2"
+sanitization-secrecy = "2.2.0"
 ```
 
 Applications can preserve `secrecy::...` import paths with a Cargo package
@@ -37,7 +37,7 @@ alias:
 
 ```toml
 [dependencies]
-secrecy = { package = "sanitization-secrecy", version = "2.1.2" }
+secrecy = { package = "sanitization-secrecy", version = "2.2.0" }
 ```
 
 Legacy generic types that cannot attest stable storage can request the
@@ -47,7 +47,7 @@ explicit reduced-assurance newtype:
 [dependencies]
 secrecy = {
     package = "sanitization-secrecy",
-    version = "2.1.2",
+    version = "2.2.0",
     features = ["hazmat-unrestricted-exposure"],
 }
 ```
@@ -99,6 +99,13 @@ Prefer the final-allocation `init_with_mut` forms for aggregate secrets.
 Automatic array authorization is restricted to arrays of the reviewed integer
 primitives; a custom `Copy + CloneableSecret` element does not automatically
 authorize cloning an array of that element.
+
+Use `SecretString::try_from_string_bounded::<MAX>(text)` for an owned
+`String` at an input boundary. It rejects excess UTF-8 bytes before allocating
+destination storage and wipes the complete source allocation on every return.
+`SecretStringBuildError` distinguishes excess length, allocation failure,
+and non-exact capacity. For a borrowed `&str`, use
+`try_from_str_bounded::<MAX>`; the caller owns the original bytes.
 
 For an owned `String`, conversion copies into the final box and sanitizes the
 complete source capacity. `From<Vec<S>> for SecretSlice<S>` does the same for

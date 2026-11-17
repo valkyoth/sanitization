@@ -613,6 +613,57 @@ impl<S: SecureSanitize> Default for SecretSlice<S> {
 /// A boxed UTF-8 secret string.
 pub type SecretString = SecretBox<str>;
 
+/// Byte-limit and exact-allocation errors for boxed UTF-8 text.
+pub type SecretStringBuildError = SecretSliceAllocationError;
+
+impl SecretString {
+    /// Copy owned UTF-8 text into final boxed storage under a public byte limit.
+    ///
+    /// The source allocation, including spare capacity, is sanitized on success,
+    /// on any returned error, and during unwinding. The limit applies to the
+    /// source length in bytes. Excess length is rejected before reserving the box.
+    ///
+    /// ```
+    /// use sanitization_secrecy::{ExposeSecret, SecretString};
+    ///
+    /// let token = SecretString::try_from_string_bounded::<64>(String::from("token"))?;
+    /// assert_eq!(token.expose_secret(), "token");
+    /// # Ok::<(), sanitization_secrecy::SecretStringBuildError>(())
+    /// ```
+    pub fn try_from_string_bounded<const MAX: usize>(
+        source: String,
+    ) -> Result<Self, SecretStringBuildError> {
+        let source = TemporarySecret::new(source);
+        Self::try_from_str_bounded::<MAX>(source.value())
+    }
+
+    /// Fallibly copy borrowed UTF-8 text into a box of at most `MAX` bytes.
+    /// The caller retains responsibility for the borrowed source.
+    pub fn try_from_str_bounded<const MAX: usize>(
+        source: &str,
+    ) -> Result<Self, SecretStringBuildError> {
+        let len = source.len();
+        if len > MAX {
+            return Err(SecretStringBuildError::TooLong {
+                maximum: MAX,
+                actual: len,
+            });
+        }
+        let mut text = String::new();
+        text.try_reserve_exact(len)
+            .map_err(SecretStringBuildError::Allocation)?;
+        // Boxing can shrink excess capacity. Reject it while the buffer is empty.
+        if text.capacity() != len {
+            return Err(SecretStringBuildError::NonExactCapacity {
+                requested: len,
+                actual: text.capacity(),
+            });
+        }
+        text.push_str(source);
+        Ok(Self::new(text.into_boxed_str()))
+    }
+}
+
 impl From<String> for SecretString {
     /// Copy into final boxed string storage and sanitize the source allocation.
     ///
@@ -815,29 +866,27 @@ impl<'de> de::Visitor<'de> for SecretStringVisitor {
     where
         E: de::Error,
     {
-        self.validate_len::<E>(text.len())?;
-        Ok(SecretString::from(text))
+        SecretString::try_from_str_bounded::<{ sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN }>(
+            text,
+        )
+        .map_err(|error| self.build_error(error))
     }
 
-    fn visit_string<E>(self, mut text: String) -> Result<Self::Value, E>
+    fn visit_string<E>(self, text: String) -> Result<Self::Value, E>
     where
         E: de::Error,
     {
-        if let Err(error) = self.validate_len::<E>(text.len()) {
-            text.secure_sanitize();
-            return Err(error);
-        }
-        Ok(SecretString::from(text))
+        SecretString::try_from_string_bounded::<{ sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN }>(text)
+            .map_err(|error| self.build_error(error))
     }
 }
 
 #[cfg(feature = "serde")]
 impl SecretStringVisitor {
-    fn validate_len<E: de::Error>(&self, actual: usize) -> Result<(), E> {
-        if actual > sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN {
-            Err(E::invalid_length(actual, self))
-        } else {
-            Ok(())
+    fn build_error<E: de::Error>(&self, error: SecretStringBuildError) -> E {
+        match error {
+            SecretStringBuildError::TooLong { actual, .. } => E::invalid_length(actual, self),
+            other => E::custom(other),
         }
     }
 }
@@ -1397,7 +1446,7 @@ mod tests {
     #[test]
     #[cfg_attr(
         miri,
-        ignore = "large JSON boundary fixture is covered natively; exact limit arithmetic has a Miri-safe unit test"
+        ignore = "large JSON boundary fixture is covered natively; small byte limits are tested under Miri"
     )]
     fn serde_secret_string_enforces_default_input_ceiling() {
         let accepted_json = format!(
@@ -1415,18 +1464,46 @@ mod tests {
             "b".repeat(sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN + 1)
         );
         assert!(serde_json::from_str::<SecretString>(&rejected_json).is_err());
+        use serde::de::Visitor;
+        let oversized = "b".repeat(sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN + 1);
+        let error = SecretStringVisitor
+            .visit_string::<de::value::Error>(oversized)
+            .unwrap_err();
+        assert!(format!("{error}").contains("invalid length"));
+    }
+
+    #[test]
+    fn bounded_string_constructors_measure_utf8_bytes() {
+        let two_bytes = "\u{e9}";
+        assert_eq!(
+            SecretString::try_from_string_bounded::<2>(two_bytes.into())
+                .unwrap()
+                .expose_secret(),
+            two_bytes
+        );
+        assert!(matches!(
+            SecretString::try_from_str_bounded::<1>(two_bytes),
+            Err(SecretStringBuildError::TooLong {
+                actual: 2,
+                maximum: 1
+            })
+        ));
+        assert_eq!(
+            SecretString::try_from_str_bounded::<0>("")
+                .unwrap()
+                .expose_secret(),
+            ""
+        );
     }
 
     #[cfg(feature = "serde")]
     #[test]
-    fn serde_secret_string_limit_accepts_max_and_rejects_next_byte() {
-        let visitor = SecretStringVisitor;
-        assert!(visitor
-            .validate_len::<de::value::Error>(sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN)
-            .is_ok());
-        assert!(visitor
-            .validate_len::<de::value::Error>(sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN + 1)
-            .is_err());
+    fn serde_owned_string_preserves_text() {
+        use serde::de::Visitor;
+        let secret = SecretStringVisitor
+            .visit_string::<de::value::Error>("token".into())
+            .unwrap();
+        assert_eq!(secret.expose_secret(), "token");
     }
 
     #[cfg(feature = "serde-compat-unbounded")]

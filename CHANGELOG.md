@@ -1,6 +1,10 @@
 # Changelog
 
-## 2.1.2
+## 2.2.0
+
+- Add bounded, allocation-fallible owned and borrowed UTF-8 constructors to
+  `sanitization-secrecy::SecretString`. Its Serde visitor uses the same paths
+  with the existing 1 MiB byte ceiling.
 
 - Test the six workspace crates through Rust `1.100.0`, with an MSRV of `1.90.0`.
 - Update CI to cargo-audit `0.23.0`, cargo-deny `0.21.0`, and rust-cache `v2.9.3`.

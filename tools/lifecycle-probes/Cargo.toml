@@ -6,5 +6,6 @@ publish = false
 
 [workspace]
 
-[dependencies]
-sanitization = { version = "2.1.2", path = "../../crates/sanitization", features = ["alloc"] }
+[dev-dependencies]
+sanitization = { version = "2.2.0", path = "../../crates/sanitization", features = ["alloc"] }
+sanitization-secrecy = { version = "2.2.0", path = "../../crates/sanitization-secrecy", default-features = false }

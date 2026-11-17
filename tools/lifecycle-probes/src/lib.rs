@@ -18,8 +18,25 @@ mod tests {
 
     struct QuarantiningAllocator;
 
+    thread_local! {
+        static FAIL_SIZE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    }
+
     unsafe impl GlobalAlloc for QuarantiningAllocator {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            if FAIL_SIZE
+                .try_with(|size| {
+                    if size.get() == Some(layout.size()) {
+                        size.set(None);
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false)
+            {
+                return ptr::null_mut();
+            }
             // SAFETY: Delegates the allocation request unchanged to System.
             unsafe { System.alloc(layout) }
         }
@@ -84,6 +101,49 @@ mod tests {
         // System, so the recorded allocation remains readable for its layout.
         let bytes = unsafe { std::slice::from_raw_parts(pointer, len) };
         bytes.windows(marker.len()).any(|window| window == marker)
+    }
+
+    #[test]
+    fn bounded_owned_string_clears_entire_source_on_each_exit() {
+        use sanitization_secrecy::{ExposeSecret, SecretString, SecretStringBuildError};
+        const LENGTH: usize = 37;
+        for (oversized, refuse) in [(false, false), (true, false), (false, true)] {
+            let mut source = "s".repeat(128);
+            let capacity = source.capacity();
+            while source.len() < capacity {
+                source.push('s');
+            }
+            source.truncate(LENGTH);
+            let address = source.as_ptr();
+            let start = QUARANTINE_COUNT.load(Ordering::Acquire);
+            // On the length-error path the armed allocation failure must remain unused.
+            FAIL_SIZE.set((refuse || oversized).then_some(LENGTH));
+            let result = if oversized {
+                SecretString::try_from_string_bounded::<0>(source)
+            } else {
+                SecretString::try_from_string_bounded::<LENGTH>(source)
+            };
+            assert_eq!(FAIL_SIZE.replace(None), oversized.then_some(LENGTH));
+            if oversized {
+                assert!(matches!(
+                    result,
+                    Err(SecretStringBuildError::TooLong { .. })
+                ));
+            } else if refuse {
+                assert!(matches!(result, Err(SecretStringBuildError::Allocation(_))));
+            } else {
+                assert_eq!(result.unwrap().expose_secret(), "s".repeat(LENGTH));
+            }
+            let (pointer, len) = quarantined_since(start)
+                .find(|(pointer, _)| *pointer == address)
+                .expect("source allocation released into quarantine");
+            assert_eq!(len, capacity);
+            // SAFETY: The quarantine retains this allocation. We filled every
+            // byte with ASCII before truncating the source.
+            assert!(unsafe { std::slice::from_raw_parts(pointer, len) }
+                .iter()
+                .all(|b| *b == 0));
+        }
     }
 
     #[test]

@@ -28,7 +28,7 @@ serde-compat-unbounded = ["serde"]
 zeroize-interop = ["dep:zeroize"]
 
 [dependencies]
-sanitization = { version = "2.1.2", path = "../sanitization", default-features = false, features = ["alloc"] }
+sanitization = { version = "2.2.0", path = "../sanitization", default-features = false, features = ["alloc"] }
 serde = { version = "1.0.229", default-features = false, features = ["alloc"], optional = true }
 zeroize = { version = "1", default-features = false, features = ["alloc"], optional = true }
 

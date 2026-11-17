@@ -86,21 +86,21 @@ Fixed-size `no_std` secrets need no feature flags:
 
 ```toml
 [dependencies]
-sanitization = "2.1.2"
+sanitization = "2.2.0"
 ```
 
 Heap-backed byte and text containers:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.1.2", features = ["alloc"] }
+sanitization = { version = "2.2.0", features = ["alloc"] }
 ```
 
 Recommended native hardening profile:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.1.2", features = ["profile-hardened-native"] }
+sanitization = { version = "2.2.0", features = ["profile-hardened-native"] }
 ```
 
 This profile includes OS-random canaries and `strict-canary-check`. Enabling
@@ -111,7 +111,7 @@ Optional derives:
 
 ```toml
 [dependencies]
-sanitization = { version = "2.1.2", features = ["derive"] }
+sanitization = { version = "2.2.0", features = ["derive"] }
 ```
 
 See the complete [feature reference](https://github.com/valkyoth/sanitization/blob/main/docs/FEATURES.md) before combining
@@ -547,6 +547,9 @@ core clearing backend.
 
 Projects migrating from `secrecy` 0.10 can use the
 [`sanitization-secrecy` migration guide](https://github.com/valkyoth/sanitization/blob/main/docs/SECRECY_MIGRATION.md).
+The adapter's `SecretString::try_from_string_bounded::<MAX>(source)` accepts
+an owned string, checks its UTF-8 byte length before allocating the box, and
+wipes the full source allocation on success or error.
 The companion confines reference-returning exposure, controlled cloning, and
 opt-in plaintext serialization to compatibility wrappers; native hardened
 containers do not acquire those weaker semantics.
@@ -569,7 +572,7 @@ when installed. Native target evidence and timing runs are documented in
 Release publication is staged through:
 
 ```bash
-scripts/release_crates.py --version 2.1.2 --prepare-only
+scripts/release_crates.py --version 2.2.0 --prepare-only
 scripts/release_crates.py --require-tag
 ```
 

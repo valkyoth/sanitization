@@ -7,8 +7,16 @@ name = "lifecycle-probes"
 version = "0.0.0"
 dependencies = [
  "sanitization",
+ "sanitization-secrecy",
 ]
 
 [[package]]
 name = "sanitization"
-version = "2.1.2"
+version = "2.2.0"
+
+[[package]]
+name = "sanitization-secrecy"
+version = "2.2.0"
+dependencies = [
+ "sanitization",
+]
