@@ -11,6 +11,10 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+// With no hash adapter, the core dependency still carries the forwarded feature policy.
+#[cfg(not(any(feature = "sha2", feature = "blake3")))]
+use sanitization as _;
+
 #[cfg(feature = "blake3")]
 pub mod blake3;
 #[cfg(feature = "hmac-sha2")]
