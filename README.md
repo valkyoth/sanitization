@@ -550,6 +550,10 @@ Projects migrating from `secrecy` 0.10 can use the
 The adapter's `SecretString::try_from_string_bounded::<MAX>(source)` accepts
 an owned string, checks its UTF-8 byte length before allocating the box, and
 wipes the full source allocation on success or error.
+Use `try_from_utf8_bounded::<MAX>` for owned byte vectors, including input
+that might not be UTF-8. For Serde input, `SecretStringSeed::<MAX>::new()`
+sets an application-specific byte limit in place of the default 1 MiB.
+Neither visitor limit bounds the parser's own buffering.
 The companion confines reference-returning exposure, controlled cloning, and
 opt-in plaintext serialization to compatibility wrappers; native hardened
 containers do not acquire those weaker semantics.

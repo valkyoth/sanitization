@@ -23,6 +23,13 @@ impl<E> core::convert::From<sanitization_secrecy::SecretSliceAllocationError> fo
 pub fn sanitization_secrecy::SecretSliceInitError<E>::from(sanitization_secrecy::SecretSliceAllocationError) -> Self
 impl<E> core::error::Error for sanitization_secrecy::SecretSliceInitError<E> where E: core::error::Error + 'static
 pub fn sanitization_secrecy::SecretSliceInitError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+pub enum sanitization_secrecy::SecretStringUtf8Error
+pub sanitization_secrecy::SecretStringUtf8Error::Build(sanitization_secrecy::SecretStringBuildError)
+pub sanitization_secrecy::SecretStringUtf8Error::InvalidUtf8
+impl core::error::Error for sanitization_secrecy::SecretStringUtf8Error
+pub fn sanitization_secrecy::SecretStringUtf8Error::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Display for sanitization_secrecy::SecretStringUtf8Error
+pub fn sanitization_secrecy::SecretStringUtf8Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct sanitization_secrecy::SecretBox<S: sanitization::owned::SecureSanitize + ?core::marker::Sized>
 impl sanitization_secrecy::SecretBox<[u8]>
 pub fn sanitization_secrecy::SecretBox<[u8]>::init_with_len(usize, impl core::ops::function::FnOnce(&mut [u8])) -> Self
@@ -31,6 +38,7 @@ pub fn sanitization_secrecy::SecretBox<[u8]>::try_init_with_len_bounded<const MA
 impl sanitization_secrecy::SecretBox<str>
 pub fn sanitization_secrecy::SecretBox<str>::try_from_str_bounded<const MAX: usize>(&str) -> core::result::Result<Self, sanitization_secrecy::SecretStringBuildError>
 pub fn sanitization_secrecy::SecretBox<str>::try_from_string_bounded<const MAX: usize>(alloc::string::String) -> core::result::Result<Self, sanitization_secrecy::SecretStringBuildError>
+pub fn sanitization_secrecy::SecretBox<str>::try_from_utf8_bounded<const MAX: usize>(alloc::vec::Vec<u8>) -> core::result::Result<Self, sanitization_secrecy::SecretStringUtf8Error>
 impl<S: sanitization::owned::SecureSanitize + ?core::marker::Sized> sanitization_secrecy::SecretBox<S>
 pub fn sanitization_secrecy::SecretBox<S>::clear_secret(&mut self)
 pub fn sanitization_secrecy::SecretBox<S>::into_cleared(self)
@@ -73,6 +81,12 @@ pub sanitization_secrecy::SecretSliceCapacityError::capacity: usize
 pub sanitization_secrecy::SecretSliceCapacityError::length: usize
 impl core::fmt::Display for sanitization_secrecy::SecretSliceCapacityError
 pub fn sanitization_secrecy::SecretSliceCapacityError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct sanitization_secrecy::SecretStringSeed<const MAX: usize>
+impl<const MAX: usize> sanitization_secrecy::SecretStringSeed<MAX>
+pub const fn sanitization_secrecy::SecretStringSeed<MAX>::new() -> Self
+impl<'de, const MAX: usize> serde_core::de::DeserializeSeed<'de> for sanitization_secrecy::SecretStringSeed<MAX>
+pub type sanitization_secrecy::SecretStringSeed<MAX>::Value = sanitization_secrecy::SecretBox<str>
+pub fn sanitization_secrecy::SecretStringSeed<MAX>::deserialize<D: serde_core::de::Deserializer<'de>>(self, D) -> core::result::Result<Self::Value, <D as serde_core::de::Deserializer>::Error>
 pub struct sanitization_secrecy::UnrestrictedSecretBox<S: sanitization::owned::SecureSanitize + ?core::marker::Sized>
 impl<S: sanitization::owned::SecureSanitize + ?core::marker::Sized> sanitization_secrecy::UnrestrictedSecretBox<S>
 pub fn sanitization_secrecy::UnrestrictedSecretBox<S>::clear_secret(&mut self)

@@ -28,8 +28,8 @@
     },
     "sanitization-secrecy": {
       "file": "sanitization-secrecy.txt",
-      "lines": 149,
-      "sha256": "e3230ccdaa25b589a3ca24cbf6865f229c07a2109f1b72cb61ea3d80d1f5eb3a"
+      "lines": 163,
+      "sha256": "9abebf048a88b01bcb078a4b0548cd27019b9216aa2118a5eeb43742c981d841"
     }
   },
   "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",

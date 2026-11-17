@@ -505,12 +505,12 @@ impl fmt::Display for SecretSliceAllocationError {
         match self {
             Self::TooLong { maximum, actual } => write!(
                 formatter,
-                "secret slice length exceeds limit: maximum {maximum} bytes, got {actual} bytes"
+                "secret byte length exceeds limit: maximum {maximum} bytes, got {actual} bytes"
             ),
-            Self::Allocation(error) => write!(formatter, "secret slice allocation failed: {error}"),
+            Self::Allocation(error) => write!(formatter, "secret allocation failed: {error}"),
             Self::NonExactCapacity { requested, actual } => write!(
                 formatter,
-                "secret slice allocator returned capacity {actual} for requested length {requested}"
+                "secret allocator returned capacity {actual} for requested length {requested}"
             ),
         }
     }
@@ -616,7 +616,56 @@ pub type SecretString = SecretBox<str>;
 /// Byte-limit and exact-allocation errors for boxed UTF-8 text.
 pub type SecretStringBuildError = SecretSliceAllocationError;
 
+/// Error ingesting owned bytes as bounded secret text. Never retains input bytes.
+#[derive(Debug)]
+pub enum SecretStringUtf8Error {
+    /// The byte limit or destination allocation policy was not satisfied.
+    Build(SecretStringBuildError),
+    /// The input was within the limit but was not valid UTF-8.
+    InvalidUtf8,
+}
+
+impl fmt::Display for SecretStringUtf8Error {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Build(error) => error.fmt(formatter),
+            Self::InvalidUtf8 => formatter.write_str("secret input is not valid UTF-8"),
+        }
+    }
+}
+
+impl core::error::Error for SecretStringUtf8Error {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::Build(error) => Some(error),
+            Self::InvalidUtf8 => None,
+        }
+    }
+}
+
 impl SecretString {
+    /// Copy owned UTF-8 bytes into final boxed text without an intermediate string.
+    ///
+    /// Checks the public byte limit before validation or allocation. The source
+    /// vector's entire capacity is wiped on success, error, or unwind.
+    /// UTF-8 validation is not a data-oblivious operation.
+    pub fn try_from_utf8_bounded<const MAX: usize>(
+        source: Vec<u8>,
+    ) -> Result<Self, SecretStringUtf8Error> {
+        let source = TemporarySecret::new(source);
+        let bytes = source.value().as_slice();
+        if bytes.len() > MAX {
+            return Err(SecretStringUtf8Error::Build(
+                SecretStringBuildError::TooLong {
+                    maximum: MAX,
+                    actual: bytes.len(),
+                },
+            ));
+        }
+        let text = core::str::from_utf8(bytes).map_err(|_| SecretStringUtf8Error::InvalidUtf8)?;
+        Self::try_from_str_bounded::<MAX>(text).map_err(SecretStringUtf8Error::Build)
+    }
+
     /// Copy owned UTF-8 text into final boxed storage under a public byte limit.
     ///
     /// The source allocation, including spare capacity, is sanitized on success,
@@ -843,22 +892,60 @@ impl<'de> Deserialize<'de> for SecretString {
     where
         D: de::Deserializer<'de>,
     {
-        deserializer.deserialize_string(SecretStringVisitor)
+        de::DeserializeSeed::deserialize(
+            SecretStringSeed::<{ sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN }>::new(),
+            deserializer,
+        )
     }
 }
 
 #[cfg(feature = "serde")]
-struct SecretStringVisitor;
+/// Deserialize a boxed secret string with an application-selected UTF-8 byte limit.
+/// The limit applies when the visitor receives text, not to parser-owned buffers.
+///
+/// ```
+/// use sanitization_secrecy::{ExposeSecret, SecretStringSeed};
+/// use serde::de::DeserializeSeed;
+///
+/// let mut input = serde_json::Deserializer::from_str(r#""token""#);
+/// let token = SecretStringSeed::<64>::new().deserialize(&mut input)?;
+/// assert_eq!(token.expose_secret(), "token");
+/// # Ok::<(), serde_json::Error>(())
+/// ```
+#[derive(Default)]
+pub struct SecretStringSeed<const MAX: usize>;
 
 #[cfg(feature = "serde")]
-impl<'de> de::Visitor<'de> for SecretStringVisitor {
+impl<const MAX: usize> SecretStringSeed<MAX> {
+    /// Select a public maximum size of `MAX` bytes.
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, const MAX: usize> de::DeserializeSeed<'de> for SecretStringSeed<MAX> {
+    type Value = SecretString;
+
+    fn deserialize<D: de::Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_string(SecretStringVisitor::<MAX>)
+    }
+}
+
+#[cfg(feature = "serde")]
+struct SecretStringVisitor<const MAX: usize>;
+
+#[cfg(feature = "serde")]
+impl<'de, const MAX: usize> de::Visitor<'de> for SecretStringVisitor<MAX> {
     type Value = SecretString;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "at most {} UTF-8 bytes of secret text",
-            sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN
+            "secret text with a UTF-8 byte length of at most {MAX}"
         )
     }
 
@@ -866,23 +953,19 @@ impl<'de> de::Visitor<'de> for SecretStringVisitor {
     where
         E: de::Error,
     {
-        SecretString::try_from_str_bounded::<{ sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN }>(
-            text,
-        )
-        .map_err(|error| self.build_error(error))
+        SecretString::try_from_str_bounded::<MAX>(text).map_err(|error| self.build_error(error))
     }
 
     fn visit_string<E>(self, text: String) -> Result<Self::Value, E>
     where
         E: de::Error,
     {
-        SecretString::try_from_string_bounded::<{ sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN }>(text)
-            .map_err(|error| self.build_error(error))
+        SecretString::try_from_string_bounded::<MAX>(text).map_err(|error| self.build_error(error))
     }
 }
 
 #[cfg(feature = "serde")]
-impl SecretStringVisitor {
+impl<const MAX: usize> SecretStringVisitor<MAX> {
     fn build_error<E: de::Error>(&self, error: SecretStringBuildError) -> E {
         match error {
             SecretStringBuildError::TooLong { actual, .. } => E::invalid_length(actual, self),
@@ -1466,10 +1549,79 @@ mod tests {
         assert!(serde_json::from_str::<SecretString>(&rejected_json).is_err());
         use serde::de::Visitor;
         let oversized = "b".repeat(sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN + 1);
-        let error = SecretStringVisitor
+        let error = SecretStringVisitor::<{ sanitization::DEFAULT_SECRET_STRING_SERDE_MAX_LEN }>
             .visit_string::<de::value::Error>(oversized)
             .unwrap_err();
         assert!(format!("{error}").contains("invalid length"));
+    }
+
+    #[test]
+    fn bounded_utf8_checks_length_before_validity() {
+        let text = "\u{e9}";
+        assert_eq!(
+            SecretString::try_from_utf8_bounded::<2>(text.as_bytes().to_vec())
+                .unwrap()
+                .expose_secret(),
+            text
+        );
+        assert_eq!(
+            SecretString::try_from_utf8_bounded::<0>(Vec::new())
+                .unwrap()
+                .expose_secret(),
+            ""
+        );
+        for bytes in [text.as_bytes().to_vec(), alloc::vec![0xff; 2]] {
+            assert!(matches!(
+                SecretString::try_from_utf8_bounded::<1>(bytes),
+                Err(SecretStringUtf8Error::Build(
+                    SecretStringBuildError::TooLong {
+                        maximum: 1,
+                        actual: 2
+                    }
+                ))
+            ));
+        }
+        assert!(matches!(
+            SecretString::try_from_utf8_bounded::<1>(alloc::vec![0xff]),
+            Err(SecretStringUtf8Error::InvalidUtf8)
+        ));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn seed_limits_owned_and_borrowed_text_in_bytes() {
+        use serde::de::{
+            value::{BorrowedStrDeserializer, Error, StringDeserializer},
+            DeserializeSeed,
+        };
+        let text = "\u{e9}";
+        let borrowed = || BorrowedStrDeserializer::<Error>::new(text);
+        let owned = || StringDeserializer::<Error>::new(text.into());
+        assert_eq!(
+            SecretStringSeed::<2>::new()
+                .deserialize(borrowed())
+                .unwrap()
+                .expose_secret(),
+            text
+        );
+        assert_eq!(
+            SecretStringSeed::<2>::new()
+                .deserialize(owned())
+                .unwrap()
+                .expose_secret(),
+            text
+        );
+        for error in [
+            SecretStringSeed::<1>::new()
+                .deserialize(borrowed())
+                .unwrap_err(),
+            SecretStringSeed::<1>::new()
+                .deserialize(owned())
+                .unwrap_err(),
+        ] {
+            assert!(format!("{error}").contains("UTF-8 byte length of at most 1"));
+            assert!(!format!("{error}").contains(text));
+        }
     }
 
     #[test]
@@ -1500,7 +1652,7 @@ mod tests {
     #[test]
     fn serde_owned_string_preserves_text() {
         use serde::de::Visitor;
-        let secret = SecretStringVisitor
+        let secret = SecretStringVisitor::<5>
             .visit_string::<de::value::Error>("token".into())
             .unwrap();
         assert_eq!(secret.expose_secret(), "token");

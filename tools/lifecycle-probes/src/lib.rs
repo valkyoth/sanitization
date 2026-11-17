@@ -134,15 +134,64 @@ mod tests {
             } else {
                 assert_eq!(result.unwrap().expose_secret(), "s".repeat(LENGTH));
             }
-            let (pointer, len) = quarantined_since(start)
-                .find(|(pointer, _)| *pointer == address)
-                .expect("source allocation released into quarantine");
-            assert_eq!(len, capacity);
-            // SAFETY: The quarantine retains this allocation. We filled every
-            // byte with ASCII before truncating the source.
-            assert!(unsafe { std::slice::from_raw_parts(pointer, len) }
-                .iter()
-                .all(|b| *b == 0));
+            assert_wiped_source(start, address, capacity);
+        }
+    }
+
+    fn assert_wiped_source(start: usize, address: *const u8, capacity: usize) {
+        let (pointer, len) = quarantined_since(start)
+            .find(|(pointer, _)| *pointer == address)
+            .expect("source allocation released into quarantine");
+        assert_eq!(len, capacity);
+        // SAFETY: The quarantine retains the allocation, and the tests
+        // initialize its entire capacity before truncating the source.
+        assert!(unsafe { std::slice::from_raw_parts(pointer, len) }
+            .iter()
+            .all(|b| *b == 0));
+    }
+
+    #[test]
+    fn bounded_utf8_clears_source_including_spare_capacity() {
+        use sanitization_secrecy::{
+            ExposeSecret, SecretString, SecretStringBuildError as Build,
+            SecretStringUtf8Error as Utf8,
+        };
+        const LENGTH: usize = 37;
+        for (oversized, invalid, refuse) in [
+            (false, false, false),
+            (true, true, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
+            let mut bytes = vec![b'x'; 128];
+            let capacity = bytes.capacity();
+            bytes.resize(capacity, b'x');
+            bytes.truncate(LENGTH);
+            if invalid {
+                bytes[0] = 0xff;
+            }
+            let address = bytes.as_ptr();
+            let start = QUARANTINE_COUNT.load(Ordering::Acquire);
+            FAIL_SIZE.set((oversized || invalid || refuse).then_some(LENGTH));
+            let result = if oversized {
+                SecretString::try_from_utf8_bounded::<0>(bytes)
+            } else {
+                SecretString::try_from_utf8_bounded::<LENGTH>(bytes)
+            };
+            assert_eq!(
+                FAIL_SIZE.replace(None),
+                (oversized || invalid).then_some(LENGTH)
+            );
+            if oversized {
+                assert!(matches!(result, Err(Utf8::Build(Build::TooLong { .. }))));
+            } else if invalid {
+                assert!(matches!(result, Err(Utf8::InvalidUtf8)));
+            } else if refuse {
+                assert!(matches!(result, Err(Utf8::Build(Build::Allocation(_)))));
+            } else {
+                assert_eq!(result.unwrap().expose_secret(), "x".repeat(LENGTH));
+            }
+            assert_wiped_source(start, address, capacity);
         }
     }
 

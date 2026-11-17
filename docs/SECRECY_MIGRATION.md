@@ -75,6 +75,8 @@ secrecy = {
 | `SecretSlice<S>` | Supported |
 | `SecretString` | Supported |
 | Bounded UTF-8 conversion (adapter extension) | `SecretString::try_from_string_bounded::<MAX>` wipes the owned source, including spare capacity, on success or error. `try_from_str_bounded::<MAX>` accepts a borrowed source. Both check byte length before allocating. |
+| Owned bytes with unknown UTF-8 validity | `SecretString::try_from_utf8_bounded::<MAX>` checks length first and clears the owned vector even when validation fails. |
+| Application-specific Serde input limit | Use `SecretStringSeed::<MAX>::new()` to deserialize with a byte ceiling at visitor entry. Ordinary `Deserialize` retains the default 1 MiB limit. |
 | `ExposeSecret` | `SecretBox` requires `StableSharedSecretStorage`; `UnrestrictedSecretBox` is available behind `hazmat-unrestricted-exposure` |
 | `ExposeSecretMut` | `SecretBox` requires `StableMutableSecretStorage`; `UnrestrictedSecretBox` is available behind `hazmat-unrestricted-exposure` |
 | `UnrestrictedSecretBox<S>` | Explicit reduced-assurance newtype behind `hazmat-unrestricted-exposure`; feature activation never broadens `SecretBox` |

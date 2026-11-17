@@ -106,6 +106,14 @@ destination storage and wipes the complete source allocation on every return.
 `SecretStringBuildError` distinguishes excess length, allocation failure,
 and non-exact capacity. For a borrowed `&str`, use
 `try_from_str_bounded::<MAX>`; the caller owns the original bytes.
+For an owned `Vec<u8>`, use `try_from_utf8_bounded::<MAX>`. It checks
+length before UTF-8 validation and wipes the full input allocation even for
+invalid text. Errors never carry the rejected bytes.
+
+With the `serde` feature, pass `SecretStringSeed::<MAX>::new()` to a
+seed-aware deserializer or call its `DeserializeSeed::deserialize` method.
+This changes the byte limit for that input only; ordinary `Deserialize`
+keeps the 1 MiB limit. Limit the transport or parser separately.
 
 For an owned `String`, conversion copies into the final box and sanitizes the
 complete source capacity. `From<Vec<S>> for SecretSlice<S>` does the same for

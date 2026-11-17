@@ -4,7 +4,12 @@ The secrecy adapter adds `SecretString::try_from_string_bounded::<MAX>`
 for owned strings and `try_from_str_bounded::<MAX>` for borrowed text.
 Both check the public UTF-8 byte length before reserving final storage.
 The owned conversion wipes its source allocation on success and error.
-Serde uses these constructors with its existing 1 MiB limit.
+`try_from_utf8_bounded::<MAX>` also accepts owned byte vectors and wipes
+their full capacity even on invalid UTF-8. The shared allocation errors
+now describe bytes rather than calling boxed text a slice.
+Serde uses these constructors with its existing 1 MiB default, or a
+caller-selected visitor limit through `SecretStringSeed::<MAX>`. This does
+not bound parser-owned input buffers or enable plaintext serialization.
 
 This release also includes the maintenance updates prepared after 2.1.1.
 The default development toolchain and upper end of the compatibility matrix
