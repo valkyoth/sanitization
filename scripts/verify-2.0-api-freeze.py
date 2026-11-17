@@ -93,11 +93,11 @@ derive_manifest = tomllib.loads(
     (ROOT / "crates" / "sanitization-derive" / "Cargo.toml").read_text(encoding="utf-8")
 )
 syn = derive_manifest["dependencies"].get("syn")
-if not isinstance(syn, dict) or syn.get("version") != "3.0.9":
-    fail("sanitization-derive must pin syn compatibility to 3.0.9")
+if not isinstance(syn, dict) or syn.get("version") != "3.0.10":
+    fail("sanitization-derive must pin syn compatibility to 3.0.10")
 lock = (ROOT / "Cargo.lock").read_text(encoding="utf-8")
-if 'name = "syn"\nversion = "3.0.9"' not in lock:
-    fail("workspace Cargo.lock does not resolve syn 3.0.9")
+if 'name = "syn"\nversion = "3.0.10"' not in lock:
+    fail("workspace Cargo.lock does not resolve syn 3.0.10")
 
 semver = json.loads(SEMVER.read_text(encoding="utf-8"))
 expected_lints = {

@@ -1,35 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-emit_codegen() {
-    rm -f \
-        target/release/deps/sanitization-verify-codegen.d \
-        target/release/deps/sanitization-verify-codegen.ll \
-        target/release/deps/sanitization-verify-codegen.s \
-        target/release/deps/libsanitization-verify-codegen.rlib \
-        target/release/deps/libsanitization-verify-codegen.rmeta
+# Keep probe outputs independent of Cargo's intermediate artifact layout.
+export CARGO_TARGET_DIR="$PWD/target/verify-codegen/cargo"
+cargo clean --target-dir "$CARGO_TARGET_DIR"
+mkdir -p target/verify-codegen/ir
+ir_file="target/verify-codegen/ir/sanitization.ll"
+asm_file="target/verify-codegen/ir/sanitization.s"
+crypto_interop_ir="target/verify-codegen/ir/crypto.ll"
+exposure_ir="target/verify-codegen/ir/direct.ll"
+rm -f "$ir_file" "$asm_file" "$crypto_interop_ir" "$exposure_ir"
 
+emit_codegen() {
     if [[ "${SANITIZATION_CODEGEN_FEATURES:-all}" == "all" ]]; then
         cargo rustc -p sanitization --lib --release --all-features -- \
             -C extra-filename=-verify-codegen \
-            --emit=llvm-ir,asm
+            "--emit=llvm-ir=${ir_file},asm=${asm_file}"
     else
         cargo rustc -p sanitization --lib --release \
             --features "${SANITIZATION_CODEGEN_FEATURES}" -- \
             -C extra-filename=-verify-codegen \
-            --emit=llvm-ir,asm
+            "--emit=llvm-ir=${ir_file},asm=${asm_file}"
     fi
 }
 
 emit_codegen
 
-cargo clean --manifest-path tools/direct-exposure-codegen/Cargo.toml
 cargo rustc \
     --manifest-path tools/direct-exposure-codegen/Cargo.toml \
     --release \
     -- \
     -C extra-filename=-verify-codegen \
-    --emit=llvm-ir
+    "--emit=llvm-ir=../../${exposure_ir}"
 
 cargo rustc \
     -p sanitization-crypto-interop \
@@ -37,12 +39,7 @@ cargo rustc \
     --features blake3,hmac-sha2,strict-compare \
     -- \
     -C extra-filename=-verify-codegen \
-    --emit=llvm-ir
-
-ir_file="target/release/deps/sanitization-verify-codegen.ll"
-asm_file="target/release/deps/sanitization-verify-codegen.s"
-exposure_ir="tools/direct-exposure-codegen/target/release/deps/direct_exposure_codegen-verify-codegen.ll"
-crypto_interop_ir="target/release/deps/sanitization_crypto_interop-verify-codegen.ll"
+    "--emit=llvm-ir=${crypto_interop_ir}"
 
 if [[ ! -f "${ir_file}" ]]; then
     echo "no sanitization LLVM IR file found" >&2

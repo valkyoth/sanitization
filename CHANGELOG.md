@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.2
+
+- Test the six workspace crates through Rust `1.100.0`, with an MSRV of `1.90.0`.
+- Update CI to cargo-audit `0.23.0`, cargo-deny `0.21.0`, and rust-cache `v2.9.3`.
+- Refresh all nine Cargo lockfiles, including `syn 3.0.10`, `zeroize 1.9.2`,
+  and the Loom concurrency test harness dependency `loom 0.7.3`.
+
 ## 2.1.1
 
 - Pin release development to Rust `1.99.1` while retaining Rust `1.90.0` as

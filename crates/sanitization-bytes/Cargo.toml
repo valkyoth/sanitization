@@ -22,7 +22,7 @@ clearing-owner = "sanitization"
 
 [dependencies]
 bytes = { version = "1.12.1", default-features = false }
-sanitization = { version = "2.1.1", path = "../sanitization", default-features = false, features = ["alloc"] }
+sanitization = { version = "2.1.2", path = "../sanitization", default-features = false, features = ["alloc"] }
 
 [package.metadata.docs.rs]
 all-features = true

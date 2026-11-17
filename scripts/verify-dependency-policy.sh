@@ -2,12 +2,12 @@
 set -euo pipefail
 
 if ! cargo deny --version >/dev/null 2>&1; then
-    printf '%s\n' 'cargo-deny 0.20.2 is required; install it with:' >&2
-    printf '%s\n' 'cargo install cargo-deny --version 0.20.2 --locked' >&2
+    printf '%s\n' 'cargo-deny 0.21.0 is required; install it with:' >&2
+    printf '%s\n' 'cargo install cargo-deny --version 0.21.0 --locked' >&2
     exit 1
 fi
 
-expected_version='cargo-deny 0.20.2'
+expected_version='cargo-deny 0.21.0'
 actual_version="$(cargo deny --version)"
 if [ "$actual_version" != "$expected_version" ]; then
     printf 'expected %s, found %s\n' "$expected_version" "$actual_version" >&2

@@ -42,7 +42,7 @@ add_ci_cargo_wrapper() {
 }
 
 install_rustup() {
-    rustup_init_version='1.28.2'
+    rustup_init_version='1.29.3'
 
     case "$(uname -s)" in
         MINGW* | MSYS* | CYGWIN*)
@@ -53,11 +53,11 @@ install_rustup() {
             case "$(uname -m)" in
                 x86_64 | amd64)
                     rustup_target='x86_64-unknown-linux-gnu'
-                    rustup_sha256='20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c'
+                    rustup_sha256='b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55'
                     ;;
                 aarch64 | arm64)
                     rustup_target='aarch64-unknown-linux-gnu'
-                    rustup_sha256='e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c'
+                    rustup_sha256='9f608c142e0e38a78957d0661ba1dfaf0b6fb37184cfaa4b9a0aa57af6184282'
                     ;;
                 *)
                     echo "ci rust: unsupported Linux architecture: $(uname -m)" >&2
@@ -69,11 +69,11 @@ install_rustup() {
             case "$(uname -m)" in
                 x86_64 | amd64)
                     rustup_target='x86_64-apple-darwin'
-                    rustup_sha256='9c331076f62b4d0edeae63d9d1c9442d5fe39b37b05025ec8d41c5ed35486496'
+                    rustup_sha256='bc107f1fb0228de7fa32413c89c1b305cea9cd256e94b01150cd054128145429'
                     ;;
                 aarch64 | arm64)
                     rustup_target='aarch64-apple-darwin'
-                    rustup_sha256='20ef5516c31b1ac2290084199ba77dbbcaa1406c45c1d978ca68558ef5964ef5'
+                    rustup_sha256='63752a1919a3a4793173ec70f8f212621a7ce38ba6a246095984482f4de20f9f'
                     ;;
                 *)
                     echo "ci rust: unsupported macOS architecture: $(uname -m)" >&2

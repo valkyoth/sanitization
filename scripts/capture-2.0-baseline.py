@@ -267,8 +267,8 @@ def first_matching_line(path: Path, pattern: str) -> str:
 def codegen_snapshot() -> dict[str, Any]:
     run(["scripts/verify-codegen.sh"])
 
-    ir_path = ROOT / "target/release/deps/sanitization-verify-codegen.ll"
-    asm_path = ROOT / "target/release/deps/sanitization-verify-codegen.s"
+    ir_path = ROOT / "target/verify-codegen/ir/sanitization.ll"
+    asm_path = ROOT / "target/verify-codegen/ir/sanitization.s"
     if not ir_path.is_file() or not asm_path.is_file():
         fail("verify-codegen did not produce the expected baseline artifacts")
 

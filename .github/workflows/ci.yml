@@ -34,18 +34,18 @@ jobs:
         run: scripts/ci_install_rust.sh
 
       - name: Cache Rust build output
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
 
       - name: Audit dependencies
         shell: bash
         run: |
-          if ! cargo audit --version >/dev/null 2>&1; then
-            cargo install cargo-audit --version 0.22.2 --locked
+          if [[ "$(cargo audit --version 2>/dev/null || true)" != *" 0.23.0" ]]; then
+            cargo install cargo-audit --version 0.23.0 --locked --force
           fi
-          if [ "$(cargo deny --version 2>/dev/null || true)" != "cargo-deny 0.20.2" ]; then
-            cargo install cargo-deny --version 0.20.2 --locked --force
+          if [ "$(cargo deny --version 2>/dev/null || true)" != "cargo-deny 0.21.0" ]; then
+            cargo install cargo-deny --version 0.21.0 --locked --force
           fi
           cargo audit --deny warnings
 
@@ -73,7 +73,7 @@ jobs:
         run: scripts/ci_install_rust.sh
 
       - name: Cache Rust build output
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
 
@@ -116,7 +116,7 @@ jobs:
         run: rustup target add ${{ matrix.target }}
 
       - name: Cache Rust build output
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
 
@@ -164,7 +164,7 @@ jobs:
         run: rustup target add ${{ matrix.target }}
 
       - name: Cache Rust build output
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
 

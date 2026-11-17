@@ -34,10 +34,9 @@ build_variant() {
             --emit=llvm-ir
 
     mapfile -t ir_files < <(
-        find "${target_dir}/release/deps" \
-            -maxdepth 1 \
+        find "${target_dir}/release" \
             -type f \
-            -name 'direct_exposure_codegen-*.ll' \
+            -name 'direct_exposure_codegen*.ll' \
             -print
     )
     if [[ "${#ir_files[@]}" -eq 0 ]]; then
@@ -47,10 +46,9 @@ build_variant() {
 
 
     mapfile -t crypto_ir_files < <(
-        find "${target_dir}/release/deps" \
-            -maxdepth 1 \
+        find "${target_dir}/release" \
             -type f \
-            -name 'sanitization_crypto_interop-*.ll' \
+            -name 'sanitization_crypto_interop*.ll' \
             -print
     )
     if [[ "${#crypto_ir_files[@]}" -eq 0 ]]; then
